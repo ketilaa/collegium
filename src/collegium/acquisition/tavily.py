@@ -9,6 +9,7 @@ API = "https://api.tavily.com"
 
 class TavilyProvider:
     name = "tavily"
+    metered = True  # every call costs credits
 
     def __init__(self, api_key: str, *, timeout: float = 60, transport=None):
         self._client = httpx.Client(

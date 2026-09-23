@@ -61,20 +61,32 @@ def test_extract_json_rejects_prose():
         extract_json("I could not find anything.")
 
 
+def _critique(status, severity):
+    return {"status": status, "severity": severity}
+
+
 @pytest.mark.parametrize(
-    ("verdict", "confidence", "sources", "status"),
+    ("verdict", "confidence", "sources", "critiques", "status"),
     [
-        ("accept", 0.8, 2, "accepted"),
-        ("accept", 0.8, 1, "under_review"),  # one publisher's word is not enough
-        ("accept", 0.5, 3, "under_review"),  # the Skeptic is convinced, the numbers are not
-        ("undecided", 0.9, 3, "under_review"),
-        ("reject", 0.9, 3, "rejected"),
-        ("undecided", 0.1, 3, "rejected"),
-        ("accept", None, 3, "under_review"),
+        ("accept", 0.8, 2, [], "accepted"),
+        ("accept", 0.8, 1, [], "under_review"),  # one publisher's word is not enough
+        ("accept", 0.5, 3, [], "under_review"),  # the Skeptic is convinced, the numbers are not
+        # The Skeptic's verdict is only a veto: undecided does not block.
+        ("undecided", 0.9, 3, [], "accepted"),
+        ("reject", 0.9, 3, [], "rejected"),
+        ("undecided", 0.1, 3, [], "rejected"),
+        ("accept", None, 3, [], "under_review"),
+        # Serious critiques block while open or upheld, not once settled.
+        ("undecided", 0.9, 3, [_critique("open", 3)], "under_review"),
+        ("undecided", 0.9, 3, [_critique("upheld", 4)], "under_review"),
+        ("undecided", 0.9, 3, [_critique("addressed", 4)], "accepted"),
+        ("undecided", 0.9, 3, [_critique("dismissed", 5)], "accepted"),
+        ("undecided", 0.9, 3, [_critique("open", 2)], "accepted"),  # a quibble
+        ("undecided", 0.9, 3, [_critique("upheld", 5)], "rejected"),  # fatal
     ],
 )
-def test_historian_rules(verdict, confidence, sources, status):
-    assert decide(verdict, confidence, sources) == status
+def test_historian_rules(verdict, confidence, sources, critiques, status):
+    assert decide(verdict, confidence, sources, critiques) == status
 
 
 def test_pages_on_one_site_count_as_one_source():
@@ -170,7 +182,7 @@ def test_acquisition_interleaves_sources_and_records_each_call():
 
     a = _Source("a", ["https://1", "https://2", "https://shared"])
     b = _Source("b", ["https://shared", "https://3"])
-    acquisition = Acquisition({"a": a, "b": b}, a, default="a").with_recorder(record)
+    acquisition = Acquisition({"a": a, "b": b}, a, default="a").for_run(record)
 
     results = acquisition.discover("q", max_results=5, sources=["a", "b"])
 
@@ -183,7 +195,7 @@ def test_acquisition_interleaves_sources_and_records_each_call():
 def test_failed_call_is_recorded_before_the_error_propagates():
     calls = []
     down = _Source("down", [], fail=True)
-    acquisition = Acquisition({"down": down}, down, default="down").with_recorder(
+    acquisition = Acquisition({"down": down}, down, default="down").for_run(
         lambda *args: calls.append(args)
     )
     with pytest.raises(RuntimeError):

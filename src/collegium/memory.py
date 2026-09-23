@@ -6,6 +6,7 @@ records who wrote what. Nothing here commits; callers own the transaction.
 
 import hashlib
 from collections.abc import Iterable
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -215,6 +216,19 @@ def record_acquisition(
     ).fetchone()["id"]
 
 
+def paid_calls_in_window(
+    conn: Connection, providers: list[str], hours: int = 24
+) -> tuple[int, datetime | None]:
+    """How many calls to these providers were made in the last `hours`, and
+    when the oldest of them was made (the window frees up 24 hours after)."""
+    row = conn.execute(
+        "SELECT count(*) AS n, min(requested_at) AS oldest FROM acquisitions "
+        "WHERE provider = ANY(%s) AND requested_at > now() - make_interval(hours => %s)",
+        (providers, hours),
+    ).fetchone()
+    return row["n"], row["oldest"]
+
+
 def set_observation_status(conn: Connection, observation_id: UUID, status: str) -> None:
     conn.execute("UPDATE observations SET status = %s WHERE id = %s", (status, observation_id))
 
@@ -409,6 +423,23 @@ def citations(conn: Connection, target_id: UUID) -> list[dict]:
         "WHERE l.target_id = %s AND l.retracted_at IS NULL ORDER BY l.created_at",
         (target_id,),
     ).fetchall()
+
+
+def open_critiques(conn: Connection, target_id: UUID) -> list[dict]:
+    return conn.execute(
+        "SELECT k.* FROM critiques k JOIN nodes n ON n.id = k.id "
+        "WHERE k.target_id = %s AND k.status = 'open' ORDER BY n.created_at",
+        (target_id,),
+    ).fetchall()
+
+
+def set_critique_status(
+    conn: Connection, critique_id: UUID, status: str, resolution: str | None
+) -> None:
+    conn.execute(
+        "UPDATE critiques SET status = %s, resolution = %s WHERE id = %s",
+        (status, resolution, critique_id),
+    )
 
 
 def critiques_of(conn: Connection, target_id: UUID) -> list[dict]:

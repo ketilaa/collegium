@@ -38,6 +38,7 @@ class Mapper(Role):
     name = "researcher"
     job_kind = "map"
     prompt_file = "mapper.md"
+    searches = False
 
     def prepare(self, ctx: Context, job: Job) -> Persist:
         observation_id = UUID(job.payload["observation_id"])

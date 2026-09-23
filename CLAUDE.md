@@ -38,6 +38,7 @@ uv run collegium jobs
 uv run collegium domain sources ai-agents tavily hackernews   # Scout's discovery sources
 uv run collegium acquisitions            # recent calls to external providers
 uv run collegium entities [slug]         # entities mentioned most
+uv run collegium resolve --all           # send hypotheses with open critiques through the loop
 uv run collegium feed add ai-agents <url> # approve a feed for a domain (also list/pause/resume/retire)
 ```
 
@@ -72,11 +73,12 @@ Core workflow: Scout → Researcher → Skeptic → Historian. The Strategist si
 
 ## Code architecture
 
-- **Pipeline:** work is a chain of jobs in the `jobs` table: `scout` (per domain) → `research` (per observation) → `review` (per hypothesis) → `record`, plus `map` (entities mentioned, after research). Each role enqueues the next step. Owner commands and the scheduler enqueue `scout` jobs.
+- **Pipeline:** work is a chain of jobs in the `jobs` table: `scout` (per domain) → `research` (per observation) → `review` (per hypothesis) → `record`, plus `map` (entities mentioned, after research) and the critique loop: `record` → `resolve` (Researcher investigates open critiques) → `review` (Skeptic settles them) → `record`, at most 2 rounds. Each role enqueues the next step. Owner commands and the scheduler enqueue `scout` jobs.
 - **Prepare/persist:** a role's `prepare()` (`src/collegium/roles/`) does the slow work (reading memory, searching, calling the model) outside any transaction, and returns a `persist(conn)` function. `worker.run_once` runs that function in one transaction acting as the role, together with finishing the run and the job, so knowledge and follow-up jobs commit atomically. On failure, the job is retried with backoff and nothing is written.
 - **Runs:** every job execution creates a `runs` row with the model and `role_version` (a hash of the role's prompt files), and all rows written carry that run id.
 - **Grounding** (`grounding.py`): the model cites search results and documents by number, not URL. Out-of-range citations are dropped, and evidence is stored only if its excerpt is found in the document. The stored excerpt is the source's own wording. Scout observations must quote their lead; names and numbers in the statement must occur in the quote (`unsupported_terms`), and a model call checks each statement against its quote. The quote is stored as evidence supporting the observation.
-- **Historian:** deterministic rules, no model. It is the only role that changes a hypothesis's status (accept/reject/under review, and superseding hypotheses that an accepted one `refines`). Accepting needs the Skeptic's agreement, confidence ≥ 0.6 and supporting evidence from at least two independent sites. Changing a rule means bumping `Historian.version()`.
+- **Historian:** deterministic rules, no model. It is the only role that changes a hypothesis's status (accept/reject/under review, and superseding hypotheses that an accepted one `refines`). Accepting needs confidence ≥ 0.6, supporting evidence from at least two independent sites, and no open or upheld critique of severity ≥ 3; the Skeptic's verdict is only a veto (owner's decision). Changing a rule means bumping `Historian.version()`.
+- **Budget:** paid providers set `metered = True`; at most `COLLEGIUM_DAILY_CALL_BUDGET` (50) paid calls per 24 hours. Jobs stopped by the budget are deferred (`jobs.defer`) without using an attempt. Roles that make no external calls set `searches = False`.
 - **Recency:** the Scout searches news within `COLLEGIUM_SCOUT_RECENT_DAYS` and drops older results. The Researcher and Skeptic search without a window.
 - **Untrusted text** (`untrusted.py`): all outside text is sanitized in the acquisition layer (control tokens and hidden characters removed; injection signals stored in item metadata as `injection_signals`). Any outside text put into a prompt, including excerpts read back from memory, must be wrapped with `fence()`. Evidence from flagged documents is capped at reliability 0.3.
 - **Labels in prompts:** existing hypotheses are shown to the model as `E1..En`, new ones are `H1..Hn`, and the Skeptic's target is `H`. Code maps labels to ids; the model never sees UUIDs.

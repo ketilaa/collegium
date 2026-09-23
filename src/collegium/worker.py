@@ -9,11 +9,12 @@ import logging
 import time
 import traceback
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
 from collegium import jobs, memory
-from collegium.acquisition import Recorder
+from collegium.acquisition import Budget, BudgetExhausted, Recorder
 from collegium.db import Database
 from collegium.roles import ROLES
 from collegium.roles.base import Context
@@ -29,6 +30,14 @@ def run_once(ctx: Context) -> bool:
         return False
 
     role = ROLES[job.kind]
+    if role.searches and ctx.acquisition is not None:
+        reopens = _budget_reopens(ctx, MIN_BUDGET_TO_START)
+        if reopens is not None:
+            with ctx.db.reading() as conn:
+                jobs.defer(conn, job, reopens, "waiting for the daily call budget")
+            log.info("%s job %s deferred until %s: budget", job.kind, job.id, reopens)
+            return True
+
     with ctx.db.acting_as(role.name) as conn:
         run_id = jobs.start_run(
             conn,
@@ -41,7 +50,8 @@ def run_once(ctx: Context) -> bool:
 
     if ctx.acquisition is not None:
         ctx = replace(
-            ctx, acquisition=ctx.acquisition.with_recorder(_recorder(ctx.db, role.name, run_id))
+            ctx,
+            acquisition=ctx.acquisition.for_run(_recorder(ctx.db, role.name, run_id), _budget(ctx)),
         )
     try:
         persist = role.prepare(ctx, job)
@@ -50,6 +60,13 @@ def run_once(ctx: Context) -> bool:
             jobs.finish_run(conn, run_id, "succeeded", notes)
             jobs.succeed(conn, job.id, run_id)
         log.info("%s job %s succeeded: %s", job.kind, job.id, notes)
+    except BudgetExhausted as e:
+        # Not the job's fault: put it back without using up an attempt.
+        reopens = _budget_reopens(ctx, 1) or datetime.now(UTC) + timedelta(hours=1)
+        log.info("%s job %s stopped by the budget; deferred to %s", job.kind, job.id, reopens)
+        with ctx.db.acting_as(role.name, run_id) as conn:
+            jobs.finish_run(conn, run_id, "failed", f"{e}; deferred to {reopens:%Y-%m-%d %H:%M}")
+            jobs.defer(conn, job, reopens, str(e))
     except Exception as e:
         error = f"{type(e).__name__}: {e}"
         log.warning("%s job %s failed: %s", job.kind, job.id, error)
@@ -71,6 +88,35 @@ def drain(ctx: Context, limit: int = 1000) -> int:
     while count < limit and run_once(ctx):
         count += 1
     return count
+
+
+# A job that searches is not started with fewer paid calls left than this:
+# it would most likely be cut off halfway, wasting what it had spent.
+MIN_BUDGET_TO_START = 5
+
+
+def _budget(ctx: Context) -> Budget:
+    providers = ctx.acquisition.metered_providers
+
+    def remaining() -> int:
+        with ctx.db.reading() as conn:
+            used, _ = memory.paid_calls_in_window(conn, providers)
+        return ctx.settings.daily_call_budget - used
+
+    return remaining
+
+
+def _budget_reopens(ctx: Context, needed: int) -> datetime | None:
+    """None if at least `needed` paid calls are allowed now; otherwise when
+    the oldest call in the window leaves it."""
+    providers = ctx.acquisition.metered_providers
+    if not providers:
+        return None
+    with ctx.db.reading() as conn:
+        used, oldest = memory.paid_calls_in_window(conn, providers)
+    if ctx.settings.daily_call_budget - used >= needed:
+        return None
+    return (oldest or datetime.now(UTC)) + timedelta(hours=24, minutes=1)
 
 
 def _recorder(db: Database, actor: str, run_id: UUID) -> Recorder:

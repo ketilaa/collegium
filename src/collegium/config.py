@@ -55,6 +55,11 @@ class Settings:
     # Newest items read from each approved feed per Scout run.
     max_feed_items: int = field(default_factory=lambda: int(_env("COLLEGIUM_MAX_FEED_ITEMS", "5")))
 
+    # Paid external calls allowed in any 24 hours (owner's decision: 50).
+    daily_call_budget: int = field(
+        default_factory=lambda: int(_env("COLLEGIUM_DAILY_CALL_BUDGET", "50"))
+    )
+
     scout_interval_hours: float = field(
         default_factory=lambda: float(_env("COLLEGIUM_SCOUT_INTERVAL_HOURS", "24"))
     )

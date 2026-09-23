@@ -13,6 +13,7 @@ from collegium.config import Settings, require
 from collegium.db import Database
 from collegium.llm import OpenAICompatibleLLM
 from collegium.roles.base import Context
+from collegium.roles.historian import BLOCKING_SEVERITY
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -51,6 +52,12 @@ def main(argv: list[str] | None = None) -> None:
 
     p = sub.add_parser("scout", help="ask the Scout to explore a domain now (owner)")
     p.add_argument("slug")
+
+    p = sub.add_parser("resolve", help="send hypotheses with open critiques to be resolved (owner)")
+    p.add_argument("hypothesis", nargs="?", help="id or prefix; omit with --all")
+    p.add_argument(
+        "--all", action="store_true", help="every live hypothesis with blocking critiques"
+    )
 
     p = sub.add_parser("hypotheses", help="list hypotheses and current confidence")
     p.add_argument("--all", action="store_true", help="include rejected and superseded")
@@ -252,6 +259,27 @@ def _scout(args, settings: Settings) -> None:
     print(f"queued scout job {job_id}")
 
 
+def _resolve(args, settings: Settings) -> None:
+    if not args.all and not args.hypothesis:
+        raise SystemExit("give a hypothesis or --all")
+    with _board(settings).acting_as("owner") as conn:
+        if args.all:
+            rows = conn.execute(
+                "SELECT DISTINCT h.id FROM hypotheses h JOIN critiques k ON k.target_id = h.id "
+                "WHERE h.status = ANY(%s) AND k.status = 'open' AND k.severity >= %s",
+                (list(memory.LIVE_HYPOTHESIS_STATUSES), BLOCKING_SEVERITY),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id FROM hypotheses WHERE id::text LIKE %s", (args.hypothesis + "%",)
+            ).fetchall()
+            if len(rows) != 1:
+                raise SystemExit(f"{len(rows)} hypotheses match {args.hypothesis!r}")
+        for r in rows:
+            jobs.enqueue(conn, "resolve", {"hypothesis_id": r["id"], "round": 1}, priority=2)
+    print(f"queued critique resolution for {len(rows)} hypotheses")
+
+
 def _hypotheses(args, settings: Settings) -> None:
     where = "" if args.all else "WHERE status IN ('proposed', 'under_review', 'accepted')"
     with _reader(settings).reading() as conn:
@@ -329,6 +357,8 @@ def _why_hypothesis(conn, hid) -> None:
             else ""
         )
         print(f"  [{c['status']}, severity {c['severity']}] {c['argument']}{alt}")
+        if c["resolution"]:
+            print(f"      Resolution: {c['resolution']}")
 
 
 def _why_observation(conn, oid) -> None:
@@ -414,6 +444,7 @@ COMMANDS = {
     "feed": _feed,
     "scout": _scout,
     "hypotheses": _hypotheses,
+    "resolve": _resolve,
     "why": _why,
     "jobs": _jobs,
     "acquisitions": _acquisitions,

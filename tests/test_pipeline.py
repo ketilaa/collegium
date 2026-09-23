@@ -116,7 +116,7 @@ def script_research(llm, *, refines=None, statement=HYPOTHESIS, confidence=0.5, 
     )
 
 
-def script_review(llm, *, verdict="accept", confidence=0.7):
+def script_review(llm, *, verdict="accept", confidence=0.7, severity=2):
     llm.add(SearchPlan, SearchPlan(queries=["AI price cuts temporary promotions"]))
     llm.add(
         SkepticReview,
@@ -125,7 +125,7 @@ def script_review(llm, *, verdict="accept", confidence=0.7):
                 ProposedCritique(
                     argument="Evidence comes from one vendor's own announcement.",
                     alternative_explanation="Temporary promotional pricing.",
-                    severity=3,
+                    severity=severity,
                 )
             ],
             evidence=[

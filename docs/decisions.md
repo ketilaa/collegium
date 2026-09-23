@@ -383,3 +383,48 @@ used against a claim about newer ones (the Researcher and Skeptic search
 without a time window, and nothing checks relevance); the model's
 reliability scores are uncalibrated (a forum complaint scored 1.00); and
 some hypotheses are too broad to be informative.
+
+## 2026-09-23 · Milestone 3 plan and the owner's decisions
+
+Milestone 3 in four parts: (1) the critique-resolution loop, with a budget
+for paid calls; (2) evidence quality: relevance of counter-evidence,
+rule-based reliability ceilings per source type, more specific hypotheses;
+(3) the Strategist: knowledge-gap detection, goals and research programs,
+queueing work within the budget; (4) owner review of what the Strategist
+proposes.
+
+Decided by the owner:
+
+- **Acceptance follows resolved critiques.** The Historian accepts a
+  hypothesis at confidence ≥ 0.6 with ≥ 2 independent supporting sites and
+  no open or upheld critique of severity 3 or more. The Skeptic's verdict
+  counts only as a veto (reject), not as a required "accept".
+- **Strategist autonomy.** It may create goals and queue investigations
+  itself, within the budget. New research programs are proposed as
+  decisions for the owner to approve or reject.
+- **Budget.** At most 50 paid external calls in any 24 hours. Free sources
+  (Hacker News, approved feeds) do not count.
+
+## 2026-09-23 · Milestone 3, part 1: critique resolution and the budget
+
+**The loop.** After a review, the Historian applies rules-3: accept at
+confidence ≥ 0.6 with ≥ 2 independent supporting sites and no open or
+upheld critique of severity ≥ 3; reject on the Skeptic's veto, confidence
+≤ 0.25, or an upheld critique of severity 5; otherwise under review. If
+serious critiques are still open, it queues a `resolve` job: the Researcher
+searches for evidence that settles each open critique (C1, C2, ...),
+whichever way it falls, and links it to the critique ("supports" backs the
+objection, "contradicts" answers it). The Skeptic then re-reviews, sees each
+critique with its evidence, and marks it upheld, addressed or dismissed
+with a reason. In later rounds it may raise at most one new critique, and
+the loop stops after two rounds, so a disputed hypothesis cannot absorb the
+budget. An upheld serious critique blocks acceptance but is not
+re-investigated. `collegium resolve --all` starts the loop for hypotheses
+reviewed before it existed.
+
+**The budget.** Providers declare whether they are paid (`metered`; Tavily
+is, Hacker News and feeds are not). A paid call is refused once
+`COLLEGIUM_DAILY_CALL_BUDGET` (50) calls were made in the last 24 hours. The
+worker does not start a searching job with fewer than 5 paid calls left,
+and a job stopped by the budget is deferred until the window frees, without
+using one of its attempts.

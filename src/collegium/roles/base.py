@@ -47,6 +47,7 @@ class Role:
     job_kind: ClassVar[str]
     prompt_file: ClassVar[str | None] = None
     uses_llm: ClassVar[bool] = True
+    searches: ClassVar[bool] = True  # makes external calls; subject to the budget
 
     def system_prompt(self) -> str:
         prompts = resources.files("collegium.roles") / "prompts"
@@ -214,15 +215,22 @@ class EvidenceOutcome:
 def store_evidence(
     conn: Connection,
     grounded: list[GroundedEvidence],
-    targets: dict[str, UUID],
+    targets: dict[str, UUID | tuple[UUID, str]],
     domain_ids: list[UUID],
 ) -> EvidenceOutcome:
-    """Store grounded evidence, linked to the hypotheses it bears on.
-    `targets` maps prompt labels to hypothesis ids; stances on other labels
-    are ignored, and evidence bearing on none of them is not stored."""
+    """Store grounded evidence, linked to the records it bears on.
+
+    `targets` maps prompt labels to hypothesis ids, or to (id, kind) for
+    other records such as critiques. Stances on other labels are ignored,
+    and evidence bearing on none of them is not stored. `touched` collects
+    the hypotheses that received evidence."""
+    resolved = {
+        label: target if isinstance(target, tuple) else (target, "hypothesis")
+        for label, target in targets.items()
+    }
     outcome = EvidenceOutcome()
     for g in grounded:
-        stances = [s for s in g.item.bears_on if _label(s.hypothesis) in targets]
+        stances = [s for s in g.item.bears_on if _label(s.hypothesis) in resolved]
         if not stances:
             outcome.unlinked += 1
             continue
@@ -248,19 +256,20 @@ def store_evidence(
         memory.tag_domains(conn, evidence_id, domain_ids)
         linked: set[UUID] = set()
         for s in stances:
-            target = targets[_label(s.hypothesis)]
+            target, kind = resolved[_label(s.hypothesis)]
             if target in linked:
                 continue
             memory.link_evidence(
                 conn,
                 evidence_id=evidence_id,
                 target_id=target,
-                target_kind="hypothesis",
+                target_kind=kind,
                 stance=s.stance,
                 rationale=s.rationale,
             )
             linked.add(target)
+            if kind == "hypothesis":
+                outcome.touched.add(target)
         outcome.stored += 1
-        outcome.touched |= linked
         outcome.evidence_ids.append(evidence_id)
     return outcome

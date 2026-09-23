@@ -84,8 +84,16 @@ ENRICHED_SNIPPET_CHARS = 600
 Recorder = Callable[[str, str, dict[str, Any], int, str | None], UUID | None]
 
 
+# () -> paid calls still allowed now
+Budget = Callable[[], int]
+
+
 class UnknownSource(ValueError):
     pass
+
+
+class BudgetExhausted(RuntimeError):
+    """The daily budget for paid calls is spent; try again later."""
 
 
 class Acquisition:
@@ -97,6 +105,7 @@ class Acquisition:
         default: str,
         crawler: Crawler | None = None,
         recorder: Recorder | None = None,
+        budget: Budget | None = None,
     ):
         if default not in discovery:
             raise UnknownSource(default)
@@ -105,18 +114,34 @@ class Acquisition:
         self._crawler = crawler
         self.default = default
         self._recorder = recorder
+        self._budget = budget
 
     @property
     def sources(self) -> list[str]:
         return sorted(self._discovery)
 
-    def with_recorder(self, recorder: Recorder) -> "Acquisition":
+    @property
+    def metered_providers(self) -> list[str]:
+        """Providers whose calls cost money and count against the budget."""
+        # Named as calls are recorded: discovery by its registered name,
+        # extraction and crawling by the provider's own name.
+        names = {name for name, p in self._discovery.items() if getattr(p, "metered", False)}
+        names |= {
+            p.name
+            for p in (self._extractor, self._crawler)
+            if p is not None and getattr(p, "metered", False)
+        }
+        return sorted(names)
+
+    def for_run(self, recorder: Recorder, budget: Budget | None = None) -> "Acquisition":
+        """This acquisition, recording every call and enforcing a budget."""
         return Acquisition(
             self._discovery,
             self._extractor,
             default=self.default,
             crawler=self._crawler,
             recorder=recorder,
+            budget=budget,
         )
 
     def discover(
@@ -140,6 +165,7 @@ class Acquisition:
                 name,
                 request,
                 lambda p=provider: p.discover(query, max_results, recent_days=recent_days),
+                metered=getattr(provider, "metered", False),
             )
             results = [
                 _clean_lead(replace(r, provider=name, acquisition_id=acquisition_id))
@@ -173,6 +199,8 @@ class Acquisition:
         thin = [r.url for r in results if len(r.snippet) < THIN_SNIPPET_CHARS][:ENRICH_TOP]
         try:
             pages = {d.url: d for d in self.extract(thin)}
+        except BudgetExhausted:
+            raise
         except Exception:
             return results
         enriched = []
@@ -192,7 +220,11 @@ class Acquisition:
         if not urls:
             return []
         documents, _ = self._call(
-            "extract", self._extractor.name, {"urls": urls}, lambda: self._extractor.extract(urls)
+            "extract",
+            self._extractor.name,
+            {"urls": urls},
+            lambda: self._extractor.extract(urls),
+            metered=getattr(self._extractor, "metered", False),
         )
         return [_clean_document(d) for d in documents]
 
@@ -236,7 +268,11 @@ class Acquisition:
             )
         return documents
 
-    def _call(self, capability: str, provider: str, request: dict[str, Any], fn):
+    def _call(
+        self, capability: str, provider: str, request: dict[str, Any], fn, *, metered: bool = False
+    ):
+        if metered and self._budget is not None and self._budget() <= 0:
+            raise BudgetExhausted(f"daily budget for paid calls is spent ({provider})")
         try:
             result = fn()
         except Exception as e:

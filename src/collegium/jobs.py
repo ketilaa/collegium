@@ -86,6 +86,15 @@ def fail(conn: Connection, job: Job, run_id: UUID | None, error: str) -> None:
         )
 
 
+def defer(conn: Connection, job: Job, until, reason: str) -> None:
+    """Put a job back without counting the attempt, to run at `until`."""
+    conn.execute(
+        "UPDATE jobs SET status = 'pending', attempts = greatest(attempts - 1, 0), "
+        "run_after = %s, last_error = %s WHERE id = %s",
+        (until, reason, job.id),
+    )
+
+
 def start_run(
     conn: Connection,
     actor_id: UUID,
