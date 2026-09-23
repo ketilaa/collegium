@@ -39,5 +39,22 @@ uv run collegium why <id>           # and why
 
 Run the tests with `uv run pytest` (needs `docker compose up -d db`).
 
+## Backups
+
+The `backup` service dumps the database every 24 hours into
+`COLLEGIUM_BACKUP_DIR` (default `./backups`), checks each dump is readable,
+and prunes backups older than 30 days. Keep the directory somewhere that is
+itself backed up, outside the repository.
+
+```sh
+docker compose up -d backup                          # scheduled backups
+docker compose run --rm backup sh /db/backup.sh      # one now
+docker compose run --rm backup sh /db/restore.sh /backups/collegium-<stamp>.dump
+                                                     # restore into collegium_restored
+```
+
+A restore never overwrites the live database; check the restored copy, then
+switch by renaming databases.
+
 Technical decisions and their reasons are in
 [docs/decisions.md](docs/decisions.md).

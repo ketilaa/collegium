@@ -22,6 +22,8 @@ docker compose run --rm migrate          # apply pending migrations with dbmate
 docker compose run --rm logins           # create/update the worker and board login users
 docker compose up -d                     # everything: db, migrate, logins, worker, scheduler
 
+docker compose up -d backup              # daily pg_dump into COLLEGIUM_BACKUP_DIR (see README)
+
 uv run pytest                            # all tests (needs the db service running)
 uv run pytest tests/test_pipeline.py::test_skeptic_rejection_is_recorded   # one test
 uv run ruff check . && uv run ruff format .

@@ -341,3 +341,24 @@ source (title, URL, publication date) → the external call that found it
 for hypotheses and observations, together with the observations a
 hypothesis derives from, the hypotheses derived from an observation, and
 the entities an observation mentions.
+
+## 2026-09-23 · Backups
+
+Memory cannot be deleted by the application, but a disk, a Docker volume or
+a mistake at the server level can still lose it. A `backup` service in
+Compose runs `pg_dump` (custom format) every `COLLEGIUM_BACKUP_INTERVAL_HOURS`
+(24) into `COLLEGIUM_BACKUP_DIR`, together with the server's roles without
+passwords (roles are server-wide, and a restore needs them; `db/logins.sql`
+sets passwords). A dump is checked with `pg_restore --list` and only then
+renamed into place, and only then are backups older than
+`COLLEGIUM_BACKUP_KEEP_DAYS` (30) pruned, so a failing backup never removes
+a good one. `db/restore.sh` restores into a new database, never over the
+live one.
+
+Tested by backing up a database with data, restoring it, and comparing
+every table's row count, and by checking that the worker role and the
+provenance triggers still hold in the restored copy.
+
+The backup directory should live outside the repository, on storage that is
+itself backed up (for example the home folder under Time Machine) or copied
+off the machine.

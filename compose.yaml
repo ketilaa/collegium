@@ -52,6 +52,26 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  # Backs up the database every BACKUP_INTERVAL_HOURS into COLLEGIUM_BACKUP_DIR.
+  # One-off: docker compose run --rm backup sh /db/backup.sh
+  backup:
+    image: postgres:17-alpine
+    environment:
+      PGHOST: db
+      PGUSER: collegium
+      PGDATABASE: collegium
+      PGPASSWORD: ${POSTGRES_PASSWORD:-collegium}
+      BACKUP_INTERVAL_HOURS: ${COLLEGIUM_BACKUP_INTERVAL_HOURS:-24}
+      BACKUP_KEEP_DAYS: ${COLLEGIUM_BACKUP_KEEP_DAYS:-30}
+    volumes:
+      - ./db:/db:ro
+      - ${COLLEGIUM_BACKUP_DIR:-./backups}:/backups
+    command: ["sh", "/db/backup.sh", "--loop"]
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
   worker:
     build: .
     command: ["collegium", "worker"]
