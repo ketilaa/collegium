@@ -92,6 +92,7 @@ def _worker(args, settings: Settings) -> None:
             settings.llm_model,
             api_key=settings.llm_api_key,
             timeout=settings.llm_timeout_seconds,
+            max_tokens=settings.llm_max_tokens,
         ),
         acquisition=acquisition_from_settings(settings),
         settings=settings,

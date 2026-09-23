@@ -26,6 +26,9 @@ class Settings:
     )
     llm_model: str = field(default_factory=lambda: _env("COLLEGIUM_LLM_MODEL", "qwen3:14b"))
     llm_api_key: str | None = field(default_factory=lambda: _env("COLLEGIUM_LLM_API_KEY"))
+    llm_max_tokens: int = field(
+        default_factory=lambda: int(_env("COLLEGIUM_LLM_MAX_TOKENS", "2048"))
+    )
     llm_timeout_seconds: float = field(
         default_factory=lambda: float(_env("COLLEGIUM_LLM_TIMEOUT_SECONDS", "600"))
     )

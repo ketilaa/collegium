@@ -11,8 +11,10 @@ from collegium.llm import LLMError, OpenAICompatibleLLM
 from collegium.roles.base import SearchPlan
 
 
-def _chat_reply(content: str) -> httpx.Response:
-    return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+def _chat_reply(content: str, finish_reason: str = "stop") -> httpx.Response:
+    return httpx.Response(
+        200, json={"choices": [{"message": {"content": content}, "finish_reason": finish_reason}]}
+    )
 
 
 def test_llm_sends_schema_and_parses_reply():
@@ -28,6 +30,7 @@ def test_llm_sends_schema_and_parses_reply():
     assert llm.generate("sys", "user", SearchPlan).queries == ["ai pricing"]
     body = requests[0]
     assert body["model"] == "qwen3:14b"
+    assert body["max_tokens"] == 2048
     assert body["response_format"]["json_schema"]["schema"]["required"] == ["queries"]
     assert [m["role"] for m in body["messages"]] == ["system", "user"]
 
@@ -175,3 +178,38 @@ def test_hacker_news_without_window_filters_only_on_points():
 
     HackerNewsDiscovery(min_points=100, transport=httpx.MockTransport(handler)).discover("q", 3)
     assert requests[0]["numericFilters"] == "points>=100"
+
+
+def test_llm_asks_again_briefly_when_a_reply_is_cut_off():
+    replies = iter(
+        [_chat_reply('{"queries": ["a", "a", "a", "a', "length"), _chat_reply('{"queries": ["a"]}')]
+    )
+    requests = []
+
+    def handler(request):
+        requests.append(json.loads(request.content))
+        return next(replies)
+
+    llm = OpenAICompatibleLLM(
+        "http://llm/v1",
+        "m",
+        max_tokens=50,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    assert llm.generate("sys", "user", SearchPlan).queries == ["a"]
+    retry = requests[1]
+    assert retry["max_tokens"] == 50
+    # The runaway reply is not sent back; only the original prompt and a note.
+    assert [m["role"] for m in retry["messages"]] == ["system", "user", "user"]
+    assert "cut off" in retry["messages"][2]["content"]
+
+
+def test_llm_gives_up_on_replies_that_keep_running_away():
+    llm = OpenAICompatibleLLM(
+        "http://llm/v1",
+        "m",
+        max_attempts=2,
+        client=httpx.Client(transport=httpx.MockTransport(lambda r: _chat_reply('{"q', "length"))),
+    )
+    with pytest.raises(LLMError, match="cut off at 2048 tokens"):
+        llm.generate("sys", "user", SearchPlan)

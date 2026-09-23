@@ -362,3 +362,24 @@ provenance triggers still hold in the restored copy.
 The backup directory should live outside the repository, on storage that is
 itself backed up (for example the home folder under Time Machine) or copied
 off the machine.
+
+## 2026-09-23 · First real run, and a cap on model replies
+
+The organization's first run (domain `ai-agents`, Tavily, Hacker News and
+one approved feed, Qwen2.5 14B) took 27 minutes: 2 grounded observations,
+4 hypotheses under review with 2 to 3 independent supporting sites each,
+13 pieces of evidence, 8 critiques, 10 entities, 35 external calls. One
+review timed out after 10 minutes and succeeded on retry. The machine was
+swapping heavily, which slows generation to a crawl.
+
+Model replies are now capped at `COLLEGIUM_LLM_MAX_TOKENS` (2048). A reply
+cut off at the cap is not fed back to the model; the original prompt is
+sent again with a request for a shorter answer, and the call fails after
+the usual attempts. A runaway generation now costs minutes, not an hour.
+
+Seen in the run and left for Milestone 3, where the critique-resolution
+loop has to judge them: counter-evidence about an older product version was
+used against a claim about newer ones (the Researcher and Skeptic search
+without a time window, and nothing checks relevance); the model's
+reliability scores are uncalibrated (a forum complaint scored 1.00); and
+some hypotheses are too broad to be informative.

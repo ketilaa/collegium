@@ -35,6 +35,7 @@ class OpenAICompatibleLLM:
         timeout: float = 600,
         max_attempts: int = 3,
         temperature: float = 0.2,
+        max_tokens: int = 2048,
         client: httpx.Client | None = None,
     ):
         self.model = model
@@ -43,6 +44,10 @@ class OpenAICompatibleLLM:
         self._headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         self._max_attempts = max_attempts
         self._temperature = temperature
+        # A bound on each reply. Structured replies need well under this; a
+        # model stuck repeating itself otherwise generates until the context
+        # is full, which on a busy machine can take an hour.
+        self._max_tokens = max_tokens
 
     def generate(self, system: str, user: str, schema: type[T]) -> T:
         messages = [
@@ -62,11 +67,24 @@ class OpenAICompatibleLLM:
                     "model": self.model,
                     "messages": messages,
                     "temperature": self._temperature,
+                    "max_tokens": self._max_tokens,
                     "response_format": response_format,
                 },
             )
             response.raise_for_status()
-            content = response.json()["choices"][0]["message"]["content"] or ""
+            choice = response.json()["choices"][0]
+            content = choice["message"]["content"] or ""
+            if choice.get("finish_reason") == "length":
+                # Do not feed a runaway reply back; ask again, more briefly.
+                error = LLMError(f"reply cut off at {self._max_tokens} tokens")
+                messages = messages[:2] + [
+                    {
+                        "role": "user",
+                        "content": "Your previous reply was cut off because it was too long. "
+                        "Reply with a shorter JSON object: fewer items, briefer text.",
+                    }
+                ]
+                continue
             try:
                 return schema.model_validate_json(extract_json(content))
             except (ValidationError, ValueError) as e:
