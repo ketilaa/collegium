@@ -64,3 +64,115 @@ rolled back. Mistakes are fixed with a new forward migration.
 
 Alembic was rejected because its value is autogenerating migrations from
 ORM models, and there are none.
+
+## 2026-09-23 · Milestone 2 runtime design
+
+**Model access.** One client for any OpenAI-compatible chat endpoint
+(Ollama, llama.cpp, vLLM), defaulting to Ollama with `qwen3:14b`. Replies
+are constrained with a JSON schema and validated with Pydantic; an invalid
+reply is sent back with the validation error, up to three attempts.
+
+**Grounding over trust.** A 14B model will invent or tidy quotes. The model
+cites search results and documents by number, and evidence is stored only
+when its excerpt can be found in the retrieved text (allowing for case,
+whitespace, quote style and light paraphrase). The stored excerpt is the
+source's own wording. Ungrounded evidence is dropped and counted in the
+run's notes.
+
+**Prepare, then persist.** Roles do slow work outside transactions and
+return a function that writes everything at once. The worker commits a
+role's knowledge, its follow-up jobs, the run's outcome and the job's
+completion in one transaction, so a crash never leaves half a result or a
+lost step.
+
+**The Historian is rules, not a model.** It is the only role that changes a
+hypothesis's status: accepted at confidence ≥ 0.6 with the Skeptic's
+agreement, rejected at ≤ 0.25 or on the Skeptic's rejection, otherwise under
+review. When a hypothesis that `refines` another is accepted, the older one
+is superseded. Keeping belief changes deterministic makes them explainable
+and lets the thresholds be versioned (`role_version`).
+
+**Refinement through labels.** The Researcher sees live hypotheses in the
+domain as `E1..En` and can attach evidence to them or propose a refinement,
+rather than creating near-duplicates. The model never handles UUIDs.
+
+**Queue in Postgres.** Jobs are claimed with `FOR UPDATE SKIP LOCKED`, retried
+with exponential backoff, and taken over if a worker dies mid-job. The
+scheduler is a separate `service` actor, so recurring work is attributed to
+it rather than to an agent or the owner.
+
+**Tavily first.** It provides search and extraction through one API, which
+is what Milestone 2 needs. Other providers come in Milestone 2.5.
+
+**Login users outside migrations.** `db/logins.sql` creates the worker and
+board logins with passwords from the environment, and Compose runs it after
+every migration.
+
+## 2026-09-23 · Lessons from the first real runs
+
+The first runs used Qwen2.5 7B on llama.cpp and live Tavily search, in
+throwaway databases. The pipeline worked end to end, but the first run's
+knowledge was weak: hypotheses restated observations, three of four had no
+grounded evidence, irrelevant excerpts were marked as contradicting, and all
+observations came from one vendor blog. Changes made:
+
+- **A new hypothesis needs grounded support.** It is stored only if at
+  least one excerpt found in the sources supports it. Grounding now happens
+  before anything is written.
+- **Grounding tolerates harmless differences.** Quote marks and markdown
+  emphasis are ignored. If the model cites the wrong document number, the
+  other retrieved documents are tried, and the evidence is attributed to the
+  one that actually contains the excerpt. Excerpts over 600 characters are
+  rejected as not being a passage.
+- **Dropped excerpts are recorded** in the run's notes, so what the
+  organization discarded can be inspected.
+- **Queries are cleaned** of labels, quotes and exclusion operators.
+- **Page text is cleaned** of markdown link targets and images before
+  truncation, which otherwise filled the context with navigation.
+- **Prompts** now define "contradicts" (incompatible, not merely silent),
+  require hypotheses to explain rather than restate, ask the Scout for
+  source diversity, and tell the Skeptic that thin evidence means undecided.
+
+After these changes, the observations came from independent sources and
+every hypothesis had grounded support. A 14B-class model, as VISION.md
+assumes, should quote more accurately than the 7B used here.
+
+## 2026-09-23 · Recency for the Scout, independence for acceptance
+
+Two problems from the third trial run:
+
+- **Old news recorded as new.** Basic search returns undated results, so
+  the Scout recorded 2024 model launches as current events. The Scout now
+  searches news (`recent_days`, 30 by default, `COLLEGIUM_SCOUT_RECENT_DAYS`)
+  and drops any result dated before the window. An observation without a
+  date from the model takes the publication date. The Researcher and
+  Skeptic still search without a window, since background and history are
+  part of an investigation.
+- **Accepting a claim on the claimant's word.** A hypothesis was accepted at
+  0.90 on the vendor's own benchmark claims. The Historian now also
+  requires active supporting evidence from at least two independent sites
+  (pages on one host count as one) before accepting. Otherwise the
+  hypothesis stays under review. The Historian's `role_version` is now
+  `rules-2`.
+
+## 2026-09-23 · 14B model run: duplicates, and how beliefs get accepted
+
+Trial 4 ran on Qwen2.5 14B (llama.cpp, 16k context). Recency and the
+independent-source rule worked: all observations were from the previous
+five weeks and from established outlets, and grounding improved sharply
+(1 of 13 research excerpts dropped).
+
+- **Duplicate hypotheses.** The model re-proposed a hypothesis it had been
+  shown, word for word. The Researcher now looks for a live hypothesis in
+  the same domains with the same statement (ignoring case, spacing and a
+  final period) inside the writing transaction. On a match it links the new
+  evidence to the existing hypothesis, records it as also derived from the
+  new observation, and sends it for review again, instead of creating a
+  copy. Near-duplicates with different wording are still possible; semantic
+  matching can come with memory search.
+- **Nothing was accepted.** The Skeptic left critiques open and answered
+  "undecided" on 10 of 11 hypotheses, including well-supported ones, and
+  nothing resolves an open critique. Decided by the owner: acceptance will
+  come from a critique-resolution loop in Milestone 3, where open critiques
+  are sent back for investigation and resolved, rather than from loosening
+  the Historian's rules now.

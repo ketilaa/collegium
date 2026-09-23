@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-Milestone 1 (institutional memory) has a schema. There is no application code yet, and no build, lint or test commands. Add them here once they exist.
+Milestone 1 (institutional memory) is done. Milestone 2 (research workflow) is implemented and has run end to end against Qwen2.5 7B and 14B on llama.cpp and live Tavily search, in throwaway databases. There is no API or web UI yet. The owner's secrets live in `~/.collegium/.env`: never read or print that file, only source it into a command's environment.
 
 `VISION.md` is the source of truth for intent. `docs/decisions.md` records the technical decisions made so far and why. Read both before making design decisions, and add an entry to `docs/decisions.md` when you make a new one.
 
@@ -17,11 +17,25 @@ Milestone 1 (institutional memory) has a schema. There is no application code ye
 ## Commands
 
 ```sh
-docker compose up -d db          # start Postgres on localhost:5432 (collegium/collegium)
-docker compose run --rm migrate  # apply pending migrations with dbmate
+docker compose up -d db                  # Postgres on localhost:5432 (collegium/collegium)
+docker compose run --rm migrate          # apply pending migrations with dbmate
+docker compose run --rm logins           # create/update the worker and board login users
+docker compose up -d                     # everything: db, migrate, logins, worker, scheduler
+
+uv run pytest                            # all tests (needs the db service running)
+uv run pytest tests/test_pipeline.py::test_skeptic_rejection_is_recorded   # one test
+uv run ruff check . && uv run ruff format .
+
+uv run collegium --help                  # CLI; needs env vars from .env.example
+uv run collegium domain add ai-agents "AI and agents"   # owner commands use the board login
+uv run collegium scout ai-agents
+uv run collegium worker --drain          # process due jobs, then exit
+uv run collegium hypotheses
+uv run collegium why <hypothesis-id-prefix>
+uv run collegium jobs
 ```
 
-Without Docker registry access, apply a migration directly: `psql -v ON_ERROR_STOP=1 --single-transaction -f db/migrations/<file>.sql`.
+Tests create a migrated template database and give each test a fresh copy (memory tables cannot be emptied). They connect as the `collegium` superuser with `SET ROLE collegium_worker`/`collegium_board`, so table grants are exercised, but the owner/system impersonation checks (which look at the login user) are not. Tests use `ScriptedLLM` and `FakeProvider` from `tests/conftest.py`; no model or API key is needed.
 
 ## What Collegium is
 
@@ -50,6 +64,18 @@ A persistent research organization with institutional memory, not a request/resp
 
 Core workflow: Scout → Researcher → Skeptic → Historian. The Strategist sits above it and creates the investigations.
 
+## Code architecture
+
+- **Pipeline:** work is a chain of jobs in the `jobs` table: `scout` (per domain) → `research` (per observation) → `review` (per hypothesis) → `record`. Each role enqueues the next step. Owner commands and the scheduler enqueue `scout` jobs.
+- **Prepare/persist:** a role's `prepare()` (`src/collegium/roles/`) does the slow work (reading memory, searching, calling the model) outside any transaction, and returns a `persist(conn)` function. `worker.run_once` runs that function in one transaction acting as the role, together with finishing the run and the job, so knowledge and follow-up jobs commit atomically. On failure, the job is retried with backoff and nothing is written.
+- **Runs:** every job execution creates a `runs` row with the model and `role_version` (a hash of the role's prompt files), and all rows written carry that run id.
+- **Grounding** (`grounding.py`): the model cites search results and documents by number, not URL. Out-of-range citations are dropped, and evidence is stored only if its excerpt is found in the document. The stored excerpt is the source's own wording.
+- **Historian:** deterministic rules, no model. It is the only role that changes a hypothesis's status (accept/reject/under review, and superseding hypotheses that an accepted one `refines`). Accepting needs the Skeptic's agreement, confidence ≥ 0.6 and supporting evidence from at least two independent sites. Changing a rule means bumping `Historian.version()`.
+- **Recency:** the Scout searches news within `COLLEGIUM_SCOUT_RECENT_DAYS` and drops older results. The Researcher and Skeptic search without a window.
+- **Labels in prompts:** existing hypotheses are shown to the model as `E1..En`, new ones are `H1..Hn`, and the Skeptic's target is `H`. Code maps labels to ids; the model never sees UUIDs.
+- **Acquisition** (`acquisition/`): roles use `search`/`extract` through `AcquisitionProvider`; vendor code lives only in adapters such as `tavily.py`. `memory.py` is the only module that writes knowledge rows.
+- **Prompts** live in `src/collegium/roles/prompts/`: `organization.md` is shared and each role has its own file. Changing a prompt changes that role's `role_version`.
+
 ## Memory model
 
 Memory is the most important asset. Store structured records, not free-form reports. The core concepts are Entity, Observation, Hypothesis, Evidence, Relationship, Program, Goal and Decision.
@@ -68,14 +94,15 @@ This means history and provenance must be kept, not overwritten.
 - Each knowledge record is a `nodes` row plus a row with the same id in its own table (`entities`, `hypotheses`, and so on). Insert both in one statement: `WITH n AS (INSERT INTO nodes (kind) VALUES ('hypothesis') RETURNING id) INSERT INTO hypotheses ...`.
 - `relationships` and `critiques` are nodes too, so they can be critiqued, linked and backed by evidence. `evidence_links` and `confidence_assessments` target a node by `(target_id, target_kind)`.
 - Nothing is deleted: knowledge is retired through `status`, and links are retracted with `retracted_at`. Statements are never edited; a changed claim is a new record that supersedes the old one. `confidence_assessments` and `audit_log` are append-only. Every table is audited automatically.
-- Access goes through group roles: `collegium_reader`, `collegium_worker` (agents: insert knowledge, update only lifecycle columns) and `collegium_board` (the owner's interface: also domains and resolving decisions). Only board logins may act as the `owner` actor. Any table added in a later migration must be granted to these roles explicitly.
+- Access goes through group roles: `collegium_reader`, `collegium_worker` (agents: insert knowledge, update only lifecycle columns) and `collegium_board` (the owner's interface: also domains and resolving decisions). Only board logins may act as the `owner` actor. Any table added in a later migration must be granted to these roles explicitly. Login users (`collegium_worker_app`, `collegium_board_app`) are created by `db/logins.sql`, not by migrations, because passwords are deployment secrets.
+- Actors: `owner`, `system`, one per role, and `scheduler` (kind `service`). Unaudited tables that need actor checks call `assert_session_actor()` from a trigger, as `jobs` does.
 - Domains and vocabularies are data. Adding a research area never needs a migration.
 
 ## Milestones
 
 1. Institutional memory: Postgres schema and audit history. Knowledge must survive restarts and agent replacement.
-2. Research workflow: Scout, Researcher, Skeptic and Historian.
+2. Research workflow: Scout, Researcher, Skeptic and Historian, with a minimal acquisition layer (`search`/`extract`, one Tavily adapter).
 2.5. Knowledge acquisition layer: search abstraction, provider adapters, source and citation tracking.
-3. Strategy layer: Strategist, knowledge-gap detection and research programs.
+3. Strategy layer: Strategist, knowledge-gap detection and research programs. Includes the critique-resolution loop: open critiques are investigated and resolved, which is how hypotheses come to be accepted. Until then almost nothing is accepted, by design.
 4. Board interface: a dashboard with Mission, Programs, Goals, Hypotheses, Contradictions, Recent Discoveries and "Ask the Organization".
 5. Long-term evolution: cross-domain knowledge and belief revision.

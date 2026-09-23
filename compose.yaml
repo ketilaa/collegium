@@ -28,5 +28,56 @@ services:
       db:
         condition: service_healthy
 
+  # One-shot: creates or updates the worker and board login users.
+  logins:
+    image: postgres:17-alpine
+    environment:
+      PGHOST: db
+      PGUSER: collegium
+      PGDATABASE: collegium
+      PGPASSWORD: ${POSTGRES_PASSWORD:-collegium}
+    volumes:
+      - ./db:/db:ro
+    command:
+      - psql
+      - -v
+      - ON_ERROR_STOP=1
+      - -v
+      - worker_password=${COLLEGIUM_WORKER_PASSWORD:-worker}
+      - -v
+      - board_password=${COLLEGIUM_BOARD_PASSWORD:-board}
+      - -f
+      - /db/logins.sql
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    build: .
+    command: ["collegium", "worker"]
+    environment:
+      COLLEGIUM_WORKER_DATABASE_URL: postgresql://collegium_worker_app:${COLLEGIUM_WORKER_PASSWORD:-worker}@db:5432/collegium
+      # The model runs on the host (e.g. Ollama with GPU access).
+      COLLEGIUM_LLM_BASE_URL: ${COLLEGIUM_LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      COLLEGIUM_LLM_MODEL: ${COLLEGIUM_LLM_MODEL:-qwen3:14b}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    depends_on:
+      logins:
+        condition: service_completed_successfully
+
+  scheduler:
+    build: .
+    command: ["collegium", "scheduler"]
+    environment:
+      COLLEGIUM_WORKER_DATABASE_URL: postgresql://collegium_worker_app:${COLLEGIUM_WORKER_PASSWORD:-worker}@db:5432/collegium
+      COLLEGIUM_SCOUT_INTERVAL_HOURS: ${COLLEGIUM_SCOUT_INTERVAL_HOURS:-24}
+    restart: unless-stopped
+    depends_on:
+      logins:
+        condition: service_completed_successfully
+
 volumes:
   db-data:

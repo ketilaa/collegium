@@ -15,17 +15,29 @@ See [VISION.md](VISION.md).
 
 ## Status
 
-Founding. Milestone 1 (institutional memory) has a database schema; no
-application code yet.
+Founding. Milestone 1 (institutional memory) is done. Milestone 2 (the
+Scout → Researcher → Skeptic → Historian workflow) is implemented and has
+run end to end against a local 7B model and live search.
 
 ## Getting started
 
-Requires Docker.
+Requires Docker, [uv](https://docs.astral.sh/uv/), a local model server with
+an OpenAI-compatible API (e.g. [Ollama](https://ollama.com) with
+`qwen3:14b`), and a [Tavily](https://tavily.com) API key.
 
 ```sh
-docker compose up -d db          # Postgres on localhost:5432
-docker compose run --rm migrate  # apply migrations
+cp .env.example .env                # fill in TAVILY_API_KEY
+docker compose up -d                # database, migrations, worker, scheduler
+set -a; . ./.env; set +a            # for the CLI on the host
+
+uv run collegium domain add ai-agents "AI and agents"
+uv run collegium scout ai-agents    # or wait for the scheduler
+uv run collegium jobs               # follow the work
+uv run collegium hypotheses         # what the organization believes
+uv run collegium why <id>           # and why
 ```
+
+Run the tests with `uv run pytest` (needs `docker compose up -d db`).
 
 Technical decisions and their reasons are in
 [docs/decisions.md](docs/decisions.md).
