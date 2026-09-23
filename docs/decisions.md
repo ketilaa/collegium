@@ -176,3 +176,30 @@ five weeks and from established outlets, and grounding improved sharply
   come from a critique-resolution loop in Milestone 3, where open critiques
   are sent back for investigation and resolved, rather than from loosening
   the Historian's rules now.
+
+## 2026-09-23 · Planned for Milestone 2.5: Hacker News as a discovery source
+
+Hacker News is a strong early-signal source for technology domains:
+papers, launches and practitioner write-ups often appear there before the
+press covers them, and points and comment counts measure attention. The
+Algolia HN Search API (`hn.algolia.com/api/v1/search_by_date`) is free,
+needs no key and filters by date, so it fits the Scout's recency window
+and the rule against purchasing services.
+
+Design, to be built in Milestone 2.5:
+
+- **Discovery, not evidence.** A story is a pointer. The linked article is
+  recorded as the source; the HN discussion URL, points and comment count
+  go in the source's metadata. Otherwise every finding would count as the
+  single site `news.ycombinator.com` under the independent-sources rule.
+  Text-only posts (Ask HN, Show HN) are their own source.
+- **Split capabilities.** `AcquisitionProvider` becomes separate discover
+  and extract capabilities, so the Scout can discover through HN and Tavily
+  together while pages are still extracted by Tavily.
+- **Per-domain sources.** HN is useful for AI, software and startups and
+  close to useless for domains such as Norwegian consulting or energy. Each
+  domain lists its discovery sources as data (a column on `domains`, one
+  migration), so adding a domain still needs no code change.
+- **Comments later.** Practitioner comments could serve the Skeptic as
+  counter-arguments, but they are opinion rather than evidence; they are
+  left out at first.

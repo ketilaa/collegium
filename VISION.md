@@ -326,6 +326,7 @@ Initial candidates include:
 - Exa
 - Firecrawl
 - Brave Search API
+- Hacker News (via the Algolia HN Search API), for discovery in technology domains
 
 The implementation should remain provider-agnostic.
 
@@ -602,7 +603,8 @@ Create a provider-independent acquisition framework.
 Deliverables:
 
 - Full search abstraction layer (building on the minimal layer from Milestone 2)
-- Additional provider adapters
+- Additional provider adapters, including Hacker News as a discovery source
+- Per-domain choice of discovery sources
 - Structured acquisition pipeline
 - Source tracking
 - Citation tracking

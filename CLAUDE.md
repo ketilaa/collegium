@@ -102,7 +102,7 @@ This means history and provenance must be kept, not overwritten.
 
 1. Institutional memory: Postgres schema and audit history. Knowledge must survive restarts and agent replacement.
 2. Research workflow: Scout, Researcher, Skeptic and Historian, with a minimal acquisition layer (`search`/`extract`, one Tavily adapter).
-2.5. Knowledge acquisition layer: search abstraction, provider adapters, source and citation tracking.
+2.5. Knowledge acquisition layer: search abstraction, provider adapters (Hacker News planned, see `docs/decisions.md`), per-domain discovery sources, source and citation tracking.
 3. Strategy layer: Strategist, knowledge-gap detection and research programs. Includes the critique-resolution loop: open critiques are investigated and resolved, which is how hypotheses come to be accepted. Until then almost nothing is accepted, by design.
 4. Board interface: a dashboard with Mission, Programs, Goals, Hypotheses, Contradictions, Recent Discoveries and "Ask the Organization".
 5. Long-term evolution: cross-domain knowledge and belief revision.
