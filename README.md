@@ -15,4 +15,17 @@ See [VISION.md](VISION.md).
 
 ## Status
 
-Founding. Nothing built yet.
+Founding. Milestone 1 (institutional memory) has a database schema; no
+application code yet.
+
+## Getting started
+
+Requires Docker.
+
+```sh
+docker compose up -d db          # Postgres on localhost:5432
+docker compose run --rm migrate  # apply migrations
+```
+
+Technical decisions and their reasons are in
+[docs/decisions.md](docs/decisions.md).

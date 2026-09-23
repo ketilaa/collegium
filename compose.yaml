@@ -1,0 +1,32 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: collegium
+      POSTGRES_USER: collegium
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-collegium}
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "collegium", "-d", "collegium"]
+      interval: 2s
+      retries: 30
+
+  # One-shot: applies pending migrations, then exits.
+  migrate:
+    image: ghcr.io/amacneil/dbmate:2
+    environment:
+      DATABASE_URL: postgres://collegium:${POSTGRES_PASSWORD:-collegium}@db:5432/collegium?sslmode=disable
+      DBMATE_MIGRATIONS_DIR: /db/migrations
+      DBMATE_NO_DUMP_SCHEMA: "true"
+    volumes:
+      - ./db:/db:ro
+    command: ["--wait", "up"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db-data:

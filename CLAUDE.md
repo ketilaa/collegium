@@ -4,9 +4,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-No code exists yet. The repository contains only `README.md` and `VISION.md`. There are no build, lint or test commands. Add them here once the first components exist.
+Milestone 1 (institutional memory) has a schema. There is no application code yet, and no build, lint or test commands. Add them here once they exist.
 
-`VISION.md` is the source of truth for intent. Read it before making design decisions.
+`VISION.md` is the source of truth for intent. `docs/decisions.md` records the technical decisions made so far and why. Read both before making design decisions, and add an entry to `docs/decisions.md` when you make a new one.
+
+## Stack
+
+- **Python 3.12+** for API, worker and scheduler, managed with `uv`. FastAPI for the API, psycopg 3 with plain SQL (no ORM), Pydantic for validating LLM output. Web UI server-rendered (Jinja + htmx).
+- **dbmate** for migrations: plain SQL files in `db/migrations/`, each with `-- migrate:up` and an empty `-- migrate:down`. dbmate wraps each file in a transaction, so files contain no `BEGIN`/`COMMIT`. Never edit an applied migration; add a new one.
+- The scheduler is a jobs table in Postgres read with `FOR UPDATE SKIP LOCKED`, not Redis or Celery.
+
+## Commands
+
+```sh
+docker compose up -d db          # start Postgres on localhost:5432 (collegium/collegium)
+docker compose run --rm migrate  # apply pending migrations with dbmate
+```
+
+Without Docker registry access, apply a migration directly: `psql -v ON_ERROR_STOP=1 --single-transaction -f db/migrations/<file>.sql`.
 
 ## What Collegium is
 
@@ -45,6 +60,15 @@ Every belief must be explainable. The schema must be able to answer:
 - How has confidence changed over time?
 
 This means history and provenance must be kept, not overwritten.
+
+### Schema conventions (enforced by the database)
+
+- Every writing transaction must first run `SELECT set_config('collegium.actor_id', '<actor uuid>', true)` and, optionally, the same for `collegium.run_id`. Writes without an actor are rejected. Provenance columns (`created_by`, `retracted_by`, `resolved_by`, ...) default to that actor; omit them, since any other value is rejected.
+- Each knowledge record is a `nodes` row plus a row with the same id in its own table (`entities`, `hypotheses`, and so on). Insert both in one statement: `WITH n AS (INSERT INTO nodes (kind) VALUES ('hypothesis') RETURNING id) INSERT INTO hypotheses ...`.
+- `relationships` and `critiques` are nodes too, so they can be critiqued, linked and backed by evidence. `evidence_links` and `confidence_assessments` target a node by `(target_id, target_kind)`.
+- Nothing is deleted: knowledge is retired through `status`, and links are retracted with `retracted_at`. Statements are never edited; a changed claim is a new record that supersedes the old one. `confidence_assessments` and `audit_log` are append-only. Every table is audited automatically.
+- Access goes through group roles: `collegium_reader`, `collegium_worker` (agents: insert knowledge, update only lifecycle columns) and `collegium_board` (the owner's interface: also domains and resolving decisions). Only board logins may act as the `owner` actor. Any table added in a later migration must be granted to these roles explicitly.
+- Domains and vocabularies are data. Adding a research area never needs a migration.
 
 ## Milestones
 
