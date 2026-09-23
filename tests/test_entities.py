@@ -41,6 +41,7 @@ def _script_chain(llm, entity_map):
                     label="H1",
                     statement="Hardware choice drives cost.",
                     rationale="r",
+                    falsified_if="contrary evidence",
                     confidence=0.5,
                 )
             ],

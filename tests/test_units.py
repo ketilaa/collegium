@@ -14,6 +14,7 @@ from collegium.acquisition import (
 from collegium.acquisition.hackernews import keywords
 from collegium.grounding import locate_excerpt, unsupported_terms
 from collegium.llm import extract_json
+from collegium.reliability import classify
 from collegium.roles.base import EvidenceItem, SearchPlan, Stance, ground_evidence
 from collegium.roles.historian import decide, site
 
@@ -273,3 +274,20 @@ QUOTE = (
 )
 def test_unsupported_terms(statement, missing):
     assert unsupported_terms(statement, QUOTE) == missing
+
+
+@pytest.mark.parametrize(
+    ("uri", "kind", "ceiling"),
+    [
+        ("https://www.youtube.com/watch?v=x", "social or video", 0.3),
+        ("https://community.openai.com/t/severe-regression/1", "forum", 0.4),
+        ("https://news.ycombinator.com/item?id=1", "forum", 0.4),
+        ("https://old.reddit.com/r/x", "forum", 0.4),
+        ("https://www.prnewswire.com/news/x", "press release", 0.5),
+        ("https://handyai.substack.com/p/x", "blog platform", 0.5),
+        ("https://www.reuters.com/business/x", "other", 1.0),
+        ("https://aisi.gov.uk/work/x", "other", 1.0),
+    ],
+)
+def test_source_types_set_reliability_ceilings(uri, kind, ceiling):
+    assert classify(uri) == (kind, ceiling)

@@ -1,6 +1,7 @@
 """The research workflow end to end: scout -> research -> review -> record."""
 
 import re
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import psycopg
@@ -79,6 +80,7 @@ def script_research(llm, *, refines=None, statement=HYPOTHESIS, confidence=0.5, 
                     label="H1",
                     statement=statement,
                     rationale="Acme reports a 50% drop year on year.",
+                    falsified_if="contrary evidence",
                     refines=refines,
                     confidence=confidence,
                 )
@@ -389,11 +391,18 @@ def test_hypothesis_without_grounded_support_is_not_stored(
         ResearchFindings,
         ResearchFindings(
             hypotheses=[
-                ProposedHypothesis(label="H1", statement=HYPOTHESIS, rationale="r", confidence=0.8),
+                ProposedHypothesis(
+                    label="H1",
+                    statement=HYPOTHESIS,
+                    rationale="r",
+                    falsified_if="contrary evidence",
+                    confidence=0.8,
+                ),
                 ProposedHypothesis(
                     label="H2",
                     statement="Only an invented quote backs this.",
                     rationale="r",
+                    falsified_if="contrary evidence",
                     confidence=0.9,
                 ),
             ],
@@ -761,3 +770,56 @@ def test_why_traces_beliefs_to_sources_and_how_they_were_found(
     assert out.startswith("Observation: Acme AI halved inference prices")
     assert 'Found by the scout searching fake for "AI inference price changes"' in out
     assert f"accepted     {HYPOTHESIS}" in out
+
+
+def test_forum_evidence_is_capped_and_hypotheses_say_what_would_refute_them(
+    make_context, llm, board_db, worker_db, add_domain
+):
+    forum = "https://community.example.com/t/prices-halved/42"
+    pages = {
+        **PAGES,
+        forum: ("Prices halved?", "A user wrote that their bill for frontier models halved."),
+    }
+    domain_id = add_domain()
+    ctx = make_context(pages)
+    script_scout(llm)
+    llm.add(SearchPlan, SearchPlan(queries=["prices"]))
+    llm.add(
+        ResearchFindings,
+        ResearchFindings(
+            hypotheses=[
+                ProposedHypothesis(
+                    label="H1",
+                    statement=HYPOTHESIS,
+                    rationale="Several reports.",
+                    falsified_if="Frontier list prices stay flat through 2027.",
+                    confidence=0.6,
+                )
+            ],
+            evidence=[
+                EvidenceItem(
+                    document=4,  # the forum post
+                    excerpt="their bill for frontier models halved",
+                    summary="A user reports a halved bill.",
+                    reliability=1.0,
+                    bears_on=[Stance(hypothesis="H1", stance="supports", rationale="r")],
+                )
+            ],
+        ),
+    )
+    script_review(llm, verdict="undecided")
+    ctx = replace(ctx, settings=replace(ctx.settings, max_documents=4))
+    enqueue_scout(board_db, domain_id)
+    worker.drain(ctx)
+
+    with worker_db.reading() as conn:
+        row = conn.execute(
+            "SELECT e.reliability, s.metadata->>'source_type' AS kind FROM evidence e "
+            "JOIN sources s ON s.id = e.source_id WHERE s.uri = %s",
+            (forum,),
+        ).fetchone()
+        assert (float(row["reliability"]), row["kind"]) == (0.4, "forum")
+        rationale = conn.execute("SELECT rationale FROM hypotheses").fetchone()["rationale"]
+        assert rationale.endswith(
+            "Would be shown wrong by: Frontier list prices stay flat through 2027."
+        )

@@ -25,8 +25,13 @@ from collegium.roles.base import (
 
 class ProposedHypothesis(BaseModel):
     label: str = Field(description="New label: H1, H2, ...")
-    statement: str = Field(description="A general, testable claim")
+    statement: str = Field(
+        description="A specific claim: who or what, which direction or size, which period"
+    )
     rationale: str
+    falsified_if: str = Field(
+        description="What observation or evidence would show the claim is wrong"
+    )
     refines: str | None = Field(
         None, description="Label (E1, E2, ...) of an existing hypothesis this one refines, if any"
     )
@@ -105,7 +110,9 @@ class Researcher(Role):
                     matched.append(existing_id)
                     continue
                 hypothesis_id = memory.add_hypothesis(
-                    conn, statement=h.statement, rationale=h.rationale
+                    conn,
+                    statement=h.statement,
+                    rationale=f"{h.rationale}\nWould be shown wrong by: {h.falsified_if}",
                 )
                 memory.tag_domains(conn, hypothesis_id, domain_ids)
                 memory.add_relationship(

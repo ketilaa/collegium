@@ -428,3 +428,27 @@ is, Hacker News and feeds are not). A paid call is refused once
 worker does not start a searching job with fewer than 5 paid calls left,
 and a job stopped by the budget is deferred until the window frees, without
 using one of its attempts.
+
+## 2026-09-23 · Milestone 3, part 2: evidence quality
+
+- **Reliability ceilings by source type** (`reliability.py`). The model
+  still scores reliability, but evidence cannot score above its source's
+  ceiling: social media and video 0.3, forums and community sites 0.4,
+  press-release wires and blog platforms 0.5, everything else 1.0. Flagged
+  documents stay capped at 0.3. The source type is kept in the source's
+  metadata. Classification is by host; a claimant's own site is not yet
+  recognised as such.
+- **Relevance.** Both the Researcher and the Skeptic are told that evidence
+  about another product, an older version or an earlier period neither
+  supports nor contradicts a claim about the current one. This is a prompt
+  rule; documents from basic search carry no dates, so it cannot yet be
+  checked mechanically.
+- **Specific hypotheses.** The Researcher must name who or what, direction
+  or size, and period, and state what would show the hypothesis wrong. The
+  falsification condition is stored with the rationale, where the Skeptic
+  sees it.
+- **Budget and plan.** The owner's Tavily plan is 1,000 credits a month;
+  a daily budget of 50 calls would allow about 1,500. A daily budget of 30
+  fits the plan. Compose now passes `COLLEGIUM_DAILY_CALL_BUDGET` and the
+  other tuning settings to the worker, so the owner's env file controls
+  them.

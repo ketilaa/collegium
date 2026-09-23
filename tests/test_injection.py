@@ -105,6 +105,7 @@ def test_poisoned_page_is_sanitized_marked_and_trusted_less(llm, board_db, worke
                     label="H1",
                     statement="AI prices are falling fast.",
                     rationale="r",
+                    falsified_if="contrary evidence",
                     confidence=0.9,
                 )
             ],

@@ -24,6 +24,7 @@ from collegium.db import Connection, Database
 from collegium.grounding import locate_excerpt
 from collegium.jobs import Job
 from collegium.llm import LLM
+from collegium.reliability import classify
 from collegium.untrusted import fence, warning
 
 Persist = Callable[[Connection], str]
@@ -234,16 +235,22 @@ def store_evidence(
         if not stances:
             outcome.unlinked += 1
             continue
+        source_type, ceiling = classify(g.document.url)
         source_id = memory.record_source(
             conn,
             uri=g.document.url,
             title=g.document.title,
             published_at=g.document.published_at,
             content=g.document.content,
-            metadata={"provider": g.document.provider, **g.document.metadata},
+            metadata={
+                "provider": g.document.provider,
+                "source_type": source_type,
+                **g.document.metadata,
+            },
             acquisition_id=g.document.acquisition_id,
         )
-        reliability = g.item.reliability
+        # The model's score, but never above what the kind of source allows.
+        reliability = min(g.item.reliability, ceiling)
         if injection_signals(g.document):
             reliability = min(reliability, FLAGGED_RELIABILITY)
         evidence_id = memory.add_evidence(
