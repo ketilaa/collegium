@@ -7,12 +7,20 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from collegium import jobs, memory
-from collegium.acquisition import SearchResult, interleave
+from collegium.acquisition import SearchResult, injection_signals, interleave
 from collegium.dates import parse_date
 from collegium.db import Connection
 from collegium.grounding import locate_excerpt, unsupported_terms
 from collegium.jobs import Job
-from collegium.roles.base import Context, NothingToWorkWith, Persist, Role, SearchPlan
+from collegium.roles.base import (
+    Context,
+    NothingToWorkWith,
+    Persist,
+    Role,
+    SearchPlan,
+    flag_note,
+)
+from collegium.untrusted import fence, warning
 
 
 class ProposedObservation(BaseModel):
@@ -178,7 +186,7 @@ class Scout(Role):
             return (
                 f"queries={plan.queries}{feed_note}; recorded {recorded} observations, "
                 f"{investigating} sent for research, {skipped} already known; "
-                f"rejected: {rejected}"
+                f"rejected: {rejected}." + flag_note(results)
             )
 
         return persist
@@ -191,7 +199,7 @@ def _verify(ctx: Context, system: str, grounded: list[Grounded]) -> tuple[list[G
     if not grounded:
         return [], 0
     listing = "\n\n".join(
-        f"[{i}] Statement: {g.proposal.statement}\n    Quote: {g.quote}"
+        f"[{i}] Statement: {g.proposal.statement}\nQuote:\n{fence(f'Q{i}', g.quote)}"
         for i, g in enumerate(grounded, 1)
     )
     checks = ctx.llm.generate(
@@ -269,10 +277,13 @@ def _search(
 
 
 def _render_results(results: list[SearchResult]) -> str:
+    """Leads as fenced blocks, labelled R1, R2, ..."""
     parts = []
     for i, r in enumerate(results, 1):
         date = f" ({r.published_at})" if r.published_at else ""
-        parts.append(f"[R{i}] {r.title}{date}\n{r.url}\n{r.snippet}")
+        block = fence(f"R{i}", f"{r.title}{date}\n{r.url}\n{r.snippet}")
+        note = warning(injection_signals(r))
+        parts.append(f"[R{i}]\n{block}" + (f"\n{note}" if note else ""))
     return "\n\n".join(parts)
 
 

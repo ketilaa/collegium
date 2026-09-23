@@ -1,5 +1,6 @@
 """The research workflow end to end: scout -> research -> review -> record."""
 
+import re
 from datetime import UTC, datetime
 
 import psycopg
@@ -481,7 +482,7 @@ def test_scout_searches_recent_news_and_drops_old_results(
     # The 2024 page was never shown; result 1 is the recent one.
     scout_prompt = llm.prompts_for(ScoutReport)[0]
     assert old not in scout_prompt
-    assert "[R1] Are AI prices really falling?" in scout_prompt
+    assert re.search(r"\[R1\]\n<<<R1 \w+>>>\nAre AI prices really falling\?", scout_prompt)
     with worker_db.reading() as conn:
         row = conn.execute(
             "SELECT s.uri, o.occurred_at FROM observations o JOIN sources s ON s.id = o.source_id"

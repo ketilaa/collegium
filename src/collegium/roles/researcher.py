@@ -18,6 +18,9 @@ from collegium.roles.base import (
     render_documents,
     store_evidence,
 )
+from collegium.roles.base import (
+    flag_note as _flag_note,
+)
 
 
 class ProposedHypothesis(BaseModel):
@@ -140,6 +143,7 @@ class Researcher(Role):
                 f"{outcome.stored} evidence stored, {len(grounding.dropped)} ungrounded "
                 f"excerpts dropped, {outcome.unlinked} unlinked; "
                 f"{len(to_review)} sent for review.{grounding.describe_dropped()}"
+                + _flag_note(documents)
             )
 
         return persist

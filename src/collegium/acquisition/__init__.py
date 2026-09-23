@@ -10,6 +10,10 @@ Roles use `Acquisition`, which holds the named discovery providers, a
 crawler and one extractor, and never a vendor directly. It can record every external call,
 so the organization knows how it found each source and what it has
 revealed to providers.
+
+All text from outside is sanitized here, at the boundary (see `untrusted`):
+control tokens and hidden characters are removed, and injection signals are
+kept in the item's metadata under "injection_signals".
 """
 
 import re
@@ -19,6 +23,7 @@ from typing import Any, Protocol
 from uuid import UUID
 
 from collegium.config import Settings, require
+from collegium.untrusted import sanitize
 
 
 @dataclass(frozen=True)
@@ -136,7 +141,10 @@ class Acquisition:
                 request,
                 lambda p=provider: p.discover(query, max_results, recent_days=recent_days),
             )
-            results = [replace(r, provider=name, acquisition_id=acquisition_id) for r in results]
+            results = [
+                _clean_lead(replace(r, provider=name, acquisition_id=acquisition_id))
+                for r in results
+            ]
             if getattr(provider, "thin_leads", False):
                 results = self._enrich(results)
             per_source.append(results)
@@ -154,7 +162,8 @@ class Acquisition:
             lambda: crawler.crawl(url, max_items),
         )
         results = [
-            replace(r, provider=crawler.name, acquisition_id=acquisition_id) for r in results
+            _clean_lead(replace(r, provider=crawler.name, acquisition_id=acquisition_id))
+            for r in results
         ]
         return self._enrich(results) if getattr(crawler, "thin_leads", False) else results
 
@@ -170,7 +179,13 @@ class Acquisition:
         for r in results:
             page = pages.get(r.url)
             text = clean_text(page.content)[:ENRICHED_SNIPPET_CHARS] if page else ""
-            enriched.append(replace(r, snippet=f"{text}\n{r.snippet}") if text else r)
+            if text:
+                r = replace(
+                    r,
+                    snippet=f"{text}\n{r.snippet}",
+                    metadata=with_signals(r.metadata, injection_signals(page)),
+                )
+            enriched.append(r)
         return enriched
 
     def extract(self, urls: list[str]) -> list[Document]:
@@ -179,7 +194,7 @@ class Acquisition:
         documents, _ = self._call(
             "extract", self._extractor.name, {"urls": urls}, lambda: self._extractor.extract(urls)
         )
-        return documents
+        return [_clean_document(d) for d in documents]
 
     def gather(
         self,
@@ -215,7 +230,7 @@ class Acquisition:
                     content=clean_text(content)[:max_chars],
                     published_at=result.published_at,
                     provider=result.provider,
-                    metadata=result.metadata,
+                    metadata=with_signals(result.metadata, injection_signals(doc) if doc else []),
                     acquisition_id=result.acquisition_id,
                 )
             )
@@ -233,6 +248,33 @@ class Acquisition:
         if self._recorder is None:
             return None
         return self._recorder(capability, provider, request, count, error)
+
+
+def injection_signals(item: SearchResult | Document) -> list[str]:
+    return list(item.metadata.get("injection_signals", []))
+
+
+def with_signals(metadata: Mapping[str, Any], signals: list[str]) -> Mapping[str, Any]:
+    if not signals:
+        return metadata
+    merged = sorted(set(metadata.get("injection_signals", [])) | set(signals))
+    return {**metadata, "injection_signals": merged}
+
+
+def _clean_lead(r: SearchResult) -> SearchResult:
+    title, in_title = sanitize(r.title)
+    snippet, in_snippet = sanitize(r.snippet)
+    return replace(
+        r, title=title, snippet=snippet, metadata=with_signals(r.metadata, in_title + in_snippet)
+    )
+
+
+def _clean_document(d: Document) -> Document:
+    title, in_title = sanitize(d.title)
+    content, in_content = sanitize(d.content)
+    return replace(
+        d, title=title, content=content, metadata=with_signals(d.metadata, in_title + in_content)
+    )
 
 
 def interleave(lists: list[list[SearchResult]]) -> list[SearchResult]:

@@ -176,8 +176,8 @@ def test_scout_reads_approved_feeds_and_skips_known_and_old_items(
 
 
 def _number_of(url: str, prompt: str) -> int:
-    """The [R<n>] number the Scout was shown for a lead (its title is its url)."""
-    return int(re.search(rf"^\[R(\d+)\] {re.escape(url)}", prompt, re.MULTILINE).group(1))
+    """The R<n> number the Scout was shown for a lead (its title is its url)."""
+    return int(re.search(rf"<<<R(\d+) \w+>>>\n{re.escape(url)}", prompt).group(1))
 
 
 def test_only_the_board_approves_sources(worker_db, add_domain):

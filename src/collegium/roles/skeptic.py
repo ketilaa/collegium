@@ -18,6 +18,10 @@ from collegium.roles.base import (
     render_documents,
     store_evidence,
 )
+from collegium.roles.base import (
+    flag_note as _flag_note,
+)
+from collegium.untrusted import fence
 
 
 class ProposedCritique(BaseModel):
@@ -99,7 +103,7 @@ class Skeptic(Role):
                 f"queries={plan.queries}; verdict {review.verdict} at "
                 f"{review.confidence:.2f}; {len(review.critiques)} critiques, "
                 f"{outcome.stored} evidence stored, {len(grounding.dropped)} ungrounded dropped."
-                f"{grounding.describe_dropped()}"
+                f"{grounding.describe_dropped()}" + _flag_note(documents)
             )
 
         return persist
@@ -114,8 +118,11 @@ def _brief(h: dict, evidence: list[dict], critiques: list[dict], history: list[d
         f"- {c['confidence']:.2f} by {c['assessed_by']}: {c['rationale']}" for c in history
     ] or ["- not assessed"]
     lines.append("\nEvidence on record:")
+    # Excerpts are outside text, even when read back from memory.
     lines += [
-        f'- ({e["stance"]}) {e["summary"]} — "{e["excerpt"]}" [{e["source_uri"]}]' for e in evidence
+        f"- ({e['stance']}) {e['summary']} [{e['source_uri']}]\n"
+        + fence(f"EXCERPT{i}", e["excerpt"] or "")
+        for i, e in enumerate(evidence, 1)
     ] or ["- none"]
     lines.append("\nEarlier critiques:")
     lines += [

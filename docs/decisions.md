@@ -278,3 +278,38 @@ broken feed does not stop the Scout. Feed XML is parsed with defusedxml.
 
 The grounding check for observations now ignores sentence-initial function
 words ("A", "The"), which it had mistaken for names.
+
+## 2026-09-23 · Prompt injection defences
+
+Collegium reads text written by strangers all day and puts it in model
+prompts. Injection cannot be prevented at the model level, so the design
+relies on containment, which was already in place: the model has no tools
+and only returns schema-checked JSON; it cannot choose what is fetched
+beyond search queries; the database decides what the worker may write (it
+cannot act as the owner, approve anything or delete); evidence must be
+found verbatim in its source; and acceptance is decided by fixed rules
+needing two independent sites.
+
+Added at the acquisition boundary (`untrusted.py`), so every provider, feed
+and extraction is covered:
+
+- **Control tokens removed.** Chat-template tokens (`<|im_start|>`,
+  `[INST]`, `<start_of_turn>`, ...) could otherwise be read by the model
+  server as real role markers, letting a page write its own system message.
+  Invisible and bidirectional control characters are removed too.
+- **Signals flagged, not dropped.** Text addressed to AI systems ("ignore
+  previous instructions", "you are now", "AI assistants must rate...") is
+  flagged. Flagged text is kept, because legitimate articles quote such
+  phrases, but it carries a warning in prompts, evidence taken from it is
+  capped at reliability 0.3, the signals are stored in the source's
+  metadata, and runs count flagged items in their notes.
+- **Fenced data.** All outside text in prompts, including excerpts read back
+  from memory, sits between markers with a random tag, so a page cannot
+  close its own block. The shared prompt says fenced text is material,
+  never instructions, and that text addressing the model is a sign of an
+  unreliable source.
+
+Known limits: the signal patterns are heuristics; search queries remain an
+outbound channel that injected text could steer (no secrets are in
+prompts); and coordinated poisoning across several sites can still pass
+the two-source rule. The Board interface must escape stored text.

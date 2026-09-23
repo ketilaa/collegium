@@ -18,12 +18,13 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
 from collegium import memory
-from collegium.acquisition import Acquisition, Document
+from collegium.acquisition import Acquisition, Document, injection_signals
 from collegium.config import Settings
 from collegium.db import Connection, Database
 from collegium.grounding import locate_excerpt
 from collegium.jobs import Job
 from collegium.llm import LLM
+from collegium.untrusted import fence, warning
 
 Persist = Callable[[Connection], str]
 
@@ -123,15 +124,30 @@ class EvidenceItem(BaseModel):
 
 
 def render_documents(documents: list[Document]) -> str:
+    """Documents as fenced blocks, labelled D1, D2, ... Flagged documents
+    carry a warning outside their block."""
     if not documents:
         return "No documents were found."
     parts = []
     for i, d in enumerate(documents, 1):
-        header = f"[D{i}] {d.title}\n{d.url}"
+        body = f"{d.title}\n{d.url}"
         if d.published_at:
-            header += f"\nPublished: {d.published_at}"
-        parts.append(f"{header}\n---\n{d.content}")
+            body += f"\nPublished: {d.published_at}"
+        block = fence(f"D{i}", f"{body}\n---\n{d.content}")
+        note = warning(injection_signals(d))
+        parts.append(f"[D{i}]\n{block}" + (f"\n{note}" if note else ""))
     return "\n\n".join(parts)
+
+
+# Evidence from a document that addresses AI systems is kept but never
+# trusted much, whatever reliability the model gives it.
+FLAGGED_RELIABILITY = 0.3
+
+
+def flag_note(items: list) -> str:
+    """Run-note text counting documents or leads flagged for injection."""
+    n = sum(1 for i in items if injection_signals(i))
+    return f" {n} flagged for injection signals." if n else ""
 
 
 def _label(label: str) -> str:
@@ -218,12 +234,15 @@ def store_evidence(
             metadata={"provider": g.document.provider, **g.document.metadata},
             acquisition_id=g.document.acquisition_id,
         )
+        reliability = g.item.reliability
+        if injection_signals(g.document):
+            reliability = min(reliability, FLAGGED_RELIABILITY)
         evidence_id = memory.add_evidence(
             conn,
             summary=g.item.summary,
             excerpt=g.excerpt,
             source_id=source_id,
-            reliability=g.item.reliability,
+            reliability=reliability,
         )
         memory.tag_domains(conn, evidence_id, domain_ids)
         linked: set[UUID] = set()
