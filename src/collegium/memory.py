@@ -260,6 +260,49 @@ def known_source_uris(conn: Connection, uris: list[str]) -> set[str]:
     return {r["uri"] for r in rows}
 
 
+def find_entity(conn: Connection, name: str) -> UUID | None:
+    """An active entity known by this name or alias, ignoring case."""
+    row = conn.execute(
+        "SELECT id FROM entities WHERE status = 'active' "
+        "AND (lower(name) = lower(%s) OR lower(%s) = ANY(SELECT lower(a) FROM unnest(aliases) a)) "
+        "LIMIT 1",
+        (name, name),
+    ).fetchone()
+    return row["id"] if row else None
+
+
+def add_entity(conn: Connection, *, name: str, entity_type: str) -> UUID:
+    return _insert_node(conn, "entity", "entities", {"name": name, "entity_type": entity_type})
+
+
+def top_entities(conn: Connection, domain_ids: list[UUID], limit: int = 10) -> list[dict]:
+    """The entities mentioned most often in these domains."""
+    return conn.execute(
+        "SELECT e.id, e.name, e.entity_type, count(*) AS mentions FROM entities e "
+        "JOIN relationships r ON r.object_id = e.id AND r.predicate = 'mentions' "
+        "AND r.retracted_at IS NULL "
+        "JOIN node_domains d ON d.node_id = e.id "
+        "WHERE e.status = 'active' AND d.domain_id = ANY(%s) "
+        "GROUP BY e.id ORDER BY mentions DESC, e.name LIMIT %s",
+        (domain_ids, limit),
+    ).fetchall()
+
+
+def evidence_texts(conn: Connection, evidence_ids: list[UUID]) -> list[dict]:
+    return conn.execute(
+        "SELECT id, excerpt FROM evidence WHERE id = ANY(%s) ORDER BY id", (evidence_ids,)
+    ).fetchall()
+
+
+def observation_evidence(conn: Connection, observation_id: UUID) -> list[dict]:
+    """Evidence attached to an observation, such as the Scout's quote."""
+    return conn.execute(
+        "SELECT e.id, e.excerpt FROM evidence_links l JOIN evidence e ON e.id = l.evidence_id "
+        "WHERE l.target_id = %s AND l.retracted_at IS NULL",
+        (observation_id,),
+    ).fetchall()
+
+
 def node_domain_ids(conn: Connection, node_id: UUID) -> list[UUID]:
     rows = conn.execute("SELECT domain_id FROM node_domains WHERE node_id = %s", (node_id,))
     return [r["domain_id"] for r in rows]

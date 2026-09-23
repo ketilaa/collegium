@@ -136,6 +136,14 @@ class Researcher(Role):
             to_review = list(dict.fromkeys(new_ids + matched + sorted(outcome.touched, key=str)))
             for hypothesis_id in to_review:
                 jobs.enqueue(conn, "review", {"hypothesis_id": hypothesis_id}, parent_job_id=job.id)
+            if outcome.stored:
+                jobs.enqueue(
+                    conn,
+                    "map",
+                    {"observation_id": observation_id, "evidence_ids": outcome.evidence_ids},
+                    parent_job_id=job.id,
+                    priority=4,  # after the review work it runs beside
+                )
             return (
                 f"queries={plan.queries}; {len(new_ids)} new hypotheses "
                 f"({unsupported} without grounded support dropped, "

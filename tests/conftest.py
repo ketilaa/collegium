@@ -91,7 +91,16 @@ def _approve_all_observations(user: str):
 
 # Responses used when a test has not scripted one: the Scout's check of its
 # own observations passes unless a test says otherwise.
-DEFAULTS = {"ObservationChecks": _approve_all_observations}
+DEFAULTS = {
+    "ObservationChecks": _approve_all_observations,
+    "EntityMap": lambda user: _empty_entity_map(),
+}
+
+
+def _empty_entity_map():
+    from collegium.roles.mapper import EntityMap
+
+    return EntityMap(entities=[])
 
 
 class ScriptedLLM:

@@ -313,3 +313,20 @@ Known limits: the signal patterns are heuristics; search queries remain an
 outbound channel that injected text could steer (no secrets are in
 prompts); and coordinated poisoning across several sites can still pass
 the two-source rule. The Board interface must escape stored text.
+
+## 2026-09-23 · Milestone 2.5, part 2: related entities
+
+After research that stored evidence, a `map` job (run as the Researcher,
+with its own prompt) asks the model which specific organisations, people,
+products, models, technologies and places the observation, its quote and
+the new evidence mention. Each mention must be found as whole words in the
+text it is attributed to; entities are matched to known ones by name or
+alias, ignoring case, and linked by `mentions` relationships from the
+observation or evidence. The Scout is shown the domain's most-mentioned
+entities as starting points for exploring what is related to them, and
+`collegium entities` lists them.
+
+This is the organization's own reading of "discover related entities": it
+builds a map of who and what its knowledge is about, rather than asking a
+provider for similar pages. Entity resolution is by exact name or alias;
+merging spelling variants the model does not reconcile is left for later.

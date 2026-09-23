@@ -159,15 +159,16 @@ def test_full_workflow_accepts_a_grounded_hypothesis(
     script_review(llm)
 
     enqueue_scout(board_db, domain_id)
-    assert worker.drain(ctx) == 4
+    assert worker.drain(ctx) == 5
 
     with worker_db.reading() as conn:
-        job_rows = conn.execute("SELECT kind, status FROM jobs ORDER BY created_at").fetchall()
-        assert [(j["kind"], j["status"]) for j in job_rows] == [
-            ("scout", "succeeded"),
+        job_rows = conn.execute("SELECT kind, status FROM jobs").fetchall()
+        assert sorted((j["kind"], j["status"]) for j in job_rows) == [
+            ("map", "succeeded"),
+            ("record", "succeeded"),
             ("research", "succeeded"),
             ("review", "succeeded"),
-            ("record", "succeeded"),
+            ("scout", "succeeded"),
         ]
 
         obs = conn.execute("SELECT statement, status FROM observations").fetchall()
@@ -221,6 +222,7 @@ def test_full_workflow_accepts_a_grounded_hypothesis(
             ("researcher", "succeeded", "scripted"),
             ("skeptic", "succeeded", "scripted"),
             ("historian", "succeeded", None),
+            ("researcher", "succeeded", "scripted"),  # mapping entities, run last
         ]
         assert all(r["role_version"] for r in runs)
 
@@ -547,7 +549,8 @@ def test_repeated_hypothesis_strengthens_the_existing_one(
         assert reviews == 2
         notes = conn.execute(
             "SELECT r.notes FROM runs r JOIN actors a ON a.id = r.actor_id "
-            "WHERE a.name = 'researcher' ORDER BY r.started_at DESC LIMIT 1"
+            "WHERE a.name = 'researcher' AND r.notes LIKE 'queries=%%' "
+            "ORDER BY r.started_at DESC LIMIT 1"
         ).fetchone()["notes"]
         assert "1 matched existing" in notes
 

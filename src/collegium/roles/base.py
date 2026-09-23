@@ -208,6 +208,7 @@ class EvidenceOutcome:
     stored: int = 0
     unlinked: int = 0
     touched: set[UUID] = field(default_factory=set)
+    evidence_ids: list[UUID] = field(default_factory=list)
 
 
 def store_evidence(
@@ -261,4 +262,5 @@ def store_evidence(
             linked.add(target)
         outcome.stored += 1
         outcome.touched |= linked
+        outcome.evidence_ids.append(evidence_id)
     return outcome

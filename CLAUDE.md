@@ -35,6 +35,7 @@ uv run collegium why <hypothesis-id-prefix>
 uv run collegium jobs
 uv run collegium domain sources ai-agents tavily hackernews   # Scout's discovery sources
 uv run collegium acquisitions            # recent calls to external providers
+uv run collegium entities [slug]         # entities mentioned most
 uv run collegium feed add ai-agents <url> # approve a feed for a domain (also list/pause/resume/retire)
 ```
 
@@ -69,7 +70,7 @@ Core workflow: Scout → Researcher → Skeptic → Historian. The Strategist si
 
 ## Code architecture
 
-- **Pipeline:** work is a chain of jobs in the `jobs` table: `scout` (per domain) → `research` (per observation) → `review` (per hypothesis) → `record`. Each role enqueues the next step. Owner commands and the scheduler enqueue `scout` jobs.
+- **Pipeline:** work is a chain of jobs in the `jobs` table: `scout` (per domain) → `research` (per observation) → `review` (per hypothesis) → `record`, plus `map` (entities mentioned, after research). Each role enqueues the next step. Owner commands and the scheduler enqueue `scout` jobs.
 - **Prepare/persist:** a role's `prepare()` (`src/collegium/roles/`) does the slow work (reading memory, searching, calling the model) outside any transaction, and returns a `persist(conn)` function. `worker.run_once` runs that function in one transaction acting as the role, together with finishing the run and the job, so knowledge and follow-up jobs commit atomically. On failure, the job is retried with backoff and nothing is written.
 - **Runs:** every job execution creates a `runs` row with the model and `role_version` (a hash of the role's prompt files), and all rows written carry that run id.
 - **Grounding** (`grounding.py`): the model cites search results and documents by number, not URL. Out-of-range citations are dropped, and evidence is stored only if its excerpt is found in the document. The stored excerpt is the source's own wording. Scout observations must quote their lead; names and numbers in the statement must occur in the quote (`unsupported_terms`), and a model call checks each statement against its quote. The quote is stored as evidence supporting the observation.
@@ -106,7 +107,7 @@ This means history and provenance must be kept, not overwritten.
 
 1. Institutional memory: Postgres schema and audit history. Knowledge must survive restarts and agent replacement.
 2. Research workflow: Scout, Researcher, Skeptic and Historian, with a minimal acquisition layer (`search`/`extract`, one Tavily adapter).
-2.5. Knowledge acquisition layer. Part 1 done: discover/extract split, Hacker News adapter, per-domain discovery sources, call log. Part 2 so far: grounded Scout observations, crawling owner-approved feeds. Remaining: related-entity discovery, citation tracking.
+2.5. Knowledge acquisition layer. Part 1 done: discover/extract split, Hacker News adapter, per-domain discovery sources, call log. Part 2 so far: grounded Scout observations, crawling owner-approved feeds. Related entities (`map` jobs) done. Remaining: citation tracking.
 3. Strategy layer: Strategist, knowledge-gap detection and research programs. Includes the critique-resolution loop: open critiques are investigated and resolved, which is how hypotheses come to be accepted. Until then almost nothing is accepted, by design.
 4. Board interface: a dashboard with Mission, Programs, Goals, Hypotheses, Contradictions, Recent Discoveries and "Ask the Organization".
 5. Long-term evolution: cross-domain knowledge and belief revision.

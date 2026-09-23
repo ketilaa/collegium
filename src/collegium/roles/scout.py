@@ -93,10 +93,11 @@ class Scout(Role):
             domain = memory.domain(conn, domain_id)
             recent = memory.recent_observations(conn, domain_id)
             feeds = memory.active_feeds(conn, domain_id)
+            entities = memory.top_entities(conn, [domain_id])
         if domain is None:
             raise LookupError(f"domain {domain_id} not found")
 
-        brief = _brief(domain, recent)
+        brief = _brief(domain, recent, entities)
         system = self.system_prompt()
         plan = ctx.llm.generate(
             system, brief + "\n\nWhich web searches should you run now?", SearchPlan
@@ -214,10 +215,15 @@ def _verify(ctx: Context, system: str, grounded: list[Grounded]) -> tuple[list[G
     return kept, len(grounded) - len(kept)
 
 
-def _brief(domain: dict, recent: list[dict]) -> str:
+def _brief(domain: dict, recent: list[dict], entities: list[dict]) -> str:
     lines = [f"Domain: {domain['name']}"]
     if domain.get("description"):
         lines.append(domain["description"])
+    if entities:
+        # What the organization keeps running into: starting points for
+        # exploring what is related to them.
+        lines.append("\nMost-mentioned in this domain so far:")
+        lines += [f"- {e['name']} ({e['entity_type']}, {e['mentions']} mentions)" for e in entities]
     lines.append("\nAlready observed (most recent first):")
     lines += [f"- {o['statement']}" for o in recent] or ["- nothing yet"]
     return "\n".join(lines)

@@ -58,6 +58,10 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("why", help="explain why the organization holds a belief")
     p.add_argument("hypothesis", help="hypothesis id or unique prefix")
 
+    p = sub.add_parser("entities", help="entities the organization knows, most mentioned first")
+    p.add_argument("slug", nargs="?", help="only this domain")
+    p.add_argument("--limit", type=int, default=30)
+
     p = sub.add_parser("acquisitions", help="show recent calls to external providers")
     p.add_argument("--limit", type=int, default=20)
 
@@ -164,6 +168,20 @@ def _domain_sources(args, settings: Settings) -> None:
     if domain is None:
         raise SystemExit(f"no domain {args.slug!r}")
     print(f"{args.slug}: {', '.join(domain['discovery_sources']) or 'default'}")
+
+
+def _entities(args, settings: Settings) -> None:
+    with _reader(settings).reading() as conn:
+        if args.slug:
+            domain = memory.domain_by_slug(conn, args.slug)
+            if domain is None:
+                raise SystemExit(f"no domain {args.slug!r}")
+            domain_ids = [domain["id"]]
+        else:
+            domain_ids = [d["id"] for d in memory.active_domains(conn)]
+        rows = memory.top_entities(conn, domain_ids, limit=args.limit)
+    for e in rows:
+        print(f"{e['mentions']:4}  {e['entity_type']:12} {e['name']}")
 
 
 def _acquisitions(args, settings: Settings) -> None:
@@ -323,4 +341,5 @@ COMMANDS = {
     "why": _why,
     "jobs": _jobs,
     "acquisitions": _acquisitions,
+    "entities": _entities,
 }

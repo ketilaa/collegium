@@ -156,3 +156,11 @@ def unsupported_terms(statement: str, support: str) -> list[str]:
         if key and not re.search(rf"(?<!\w){re.escape(key)}(?!\w)", text):
             missing.append(term.rstrip("."))
     return missing
+
+
+def mentions(text: str, name: str) -> bool:
+    """Whether `name` occurs in `text` as whole words, ignoring case, quote
+    marks and spacing."""
+    haystack, _ = _normalize(text)
+    needle, _ = _normalize(name)
+    return bool(needle) and re.search(rf"(?<!\w){re.escape(needle)}(?!\w)", haystack) is not None
