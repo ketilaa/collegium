@@ -34,6 +34,7 @@ A persistent research organization with institutional memory, not a request/resp
 - **Agents are roles, not services.** One worker process runs every role (Scout, Researcher, Skeptic, Strategist). Roles differ by role definition and memory, not by infrastructure.
 - **One local LLM for every role** (for example Qwen3 14B or Gemma 3 12B). Do not specialize models per role.
 - **Least privilege:** agents may read and search external sources, analyze them and write to organizational memory. They must not send email, post, publish, buy anything or modify any external system.
+- **Provider-agnostic acquisition:** agents call abstract capabilities (`search`, `extract`, `crawl`, `discover_related`). Vendor APIs (Tavily, Exa, Firecrawl, Brave) are reached only through adapters behind those capabilities, never directly from role code. The Historian never searches externally, and the Strategist searches only when memory shows a real knowledge gap. Over time, memory should be consulted before external search.
 - **Domain-agnostic:** AI is the first research domain, but adding a new domain (for example Norwegian consulting companies or energy) must not require schema or code changes.
 - Prefer clarity and simplicity over scalability.
 
@@ -74,6 +75,7 @@ This means history and provenance must be kept, not overwritten.
 
 1. Institutional memory: Postgres schema and audit history. Knowledge must survive restarts and agent replacement.
 2. Research workflow: Scout, Researcher, Skeptic and Historian.
+2.5. Knowledge acquisition layer: search abstraction, provider adapters, source and citation tracking.
 3. Strategy layer: Strategist, knowledge-gap detection and research programs.
 4. Board interface: a dashboard with Mission, Programs, Goals, Hypotheses, Contradictions, Recent Discoveries and "Ask the Organization".
 5. Long-term evolution: cross-domain knowledge and belief revision.

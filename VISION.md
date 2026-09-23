@@ -254,6 +254,198 @@ Principle:
 Read broadly.
 Write only to organizational memory.
 
+External acquisition providers:
+
+Search and extraction services (for example Tavily or Exa) are chosen, provisioned and paid for by the owner.
+
+Agents use them only through the acquisition layer, and only to read.
+
+Agents never sign up for, purchase or reconfigure providers themselves.
+
+Search queries leave the organization and reveal what it is researching. The owner decides which providers are trusted with that, and sets usage limits.
+
+---
+
+# Knowledge Acquisition
+
+The organization should treat external search capabilities as a first-class research tool rather than relying on traditional web browsing.
+
+The goal is not to build another crawler or scraping system. The goal is to equip the organization with agent-native information retrieval capabilities that provide structured, machine-consumable knowledge.
+
+Traditional search engines are optimized for humans:
+
+Query
+  ->
+Links
+  ->
+Human reads pages
+
+Agent-native search is optimized for organizational learning:
+
+Question
+  ->
+Search
+  ->
+Content extraction
+  ->
+Structured findings
+  ->
+Organizational memory
+
+The architecture should support multiple retrieval providers and allow the organization to evolve its acquisition strategy over time.
+
+## Search Philosophy
+
+The organization should gradually move through three stages:
+
+Stage 1
+
+External search is the primary source of knowledge.
+
+Stage 2
+
+External search and institutional memory are equally important.
+
+Stage 3
+
+Institutional memory becomes the primary source of knowledge.
+
+External search is only used when knowledge gaps are detected.
+
+This mirrors how successful human organizations operate.
+
+The most valuable knowledge eventually becomes the organization's own accumulated understanding rather than information retrieved from external sources.
+
+## Agent-Native Search Tools
+
+The system should support pluggable acquisition providers.
+
+Initial candidates include:
+
+- Tavily
+- Exa
+- Firecrawl
+- Brave Search API
+
+The implementation should remain provider-agnostic.
+
+Agents should depend on abstract capabilities rather than specific vendors.
+
+Examples:
+
+search()
+extract()
+crawl()
+discover_related()
+
+rather than direct provider-specific integrations throughout the codebase.
+
+## Acquisition Responsibilities by Role
+
+### Scout
+
+Primary focus:
+
+- Discovery
+- Trend detection
+- Weak signals
+- Emerging topics
+- Related entities
+- New opportunities for investigation
+
+Ideal search characteristics:
+
+- Semantic search
+- Similarity search
+- Exploration
+
+### Researcher
+
+Primary focus:
+
+- Evidence gathering
+- Fact collection
+- Source analysis
+- Deep investigation
+
+Ideal search characteristics:
+
+- Content extraction
+- Article retrieval
+- Research workflows
+- Structured summaries
+
+### Skeptic
+
+Primary focus:
+
+- Counter-evidence
+- Alternative explanations
+- Contradictory viewpoints
+- Validation
+
+Uses the same search capabilities as the Researcher but with a different mission.
+
+### Historian
+
+Does not perform external search.
+
+Responsibilities:
+
+- Preserve organizational memory
+- Link findings
+- Store evidence
+- Maintain history
+
+The Historian's purpose is memory, not information acquisition.
+
+### Strategist
+
+Primarily uses organizational memory.
+
+External search should only be used when substantial knowledge gaps are identified.
+
+The Strategist's role is deciding where attention should be allocated next.
+
+## Long-Term Vision for Acquisition
+
+The ultimate objective is for organizational memory to become more valuable than any external search provider.
+
+The organization should eventually be capable of answering many questions directly from accumulated knowledge, observations, evidence, reports, and historical context.
+
+Desired evolution:
+
+Year 0:
+
+"We search the web."
+
+Year 1:
+
+"We search our memory before searching the web."
+
+Year 2+:
+
+"Our unique institutional knowledge is our primary competitive advantage."
+
+At maturity, external search acts as a sensor for the world while the organization's memory acts as its accumulated intelligence.
+
+## Principle: Search Is a Sense
+
+External search is not the organization's intelligence.
+
+External search is merely one of its senses.
+
+The true intelligence of the organization should emerge from the combination of:
+
+- Institutional memory
+- Historical context
+- Evidence accumulation
+- Hypothesis evolution
+- Internal debate
+- Strategic prioritization
+
+The organization's long-term value should be measured by what it remembers and understands, not by what it can search.
+
 ---
 
 # Architecture Principles
@@ -386,6 +578,7 @@ Deliverables:
 - Researcher
 - Skeptic
 - Historian
+- Minimal acquisition layer: search() and extract() behind a provider-independent interface, with one provider adapter
 
 Workflow:
 
@@ -397,6 +590,33 @@ Scout
 Success criteria:
 
 The organization can create and refine hypotheses.
+
+---
+
+# Milestone 2.5 - Knowledge Acquisition Layer
+
+Goal:
+
+Create a provider-independent acquisition framework.
+
+Deliverables:
+
+- Full search abstraction layer (building on the minimal layer from Milestone 2)
+- Additional provider adapters
+- Structured acquisition pipeline
+- Source tracking
+- Citation tracking
+
+Supported capabilities:
+
+- Search
+- Extract
+- Discover related entities
+- Crawl approved sources
+
+Success criteria:
+
+Agents can acquire information without being coupled to a specific provider.
 
 ---
 
