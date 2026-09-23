@@ -249,6 +249,7 @@ QUOTE = (
     ("statement", "missing"),
     [
         ("Anthropic's Dario Amodei cited 3 incidents.", []),
+        ("An industry leader cited 3 incidents.", []),  # sentence-initial article
         ("OpenAI's Sam Altman mentioned 1000 affected agents.", []),
         (
             "Google CEO Sundar Pichai cited 5 incidents in 2025.",

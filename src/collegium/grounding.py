@@ -102,6 +102,41 @@ def _original(document: str, index: list[int], start: int, end: int) -> str:
 # statement a model most often gets wrong when paraphrasing.
 _NAME_OR_NUMBER = re.compile(r"\b[A-Z][\w&.-]*|\b\d[\d.,]*")
 _POSSESSIVE = re.compile(r"['’]s\b")
+# Capitalised only because they start a sentence; not names.
+_COMMON = frozenset(
+    [
+        "a",
+        "about",
+        "according",
+        "after",
+        "an",
+        "as",
+        "at",
+        "before",
+        "by",
+        "during",
+        "for",
+        "from",
+        "in",
+        "it",
+        "its",
+        "many",
+        "most",
+        "new",
+        "on",
+        "over",
+        "some",
+        "that",
+        "the",
+        "their",
+        "there",
+        "these",
+        "this",
+        "those",
+        "under",
+        "with",
+    ]
+)
 
 
 def unsupported_terms(statement: str, support: str) -> list[str]:
@@ -116,6 +151,8 @@ def unsupported_terms(statement: str, support: str) -> list[str]:
     missing = []
     for term in _NAME_OR_NUMBER.findall(_POSSESSIVE.sub("", statement)):
         key, _ = _normalize(term.replace(",", "").rstrip("."))
+        if key in _COMMON:
+            continue
         if key and not re.search(rf"(?<!\w){re.escape(key)}(?!\w)", text):
             missing.append(term.rstrip("."))
     return missing

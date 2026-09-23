@@ -1,12 +1,13 @@
 """Knowledge acquisition: how the organization reads the outside world.
 
-Two capabilities, each behind a protocol:
+Three capabilities, each behind a protocol:
 
-- discovery finds leads (a search engine, Hacker News, ...);
+- discovery finds leads for a query (a search engine, Hacker News, ...);
+- crawling reads leads from a source the owner approved (a feed);
 - extraction reads the pages leads point to.
 
-Roles use `Acquisition`, which holds the named discovery providers and one
-extractor, and never a vendor directly. It can record every external call,
+Roles use `Acquisition`, which holds the named discovery providers, a
+crawler and one extractor, and never a vendor directly. It can record every external call,
 so the organization knows how it found each source and what it has
 revealed to providers.
 """
@@ -61,6 +62,12 @@ class Extractor(Protocol):
     def extract(self, urls: list[str]) -> list[Document]: ...
 
 
+class Crawler(Protocol):
+    name: str
+
+    def crawl(self, url: str, max_items: int) -> list[SearchResult]: ...
+
+
 # Leads with less text than this are enriched from the page they point to,
 # up to ENRICH_TOP per call, so the model can judge them on content rather
 # than on a headline.
@@ -83,12 +90,14 @@ class Acquisition:
         extractor: Extractor,
         *,
         default: str,
+        crawler: Crawler | None = None,
         recorder: Recorder | None = None,
     ):
         if default not in discovery:
             raise UnknownSource(default)
         self._discovery = dict(discovery)
         self._extractor = extractor
+        self._crawler = crawler
         self.default = default
         self._recorder = recorder
 
@@ -98,7 +107,11 @@ class Acquisition:
 
     def with_recorder(self, recorder: Recorder) -> "Acquisition":
         return Acquisition(
-            self._discovery, self._extractor, default=self.default, recorder=recorder
+            self._discovery,
+            self._extractor,
+            default=self.default,
+            crawler=self._crawler,
+            recorder=recorder,
         )
 
     def discover(
@@ -127,7 +140,23 @@ class Acquisition:
             if getattr(provider, "thin_leads", False):
                 results = self._enrich(results)
             per_source.append(results)
-        return _interleave(per_source)
+        return interleave(per_source)
+
+    def crawl(self, url: str, *, max_items: int) -> list[SearchResult]:
+        """Leads from an approved source, such as the newest items of a feed."""
+        if self._crawler is None:
+            raise UnknownSource("no crawler configured")
+        crawler = self._crawler
+        results, acquisition_id = self._call(
+            "crawl",
+            crawler.name,
+            {"url": url, "max_items": max_items},
+            lambda: crawler.crawl(url, max_items),
+        )
+        results = [
+            replace(r, provider=crawler.name, acquisition_id=acquisition_id) for r in results
+        ]
+        return self._enrich(results) if getattr(crawler, "thin_leads", False) else results
 
     def _enrich(self, results: list[SearchResult]) -> list[SearchResult]:
         """Prefix the top thin leads with the opening of their page. A failed
@@ -206,7 +235,7 @@ class Acquisition:
         return self._recorder(capability, provider, request, count, error)
 
 
-def _interleave(lists: list[list[SearchResult]]) -> list[SearchResult]:
+def interleave(lists: list[list[SearchResult]]) -> list[SearchResult]:
     """Round-robin across lists, dropping repeated urls."""
     seen: set[str] = set()
     merged = []
@@ -219,6 +248,7 @@ def _interleave(lists: list[list[SearchResult]]) -> list[SearchResult]:
 
 
 def acquisition_from_settings(settings: Settings) -> Acquisition:
+    from collegium.acquisition.feeds import FeedReader
     from collegium.acquisition.hackernews import HackerNewsDiscovery
 
     discovery: dict[str, Discovery] = {"hackernews": HackerNewsDiscovery()}
@@ -230,7 +260,7 @@ def acquisition_from_settings(settings: Settings) -> Acquisition:
         extractor: Extractor = tavily
     else:
         raise SystemExit(f"unknown COLLEGIUM_SEARCH_PROVIDER {settings.search_provider!r}")
-    return Acquisition(discovery, extractor, default=settings.search_provider)
+    return Acquisition(discovery, extractor, default=settings.search_provider, crawler=FeedReader())
 
 
 _IMAGE = re.compile(r"!\[[^\]]*\]\([^)]*\)")

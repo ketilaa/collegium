@@ -8,6 +8,7 @@ import truststore
 
 from collegium import jobs, memory, scheduler, worker
 from collegium.acquisition import acquisition_from_settings
+from collegium.acquisition.feeds import FeedReader
 from collegium.config import Settings, require
 from collegium.db import Database
 from collegium.llm import OpenAICompatibleLLM
@@ -34,6 +35,19 @@ def main(argv: list[str] | None = None) -> None:
     s = dsub.add_parser("sources", help="show or set the Scout's discovery sources")
     s.add_argument("slug")
     s.add_argument("names", nargs="*", help="e.g. tavily hackernews; 'default' to reset")
+
+    p = sub.add_parser("feed", help="manage feeds approved for a domain (owner)")
+    fsub = p.add_subparsers(dest="action", required=True)
+    f = fsub.add_parser("add", help="approve a feed; it is fetched once to check it")
+    f.add_argument("slug")
+    f.add_argument("url")
+    f.add_argument("--title")
+    f = fsub.add_parser("list")
+    f.add_argument("slug", nargs="?")
+    for action in ("pause", "resume", "retire"):
+        f = fsub.add_parser(action)
+        f.add_argument("slug")
+        f.add_argument("url")
 
     p = sub.add_parser("scout", help="ask the Scout to explore a domain now (owner)")
     p.add_argument("slug")
@@ -168,6 +182,48 @@ def _acquisitions(args, settings: Settings) -> None:
         )
 
 
+FEED_STATUS = {"pause": "paused", "resume": "active", "retire": "retired"}
+
+
+def _feed(args, settings: Settings) -> None:
+    if args.action == "list":
+        with _reader(settings).reading() as conn:
+            rows = conn.execute(
+                "SELECT d.slug, f.url, f.title, f.status FROM approved_sources f "
+                "JOIN domains d ON d.id = f.domain_id "
+                "WHERE f.kind = 'feed' AND (%s::text IS NULL OR d.slug = %s) "
+                "ORDER BY d.slug, f.created_at",
+                (args.slug, args.slug),
+            ).fetchall()
+        for f in rows:
+            print(f"{f['slug']:20} {f['status']:8} {f['url']}  {f['title'] or ''}")
+        return
+
+    with _board(settings).acting_as("owner") as conn:
+        domain = memory.domain_by_slug(conn, args.slug)
+        if domain is None:
+            raise SystemExit(f"no domain {args.slug!r}")
+        if args.action == "add":
+            try:
+                items = FeedReader().crawl(args.url, max_items=100)
+            except Exception as e:
+                raise SystemExit(f"could not read {args.url} as a feed: {e}") from e
+            conn.execute(
+                "INSERT INTO approved_sources (domain_id, kind, url, title) "
+                "VALUES (%s, 'feed', %s, %s)",
+                (domain["id"], args.url, args.title),
+            )
+            print(f"approved feed for {args.slug} ({len(items)} items now)")
+        else:
+            updated = conn.execute(
+                "UPDATE approved_sources SET status = %s WHERE domain_id = %s AND url = %s",
+                (FEED_STATUS[args.action], domain["id"], args.url),
+            ).rowcount
+            if not updated:
+                raise SystemExit(f"no feed {args.url} for {args.slug}")
+            print(f"{args.url}: {FEED_STATUS[args.action]}")
+
+
 def _scout(args, settings: Settings) -> None:
     with _board(settings).acting_as("owner") as conn:
         domain = memory.domain_by_slug(conn, args.slug)
@@ -261,6 +317,7 @@ COMMANDS = {
     "worker": _worker,
     "scheduler": _scheduler,
     "domain": _domain,
+    "feed": _feed,
     "scout": _scout,
     "hypotheses": _hypotheses,
     "why": _why,

@@ -262,3 +262,19 @@ The quote is stored as evidence supporting the observation, so every
 observation shows the source's own words. Rejections are counted in the
 run's notes. In the first live run, 5 of 5 quotes were found and 1
 statement failed the model's check.
+
+## 2026-09-23 · Milestone 2.5, part 2: crawling owner-approved feeds
+
+The owner approves RSS or Atom feeds per domain (`collegium feed add
+<slug> <url>`; the feed is fetched once to check it). Approval is
+governance: `approved_sources` is writable only by the board, audited, and
+feeds are paused or retired rather than deleted. On every run the Scout
+reads the newest items of each active feed (`COLLEGIUM_MAX_FEED_ITEMS`,
+default 5) alongside its searches, drops items older than its recency
+window or already recorded as sources, and interleaves the rest with search
+leads. Feed reads are recorded as `crawl` calls; only the feed's own URL is
+sent out. A failing feed is skipped and its failed call recorded, so one
+broken feed does not stop the Scout. Feed XML is parsed with defusedxml.
+
+The grounding check for observations now ignores sentence-initial function
+words ("A", "The"), which it had mistaken for names.

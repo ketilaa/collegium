@@ -160,9 +160,12 @@ def make_context(worker_db, llm):
         dates: dict[str, str] | None = None,
         extra_sources: dict[str, "FakeProvider"] | None = None,
         web: "FakeProvider | None" = None,
+        crawler=None,
     ) -> Context:
         web = web or FakeProvider(pages or {}, dates)
-        acquisition = Acquisition({"fake": web, **(extra_sources or {})}, web, default="fake")
+        acquisition = Acquisition(
+            {"fake": web, **(extra_sources or {})}, web, default="fake", crawler=crawler
+        )
         return Context(db=worker_db, llm=llm, acquisition=acquisition, settings=Settings())
 
     return make
@@ -177,3 +180,12 @@ def add_domain(board_db):
             ).fetchone()["id"]
 
     return add
+
+
+# One searchable page, so the Scout has something besides feeds.
+PAGES_FOR_FEEDS = {
+    "https://news.example/agents": (
+        "Agent costs in the news",
+        "Reporters looked at what companies spend on AI agents this year.",
+    )
+}

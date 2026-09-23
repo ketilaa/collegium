@@ -7,7 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from collegium import jobs, memory
-from collegium.acquisition import SearchResult
+from collegium.acquisition import SearchResult, interleave
 from collegium.dates import parse_date
 from collegium.db import Connection
 from collegium.grounding import locate_excerpt, unsupported_terms
@@ -84,6 +84,7 @@ class Scout(Role):
         with ctx.db.reading() as conn:
             domain = memory.domain(conn, domain_id)
             recent = memory.recent_observations(conn, domain_id)
+            feeds = memory.active_feeds(conn, domain_id)
         if domain is None:
             raise LookupError(f"domain {domain_id} not found")
 
@@ -94,9 +95,16 @@ class Scout(Role):
         )
         if ctx.acquisition is None:
             raise NothingToWorkWith("no acquisition provider configured")
-        results, queries = _search(ctx, plan.queries, domain["discovery_sources"])
+        searched, found = _search(ctx, plan.queries, domain["discovery_sources"])
+        crawled, crawled_from, feed_errors = _crawl(ctx, feeds)
+        with ctx.db.reading() as conn:
+            # Feeds repeat their items run after run; skip what is already known.
+            seen = memory.known_source_uris(conn, [r.url for r in crawled])
+        crawled = [r for r in crawled if r.url not in seen and r.url not in found]
+        found |= crawled_from
+        results = interleave([searched, crawled])
         if not results:
-            raise NothingToWorkWith(f"no search results for {plan.queries}")
+            raise NothingToWorkWith(f"no leads for {plan.queries} or from {len(feeds)} feeds")
 
         report = ctx.llm.generate(
             system,
@@ -125,7 +133,7 @@ class Scout(Role):
                     published_at=result.published_at,
                     metadata={
                         "provider": result.provider,
-                        "query": queries[result.url],
+                        **found[result.url],
                         "snippet": result.snippet,
                         **result.metadata,
                     },
@@ -164,8 +172,11 @@ class Scout(Role):
                     )
                     investigating += 1
             rejected = ", ".join(f"{n} {why}" for why, n in dropped.items() if n) or "none"
+            feed_note = f"; {len(crawled)} new feed items from {len(feeds)} feeds" if feeds else ""
+            if feed_errors:
+                feed_note += f" ({feed_errors} feeds failed)"
             return (
-                f"queries={plan.queries}; recorded {recorded} observations, "
+                f"queries={plan.queries}{feed_note}; recorded {recorded} observations, "
                 f"{investigating} sent for research, {skipped} already known; "
                 f"rejected: {rejected}"
             )
@@ -204,9 +215,36 @@ def _brief(domain: dict, recent: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _recent(ctx: Context, result: SearchResult) -> bool:
+    published = parse_date(result.published_at)
+    return not published or published >= datetime.now(UTC) - timedelta(
+        days=ctx.settings.scout_recent_days
+    )
+
+
+def _crawl(ctx: Context, feeds: list[dict]) -> tuple[list[SearchResult], dict[str, dict], int]:
+    """Recent items from the domain's approved feeds, where each came from,
+    and how many feeds failed. A failing feed is skipped (its failed call is
+    recorded), so one broken feed does not stop the Scout."""
+    items: list[SearchResult] = []
+    came_from: dict[str, dict] = {}
+    errors = 0
+    for feed in feeds:
+        try:
+            crawled = ctx.acquisition.crawl(feed["url"], max_items=ctx.settings.max_feed_items)
+        except Exception:
+            errors += 1
+            continue
+        for item in crawled:
+            if item.url not in came_from and _recent(ctx, item):
+                came_from[item.url] = {"feed": feed["url"]}
+                items.append(item)
+    return items, came_from, errors
+
+
 def _search(
     ctx: Context, queries: list[str], sources: list[str]
-) -> tuple[list[SearchResult], dict[str, str]]:
+) -> tuple[list[SearchResult], dict[str, dict]]:
     """Distinct recent results across queries, and the query that found each.
 
     The Scout uses the domain's discovery sources (the default search when
@@ -214,21 +252,18 @@ def _search(
     and drops anything dated before it: old announcements resurface in
     search results and would otherwise be recorded as current events.
     """
-    days = ctx.settings.scout_recent_days
-    cutoff = datetime.now(UTC) - timedelta(days=days)
     results: list[SearchResult] = []
-    found_by: dict[str, str] = {}
+    found_by: dict[str, dict] = {}
     for query in queries:
         for result in ctx.acquisition.discover(
             query,
             max_results=ctx.settings.max_search_results,
-            recent_days=days,
+            recent_days=ctx.settings.scout_recent_days,
             sources=sources or None,
         ):
-            published = parse_date(result.published_at)
-            if result.url in found_by or (published and published < cutoff):
+            if result.url in found_by or not _recent(ctx, result):
                 continue
-            found_by[result.url] = query
+            found_by[result.url] = {"query": query}
             results.append(result)
     return results, found_by
 

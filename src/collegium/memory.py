@@ -247,6 +247,19 @@ def active_domains(conn: Connection) -> list[dict]:
     return conn.execute("SELECT * FROM domains WHERE status = 'active' ORDER BY slug").fetchall()
 
 
+def active_feeds(conn: Connection, domain_id: UUID) -> list[dict]:
+    return conn.execute(
+        "SELECT * FROM approved_sources WHERE domain_id = %s AND kind = 'feed' "
+        "AND status = 'active' ORDER BY created_at",
+        (domain_id,),
+    ).fetchall()
+
+
+def known_source_uris(conn: Connection, uris: list[str]) -> set[str]:
+    rows = conn.execute("SELECT DISTINCT uri FROM sources WHERE uri = ANY(%s)", (uris,))
+    return {r["uri"] for r in rows}
+
+
 def node_domain_ids(conn: Connection, node_id: UUID) -> list[UUID]:
     rows = conn.execute("SELECT domain_id FROM node_domains WHERE node_id = %s", (node_id,))
     return [r["domain_id"] for r in rows]

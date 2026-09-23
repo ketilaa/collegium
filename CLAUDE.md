@@ -35,6 +35,7 @@ uv run collegium why <hypothesis-id-prefix>
 uv run collegium jobs
 uv run collegium domain sources ai-agents tavily hackernews   # Scout's discovery sources
 uv run collegium acquisitions            # recent calls to external providers
+uv run collegium feed add ai-agents <url> # approve a feed for a domain (also list/pause/resume/retire)
 ```
 
 Tests create a migrated template database and give each test a fresh copy (memory tables cannot be emptied). They connect as the `collegium` superuser with `SET ROLE collegium_worker`/`collegium_board`, so table grants are exercised, but the owner/system impersonation checks (which look at the login user) are not. Tests use `ScriptedLLM` and `FakeProvider` from `tests/conftest.py`; no model or API key is needed.
@@ -104,7 +105,7 @@ This means history and provenance must be kept, not overwritten.
 
 1. Institutional memory: Postgres schema and audit history. Knowledge must survive restarts and agent replacement.
 2. Research workflow: Scout, Researcher, Skeptic and Historian, with a minimal acquisition layer (`search`/`extract`, one Tavily adapter).
-2.5. Knowledge acquisition layer. Part 1 done: discover/extract split, Hacker News adapter, per-domain discovery sources, call log. Part 2: crawling owner-approved sources, related-entity discovery, citation tracking, grounding Scout observations.
+2.5. Knowledge acquisition layer. Part 1 done: discover/extract split, Hacker News adapter, per-domain discovery sources, call log. Part 2 so far: grounded Scout observations, crawling owner-approved feeds. Remaining: related-entity discovery, citation tracking.
 3. Strategy layer: Strategist, knowledge-gap detection and research programs. Includes the critique-resolution loop: open critiques are investigated and resolved, which is how hypotheses come to be accepted. Until then almost nothing is accepted, by design.
 4. Board interface: a dashboard with Mission, Programs, Goals, Hypotheses, Contradictions, Recent Discoveries and "Ask the Organization".
 5. Long-term evolution: cross-domain knowledge and belief revision.
