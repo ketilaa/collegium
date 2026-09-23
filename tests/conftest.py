@@ -16,7 +16,7 @@ import pytest
 from psycopg.conninfo import make_conninfo
 from pydantic import BaseModel
 
-from collegium.acquisition import Document, SearchResult
+from collegium.acquisition import Acquisition, Document, SearchResult
 from collegium.config import Settings
 from collegium.db import Database
 from collegium.roles.base import Context
@@ -116,7 +116,7 @@ class FakeProvider:
         self.dates = dates or {}  # url -> published date
         self.searches: list[tuple[str, int | None]] = []
 
-    def search(self, query, max_results, *, recent_days=None):
+    def discover(self, query, max_results, *, recent_days=None):
         self.searches.append((query, recent_days))
         return [
             SearchResult(
@@ -140,10 +140,15 @@ def llm():
 
 @pytest.fixture
 def make_context(worker_db, llm):
-    def make(pages: dict[str, tuple[str, str]], dates: dict[str, str] | None = None) -> Context:
-        return Context(
-            db=worker_db, llm=llm, acquisition=FakeProvider(pages, dates), settings=Settings()
-        )
+    def make(
+        pages: dict[str, tuple[str, str]] | None = None,
+        dates: dict[str, str] | None = None,
+        extra_sources: dict[str, "FakeProvider"] | None = None,
+        web: "FakeProvider | None" = None,
+    ) -> Context:
+        web = web or FakeProvider(pages or {}, dates)
+        acquisition = Acquisition({"fake": web, **(extra_sources or {})}, web, default="fake")
+        return Context(db=worker_db, llm=llm, acquisition=acquisition, settings=Settings())
 
     return make
 

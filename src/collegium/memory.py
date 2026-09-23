@@ -50,6 +50,7 @@ def record_source(
     published_at: str | None = None,
     content: str | None = None,
     metadata: dict[str, Any] | None = None,
+    acquisition_id: UUID | None = None,
 ) -> UUID:
     """Return the source for this uri and content, creating it if new.
 
@@ -65,9 +66,16 @@ def record_source(
     if row:
         return row["id"]
     return conn.execute(
-        "INSERT INTO sources (uri, title, published_at, content_sha256, metadata) "
-        "VALUES (%s, %s, %s::timestamptz, %s, %s) RETURNING id",
-        (uri, title, _timestamp_or_none(published_at), digest, Jsonb(metadata or {})),
+        "INSERT INTO sources (uri, title, published_at, content_sha256, metadata, acquisition_id) "
+        "VALUES (%s, %s, %s::timestamptz, %s, %s, %s) RETURNING id",
+        (
+            uri,
+            title,
+            _timestamp_or_none(published_at),
+            digest,
+            Jsonb(metadata or {}),
+            acquisition_id,
+        ),
     ).fetchone()["id"]
 
 
@@ -189,6 +197,22 @@ def assess_confidence(
         "VALUES (%s, %s, %s, %s)",
         (target_id, target_kind, _unit(confidence), rationale),
     )
+
+
+def record_acquisition(
+    conn: Connection,
+    *,
+    capability: str,
+    provider: str,
+    request: dict[str, Any],
+    result_count: int,
+    error: str | None,
+) -> UUID:
+    return conn.execute(
+        "INSERT INTO acquisitions (capability, provider, request, result_count, error) "
+        "VALUES (%s, %s, %s, %s, %s) RETURNING id",
+        (capability, provider, Jsonb(request), result_count, error),
+    ).fetchone()["id"]
 
 
 def set_observation_status(conn: Connection, observation_id: UUID, status: str) -> None:

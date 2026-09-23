@@ -8,8 +8,13 @@ the job's completion in one transaction.
 import logging
 import time
 import traceback
+from dataclasses import replace
+from typing import Any
+from uuid import UUID
 
-from collegium import jobs
+from collegium import jobs, memory
+from collegium.acquisition import Recorder
+from collegium.db import Database
 from collegium.roles import ROLES
 from collegium.roles.base import Context
 
@@ -34,6 +39,10 @@ def run_once(ctx: Context) -> bool:
         )
     log.info("%s job %s: run %s", job.kind, job.id, run_id)
 
+    if ctx.acquisition is not None:
+        ctx = replace(
+            ctx, acquisition=ctx.acquisition.with_recorder(_recorder(ctx.db, role.name, run_id))
+        )
     try:
         persist = role.prepare(ctx, job)
         with ctx.db.acting_as(role.name, run_id) as conn:
@@ -62,3 +71,23 @@ def drain(ctx: Context, limit: int = 1000) -> int:
     while count < limit and run_once(ctx):
         count += 1
     return count
+
+
+def _recorder(db: Database, actor: str, run_id: UUID) -> Recorder:
+    """Records each external call in its own transaction, so calls are kept
+    even when the run later fails: what was sent out cannot be unsent."""
+
+    def record(
+        capability: str, provider: str, request: dict[str, Any], count: int, error: str | None
+    ) -> UUID:
+        with db.acting_as(actor, run_id) as conn:
+            return memory.record_acquisition(
+                conn,
+                capability=capability,
+                provider=provider,
+                request=request,
+                result_count=count,
+                error=error,
+            )
+
+    return record

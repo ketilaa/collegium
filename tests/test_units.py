@@ -1,9 +1,17 @@
 from datetime import timedelta
+from uuid import uuid4
 
 import pytest
 
 from collegium import scheduler
-from collegium.acquisition import Document, clean_text
+from collegium.acquisition import (
+    Acquisition,
+    Document,
+    SearchResult,
+    UnknownSource,
+    clean_text,
+)
+from collegium.acquisition.hackernews import keywords
 from collegium.grounding import locate_excerpt
 from collegium.llm import extract_json
 from collegium.roles.base import EvidenceItem, SearchPlan, Stance, ground_evidence
@@ -138,3 +146,94 @@ def test_list_markers_do_not_prevent_grounding():
     assert locate_excerpt(excerpt, page) == (
         "The catch is that the system costs $100,000 per year.\n* Teams can opt out."
     )
+
+
+class _Source:
+    def __init__(self, name, urls, fail=False):
+        self.name, self.urls, self.fail = name, urls, fail
+
+    def discover(self, query, max_results, *, recent_days=None):
+        if self.fail:
+            raise RuntimeError("provider down")
+        return [SearchResult(url=u, title=u, snippet="") for u in self.urls][:max_results]
+
+    def extract(self, urls):
+        return []
+
+
+def test_acquisition_interleaves_sources_and_records_each_call():
+    calls = []
+
+    def record(capability, provider, request, count, error):
+        calls.append((capability, provider, request["query"], count, error))
+        return uuid4()
+
+    a = _Source("a", ["https://1", "https://2", "https://shared"])
+    b = _Source("b", ["https://shared", "https://3"])
+    acquisition = Acquisition({"a": a, "b": b}, a, default="a").with_recorder(record)
+
+    results = acquisition.discover("q", max_results=5, sources=["a", "b"])
+
+    assert [r.url for r in results] == ["https://1", "https://shared", "https://2", "https://3"]
+    assert [r.provider for r in results] == ["a", "b", "a", "b"]
+    assert all(r.acquisition_id for r in results)
+    assert calls == [("discover", "a", "q", 3, None), ("discover", "b", "q", 2, None)]
+
+
+def test_failed_call_is_recorded_before_the_error_propagates():
+    calls = []
+    down = _Source("down", [], fail=True)
+    acquisition = Acquisition({"down": down}, down, default="down").with_recorder(
+        lambda *args: calls.append(args)
+    )
+    with pytest.raises(RuntimeError):
+        acquisition.discover("q", max_results=5)
+    assert calls[0][:2] == ("discover", "down")
+    assert calls[0][4] == "RuntimeError: provider down"
+
+
+def test_unknown_source_is_refused():
+    a = _Source("a", [])
+    with pytest.raises(UnknownSource):
+        Acquisition({"a": a}, a, default="a").discover("q", max_results=5, sources=["nope"])
+
+
+class _ThinSource(_Source):
+    thin_leads = True
+
+    def __init__(self, name, urls, pages, fail_extract=False):
+        super().__init__(name, urls)
+        self.pages, self.fail_extract, self.extracted = pages, fail_extract, []
+
+    def discover(self, query, max_results, *, recent_days=None):
+        return [SearchResult(url=u, title=u, snippet="10 points") for u in self.urls]
+
+    def extract(self, urls):
+        self.extracted.append(urls)
+        if self.fail_extract:
+            raise RuntimeError("extractor down")
+        return [Document(url=u, title=u, content=self.pages[u]) for u in urls if u in self.pages]
+
+
+def test_thin_leads_are_enriched_from_their_pages():
+    urls = [f"https://{i}.example" for i in range(5)]
+    thin = _ThinSource("hn", urls, {u: f"[Home](/)\n\nArticle {u} body." for u in urls})
+    acquisition = Acquisition({"hn": thin}, thin, default="hn")
+
+    results = acquisition.discover("q", max_results=5)
+
+    assert thin.extracted == [urls[:3]]  # only the top ENRICH_TOP
+    assert results[0].snippet == "Home\n\nArticle https://0.example body.\n10 points"
+    assert results[4].snippet == "10 points"
+
+
+def test_failed_enrichment_keeps_the_leads():
+    thin = _ThinSource("hn", ["https://a.example"], {}, fail_extract=True)
+    results = Acquisition({"hn": thin}, thin, default="hn").discover("q", max_results=5)
+    assert [r.snippet for r in results] == ["10 points"]
+
+
+def test_hacker_news_queries_are_reduced_to_keywords():
+    assert keywords("recent developments in AI models") == "developments ai models"
+    assert keywords("What's new with GPT-5.6 and C++?") == "gpt-5.6 c++"
+    assert keywords("the latest") == "the latest"  # nothing left: keep the query

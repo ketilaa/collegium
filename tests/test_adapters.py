@@ -5,6 +5,7 @@ import json
 import httpx
 import pytest
 
+from collegium.acquisition.hackernews import HackerNewsDiscovery
 from collegium.acquisition.tavily import TavilyProvider
 from collegium.llm import LLMError, OpenAICompatibleLLM
 from collegium.roles.base import SearchPlan
@@ -88,7 +89,7 @@ def test_tavily_search_and_extract():
         )
 
     provider = TavilyProvider("key", transport=httpx.MockTransport(handler))
-    [result] = provider.search("ai pricing", 2)
+    [result] = provider.discover("ai pricing", 2)
     assert "topic" not in requests[0]
     assert (result.url, result.snippet, result.score, result.published_at) == (
         "https://a.example",
@@ -107,5 +108,70 @@ def test_tavily_recent_search_uses_news_topic():
         requests.append(json.loads(request.content))
         return httpx.Response(200, json={"results": []})
 
-    TavilyProvider("key", transport=httpx.MockTransport(handler)).search("q", 3, recent_days=30)
+    TavilyProvider("key", transport=httpx.MockTransport(handler)).discover("q", 3, recent_days=30)
     assert requests[0]["topic"] == "news" and requests[0]["days"] == 30
+
+
+def test_hacker_news_leads_point_at_the_linked_article():
+    requests = []
+
+    def handler(request):
+        requests.append(request.url.params)
+        return httpx.Response(
+            200,
+            json={
+                "hits": [
+                    {
+                        "objectID": "101",
+                        "title": "Agents are getting cheaper",
+                        "url": "https://blog.example/agents",
+                        "points": 312,
+                        "num_comments": 140,
+                        "created_at": "2026-09-20T10:00:00Z",
+                        "story_text": None,
+                    },
+                    {
+                        "objectID": "102",
+                        "title": "Ask HN: Who runs agents in production?",
+                        "url": None,
+                        "points": 50,
+                        "num_comments": 80,
+                        "created_at": "2026-09-21T10:00:00Z",
+                        "story_text": "<p>Curious what it costs &amp; what breaks.</p>",
+                    },
+                ]
+            },
+        )
+
+    hn = HackerNewsDiscovery(transport=httpx.MockTransport(handler))
+    article, ask = hn.discover("ai agents", 5, recent_days=30)
+
+    params = requests[0]
+    assert params["query"] == params["optionalWords"] == "ai agents"
+    assert params["tags"] == "story"
+    assert params["hitsPerPage"] == "5"
+    points, since = params["numericFilters"].split(",")
+    assert points == "points>=30" and since.startswith("created_at_i>")
+
+    assert article.url == "https://blog.example/agents"
+    assert article.snippet == "Hacker News: 312 points, 140 comments"
+    assert article.published_at == "2026-09-20T10:00:00Z"
+    assert article.metadata == {
+        "hn_discussion": "https://news.ycombinator.com/item?id=101",
+        "hn_points": 312,
+        "hn_comments": 140,
+    }
+    # A text post has no article: the discussion is the lead.
+    assert ask.url == "https://news.ycombinator.com/item?id=102"
+    assert ask.snippet.startswith("Curious what it costs & what breaks.")
+
+
+def test_hacker_news_without_window_filters_only_on_points():
+    requests = []
+
+    def handler(request):
+        requests.append(request.url.params)
+        return httpx.Response(200, json={"hits": []})
+
+    HackerNewsDiscovery(min_points=100, transport=httpx.MockTransport(handler)).discover("q", 3)
+    assert requests[0]["numericFilters"] == "points>=100"

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-Milestone 1 (institutional memory) is done. Milestone 2 (research workflow) is implemented and has run end to end against Qwen2.5 7B and 14B on llama.cpp and live Tavily search, in throwaway databases. There is no API or web UI yet. The owner's secrets live in `~/.collegium/.env`: never read or print that file, only source it into a command's environment.
+Milestone 1 (institutional memory) is done. Milestone 2 (research workflow) is implemented and has run end to end against Qwen2.5 7B and 14B on llama.cpp and live Tavily search, in throwaway databases. Milestone 2.5 part 1 (acquisition layer) is done. There is no API or web UI yet. The owner's secrets live in `~/.collegium/.env`: never read or print that file, only source it into a command's environment.
 
 `VISION.md` is the source of truth for intent. `docs/decisions.md` records the technical decisions made so far and why. Read both before making design decisions, and add an entry to `docs/decisions.md` when you make a new one.
 
@@ -33,6 +33,8 @@ uv run collegium worker --drain          # process due jobs, then exit
 uv run collegium hypotheses
 uv run collegium why <hypothesis-id-prefix>
 uv run collegium jobs
+uv run collegium domain sources ai-agents tavily hackernews   # Scout's discovery sources
+uv run collegium acquisitions            # recent calls to external providers
 ```
 
 Tests create a migrated template database and give each test a fresh copy (memory tables cannot be emptied). They connect as the `collegium` superuser with `SET ROLE collegium_worker`/`collegium_board`, so table grants are exercised, but the owner/system impersonation checks (which look at the login user) are not. Tests use `ScriptedLLM` and `FakeProvider` from `tests/conftest.py`; no model or API key is needed.
@@ -73,7 +75,7 @@ Core workflow: Scout → Researcher → Skeptic → Historian. The Strategist si
 - **Historian:** deterministic rules, no model. It is the only role that changes a hypothesis's status (accept/reject/under review, and superseding hypotheses that an accepted one `refines`). Accepting needs the Skeptic's agreement, confidence ≥ 0.6 and supporting evidence from at least two independent sites. Changing a rule means bumping `Historian.version()`.
 - **Recency:** the Scout searches news within `COLLEGIUM_SCOUT_RECENT_DAYS` and drops older results. The Researcher and Skeptic search without a window.
 - **Labels in prompts:** existing hypotheses are shown to the model as `E1..En`, new ones are `H1..Hn`, and the Skeptic's target is `H`. Code maps labels to ids; the model never sees UUIDs.
-- **Acquisition** (`acquisition/`): roles use `search`/`extract` through `AcquisitionProvider`; vendor code lives only in adapters such as `tavily.py`. `memory.py` is the only module that writes knowledge rows.
+- **Acquisition** (`acquisition/`): roles use the `Acquisition` facade (`discover`, `extract`, `gather`), never a provider. `Discovery` and `Extractor` are the provider protocols; vendor code lives only in adapters (`tavily.py`, `hackernews.py`). The worker gives each run a recording `Acquisition`, so every external call lands in `acquisitions` with its run, and sources carry the `acquisition_id` that found them. Providers with `thin_leads = True` get their top leads enriched from the page. `memory.py` is the only module that writes knowledge rows.
 - **Prompts** live in `src/collegium/roles/prompts/`: `organization.md` is shared and each role has its own file. Changing a prompt changes that role's `role_version`.
 
 ## Memory model
@@ -102,7 +104,7 @@ This means history and provenance must be kept, not overwritten.
 
 1. Institutional memory: Postgres schema and audit history. Knowledge must survive restarts and agent replacement.
 2. Research workflow: Scout, Researcher, Skeptic and Historian, with a minimal acquisition layer (`search`/`extract`, one Tavily adapter).
-2.5. Knowledge acquisition layer: search abstraction, provider adapters (Hacker News planned, see `docs/decisions.md`), per-domain discovery sources, source and citation tracking.
+2.5. Knowledge acquisition layer. Part 1 done: discover/extract split, Hacker News adapter, per-domain discovery sources, call log. Part 2: crawling owner-approved sources, related-entity discovery, citation tracking, grounding Scout observations.
 3. Strategy layer: Strategist, knowledge-gap detection and research programs. Includes the critique-resolution loop: open critiques are investigated and resolved, which is how hypotheses come to be accepted. Until then almost nothing is accepted, by design.
 4. Board interface: a dashboard with Mission, Programs, Goals, Hypotheses, Contradictions, Recent Discoveries and "Ask the Organization".
 5. Long-term evolution: cross-domain knowledge and belief revision.

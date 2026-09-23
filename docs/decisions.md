@@ -203,3 +203,39 @@ Design, to be built in Milestone 2.5:
 - **Comments later.** Practitioner comments could serve the Skeptic as
   counter-arguments, but they are opinion rather than evidence; they are
   left out at first.
+
+## 2026-09-23 · Milestone 2.5, part 1: discovery, extraction and the call log
+
+Built as planned above, with these details settled on the way:
+
+- **Two capabilities.** `Discovery` providers find leads and one
+  `Extractor` reads pages. Roles use the `Acquisition` facade, never a
+  provider. Tavily implements both; Hacker News is discovery only.
+- **Per-domain sources.** `domains.discovery_sources` names the Scout's
+  providers (`collegium domain sources <slug> tavily hackernews`); empty
+  means the default. Leads from several sources are interleaved so none
+  crowds out the others. The Researcher and Skeptic use the default source.
+- **Every external call is recorded** in the append-only `acquisitions`
+  table with the query or urls, the result count or error, the actor and
+  the run, in its own transaction, so calls survive a failed run. Each
+  source points at the call that found it (`sources.acquisition_id`).
+  `collegium acquisitions` shows what has been sent to providers.
+- **Hacker News leads.** HN search matches keywords, so the adapter drops
+  filler words and marks the rest optional; it only returns stories with at
+  least 30 points, since HN's value is practitioner attention. HN leads are
+  headlines, so the acquisition layer enriches the top three thin leads of
+  any source with the opening of their page (logged as extract calls; a
+  failed enrichment keeps the leads).
+- **TLS through the OS trust store.** The CLI verifies certificates against
+  the operating system's store (`truststore`), so networks that inspect
+  HTTPS with a locally trusted certificate, such as Zscaler, work.
+
+Observed in live runs: with both sources, the model chose mainstream news
+leads over HN leads for broad queries in every run. HN is wired in and its
+leads carry content; whether it earns its place should be judged over time
+and in narrower queries.
+
+Found and not yet fixed: Scout observations are the model's own sentences
+and are not checked against the lead they cite. One run produced "Anthropic
+CEO Sam Altman", which is wrong. Observations should be grounded the way
+evidence is.

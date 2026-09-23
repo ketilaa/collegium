@@ -4,8 +4,10 @@ import argparse
 import logging
 from datetime import datetime, timedelta
 
+import truststore
+
 from collegium import jobs, memory, scheduler, worker
-from collegium.acquisition import provider_from_settings
+from collegium.acquisition import acquisition_from_settings
 from collegium.config import Settings, require
 from collegium.db import Database
 from collegium.llm import OpenAICompatibleLLM
@@ -29,6 +31,9 @@ def main(argv: list[str] | None = None) -> None:
     a.add_argument("name")
     a.add_argument("--description")
     dsub.add_parser("list")
+    s = dsub.add_parser("sources", help="show or set the Scout's discovery sources")
+    s.add_argument("slug")
+    s.add_argument("names", nargs="*", help="e.g. tavily hackernews; 'default' to reset")
 
     p = sub.add_parser("scout", help="ask the Scout to explore a domain now (owner)")
     p.add_argument("slug")
@@ -39,10 +44,17 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("why", help="explain why the organization holds a belief")
     p.add_argument("hypothesis", help="hypothesis id or unique prefix")
 
+    p = sub.add_parser("acquisitions", help="show recent calls to external providers")
+    p.add_argument("--limit", type=int, default=20)
+
     p = sub.add_parser("jobs", help="show recent jobs")
     p.add_argument("--limit", type=int, default=20)
 
     args = parser.parse_args(argv)
+    # Verify TLS against the operating system's trust store rather than
+    # Python's bundled one, so networks that inspect HTTPS with a locally
+    # trusted certificate (e.g. Zscaler) work as they do in a browser.
+    truststore.inject_into_ssl()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     settings = Settings()
     COMMANDS[args.command](args, settings)
@@ -63,7 +75,7 @@ def _worker(args, settings: Settings) -> None:
             api_key=settings.llm_api_key,
             timeout=settings.llm_timeout_seconds,
         ),
-        acquisition=provider_from_settings(settings),
+        acquisition=acquisition_from_settings(settings),
         settings=settings,
     )
     if args.drain:
@@ -108,10 +120,52 @@ def _domain(args, settings: Settings) -> None:
                 (args.slug, args.name, args.description),
             )
         print(f"added domain {args.slug}")
+    elif args.action == "sources":
+        _domain_sources(args, settings)
     else:
         with _reader(settings).reading() as conn:
-            for d in conn.execute("SELECT slug, name, status FROM domains ORDER BY slug"):
-                print(f"{d['slug']:30} {d['status']:8} {d['name']}")
+            rows = conn.execute(
+                "SELECT slug, name, status, discovery_sources FROM domains ORDER BY slug"
+            )
+            for d in rows:
+                sources = ", ".join(d["discovery_sources"]) or "default"
+                print(f"{d['slug']:30} {d['status']:8} {d['name']}  [{sources}]")
+
+
+def _domain_sources(args, settings: Settings) -> None:
+    if args.names:
+        names = [] if args.names == ["default"] else args.names
+        known = acquisition_from_settings(settings).sources
+        unknown = sorted(set(names) - set(known))
+        if unknown:
+            raise SystemExit(f"unknown sources {unknown}; available: {known}")
+        with _board(settings).acting_as("owner") as conn:
+            updated = conn.execute(
+                "UPDATE domains SET discovery_sources = %s WHERE slug = %s", (names, args.slug)
+            ).rowcount
+        if not updated:
+            raise SystemExit(f"no domain {args.slug!r}")
+    with _reader(settings).reading() as conn:
+        domain = memory.domain_by_slug(conn, args.slug)
+    if domain is None:
+        raise SystemExit(f"no domain {args.slug!r}")
+    print(f"{args.slug}: {', '.join(domain['discovery_sources']) or 'default'}")
+
+
+def _acquisitions(args, settings: Settings) -> None:
+    with _reader(settings).reading() as conn:
+        rows = conn.execute(
+            "SELECT q.*, a.name AS actor FROM acquisitions q "
+            "JOIN actors a ON a.id = q.requested_by ORDER BY q.requested_at DESC LIMIT %s",
+            (args.limit,),
+        ).fetchall()
+    for q in rows:
+        request = q["request"].get("query") or ", ".join(q["request"].get("urls", []))
+        outcome = f"error: {q['error']}" if q["error"] else f"{q['result_count']} results"
+        print(
+            f"{_local(q['requested_at']):%m-%d %H:%M}  {q['actor']:10} {q['capability']:8} "
+            f"{q['provider']:10} {outcome:12}  {request}"
+        )
 
 
 def _scout(args, settings: Settings) -> None:
@@ -211,4 +265,5 @@ COMMANDS = {
     "hypotheses": _hypotheses,
     "why": _why,
     "jobs": _jobs,
+    "acquisitions": _acquisitions,
 }

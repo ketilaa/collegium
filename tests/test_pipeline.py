@@ -2,6 +2,10 @@
 
 from datetime import UTC, datetime
 
+import psycopg
+import pytest
+from conftest import FakeProvider
+
 from collegium import jobs, worker
 from collegium.roles.base import EvidenceItem, SearchPlan, Stance
 from collegium.roles.researcher import ProposedHypothesis, ResearchFindings
@@ -434,10 +438,11 @@ def test_scout_searches_recent_news_and_drops_old_results(
 ):
     domain_id = add_domain()
     old, recent = PRICE_CUT, ANALYSIS
-    ctx = make_context(
+    web = FakeProvider(
         {old: PAGES[old], recent: PAGES[recent]},
         dates={old: "Mon, 02 Dec 2024 10:00:00 GMT", recent: datetime.now(UTC).isoformat()},
     )
+    ctx = make_context(web=web)
     llm.add(SearchPlan, SearchPlan(queries=["AI price changes"]))
     llm.add(
         ScoutReport,
@@ -455,7 +460,7 @@ def test_scout_searches_recent_news_and_drops_old_results(
     enqueue_scout(board_db, domain_id)
     worker.drain(ctx)
 
-    assert ctx.acquisition.searches == [("AI price changes", 30)]
+    assert web.searches == [("AI price changes", 30)]
     # The 2024 page was never shown; result 1 is the recent one.
     scout_prompt = llm.prompts_for(ScoutReport)[0]
     assert old not in scout_prompt
@@ -523,3 +528,100 @@ def test_repeated_hypothesis_strengthens_the_existing_one(
             "WHERE a.name = 'researcher' ORDER BY r.started_at DESC LIMIT 1"
         ).fetchone()["notes"]
         assert "1 matched existing" in notes
+
+
+def test_scout_uses_the_domains_discovery_sources_and_records_how_it_found_them(
+    make_context, llm, board_db, worker_db, add_domain
+):
+    domain_id = add_domain()
+    with board_db.acting_as("owner") as conn:
+        conn.execute(
+            "UPDATE domains SET discovery_sources = %s WHERE id = %s",
+            (["fake", "hn"], domain_id),
+        )
+    hn = FakeProvider({INDEPENDENT: PAGES[INDEPENDENT]})
+    ctx = make_context({PRICE_CUT: PAGES[PRICE_CUT]}, extra_sources={"hn": hn})
+    llm.add(SearchPlan, SearchPlan(queries=["AI prices"]))
+    llm.add(
+        ScoutReport,
+        ScoutReport(
+            observations=[
+                ProposedObservation(
+                    statement="Measurements show frontier inference prices halved in a year.",
+                    source=2,  # interleaved: R1 from fake, R2 from hn
+                    why_it_matters="w",
+                    investigate=True,
+                )
+            ]
+        ),
+    )
+    script_research(llm)
+    script_review(llm, verdict="undecided")
+    enqueue_scout(board_db, domain_id)
+    worker.drain(ctx)
+
+    assert hn.searches == [("AI prices", 30)]
+    with worker_db.reading() as conn:
+        source = conn.execute(
+            "SELECT s.uri, s.metadata, q.provider, q.capability, q.run_id, a.name AS actor "
+            "FROM observations o JOIN sources s ON s.id = o.source_id "
+            "JOIN acquisitions q ON q.id = s.acquisition_id "
+            "JOIN actors a ON a.id = q.requested_by"
+        ).fetchone()
+        assert source["uri"] == INDEPENDENT
+        assert source["metadata"]["provider"] == "hn"
+        assert (source["provider"], source["capability"], source["actor"]) == (
+            "hn",
+            "discover",
+            "scout",
+        )
+        assert source["run_id"] is not None
+
+        calls = conn.execute(
+            "SELECT a.name, q.capability, q.provider, q.request FROM acquisitions q "
+            "JOIN actors a ON a.id = q.requested_by ORDER BY q.requested_at"
+        ).fetchall()
+        assert [(c["name"], c["capability"], c["provider"]) for c in calls] == [
+            ("scout", "discover", "fake"),
+            ("scout", "discover", "hn"),
+            ("researcher", "discover", "fake"),
+            ("researcher", "extract", "fake"),
+            ("skeptic", "discover", "fake"),
+            ("skeptic", "extract", "fake"),
+        ]
+        assert calls[0]["request"]["query"] == "AI prices"
+
+        # Evidence sources also point at the call that found them.
+        unlinked = conn.execute(
+            "SELECT count(*) AS n FROM evidence e JOIN sources s ON s.id = e.source_id "
+            "WHERE s.acquisition_id IS NULL"
+        ).fetchone()["n"]
+        assert unlinked == 0
+
+
+def test_external_calls_are_kept_when_the_run_fails(
+    make_context, llm, board_db, worker_db, add_domain
+):
+    domain_id = add_domain()
+    ctx = make_context(PAGES)
+    llm.add(SearchPlan, SearchPlan(queries=["AI prices"]))
+    llm.add(ScoutReport, RuntimeError("model crashed after searching"))
+    enqueue_scout(board_db, domain_id)
+    worker.drain(ctx)
+
+    with worker_db.reading() as conn:
+        run = conn.execute("SELECT id, status FROM runs").fetchone()
+        assert run["status"] == "failed"
+        calls = conn.execute(
+            "SELECT count(*) AS n FROM acquisitions WHERE run_id = %s", (run["id"],)
+        ).fetchone()["n"]
+        assert calls == 1
+
+
+def test_only_the_board_sets_discovery_sources(worker_db, add_domain):
+    domain_id = add_domain()
+    with (
+        pytest.raises(psycopg.errors.InsufficientPrivilege),
+        worker_db.acting_as("strategist") as conn,
+    ):
+        conn.execute("UPDATE domains SET discovery_sources = '{hn}' WHERE id = %s", (domain_id,))

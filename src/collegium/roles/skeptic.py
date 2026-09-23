@@ -70,7 +70,6 @@ class Skeptic(Role):
             + "\n\nWhat is your review of hypothesis H?",
             SkepticReview,
         )
-        provider = ctx.acquisition.name
         grounding = ground_evidence(review.evidence, documents)
 
         def persist(conn: Connection) -> str:
@@ -82,9 +81,7 @@ class Skeptic(Role):
                     alternative_explanation=c.alternative_explanation,
                     severity=c.severity,
                 )
-            outcome = store_evidence(
-                conn, grounding.grounded, {"H": hypothesis_id}, domain_ids, provider
-            )
+            outcome = store_evidence(conn, grounding.grounded, {"H": hypothesis_id}, domain_ids)
             memory.assess_confidence(
                 conn,
                 target_id=hypothesis_id,

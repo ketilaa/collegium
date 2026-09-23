@@ -67,7 +67,6 @@ class Researcher(Role):
             + "\n\nWhat hypotheses and evidence follow from this?",
             ResearchFindings,
         )
-        provider = ctx.acquisition.name
         grounding = ground_evidence(findings.evidence, documents)
         # A new hypothesis is only worth remembering if some evidence that is
         # actually in the sources supports it.
@@ -127,7 +126,7 @@ class Researcher(Role):
                 targets[label] = hypothesis_id
                 new_ids.append(hypothesis_id)
 
-            outcome = store_evidence(conn, grounding.grounded, targets, domain_ids, provider)
+            outcome = store_evidence(conn, grounding.grounded, targets, domain_ids)
             memory.set_observation_status(
                 conn, observation_id, "accepted" if new_ids or outcome.stored else "dismissed"
             )

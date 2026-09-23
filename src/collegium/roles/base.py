@@ -18,7 +18,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
 from collegium import memory
-from collegium.acquisition import AcquisitionProvider, Document, gather
+from collegium.acquisition import Acquisition, Document
 from collegium.config import Settings
 from collegium.db import Connection, Database
 from collegium.grounding import locate_excerpt
@@ -37,7 +37,7 @@ class NothingToWorkWith(RuntimeError):
 class Context:
     db: Database
     llm: LLM
-    acquisition: AcquisitionProvider | None
+    acquisition: Acquisition | None
     settings: Settings
 
 
@@ -64,8 +64,7 @@ class Role:
         if ctx.acquisition is None:
             raise NothingToWorkWith("no acquisition provider configured")
         s = ctx.settings
-        return gather(
-            ctx.acquisition,
+        return ctx.acquisition.gather(
             queries,
             max_results=s.max_search_results,
             max_documents=s.max_documents,
@@ -200,7 +199,6 @@ def store_evidence(
     grounded: list[GroundedEvidence],
     targets: dict[str, UUID],
     domain_ids: list[UUID],
-    provider: str,
 ) -> EvidenceOutcome:
     """Store grounded evidence, linked to the hypotheses it bears on.
     `targets` maps prompt labels to hypothesis ids; stances on other labels
@@ -217,7 +215,8 @@ def store_evidence(
             title=g.document.title,
             published_at=g.document.published_at,
             content=g.document.content,
-            metadata={"provider": provider},
+            metadata={"provider": g.document.provider, **g.document.metadata},
+            acquisition_id=g.document.acquisition_id,
         )
         evidence_id = memory.add_evidence(
             conn,

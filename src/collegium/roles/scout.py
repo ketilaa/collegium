@@ -47,7 +47,7 @@ class Scout(Role):
         )
         if ctx.acquisition is None:
             raise NothingToWorkWith("no acquisition provider configured")
-        results, queries = _search(ctx, plan.queries)
+        results, queries = _search(ctx, plan.queries, domain["discovery_sources"])
         if not results:
             raise NothingToWorkWith(f"no search results for {plan.queries}")
 
@@ -60,7 +60,6 @@ class Scout(Role):
             ScoutReport,
         )
         known = {_key(o["statement"]) for o in recent}
-        provider = ctx.acquisition.name
 
         def persist(conn: Connection) -> str:
             recorded = investigating = skipped = 0
@@ -76,10 +75,12 @@ class Scout(Role):
                     title=result.title,
                     published_at=result.published_at,
                     metadata={
-                        "provider": provider,
+                        "provider": result.provider,
                         "query": queries[result.url],
                         "snippet": result.snippet,
+                        **result.metadata,
                     },
+                    acquisition_id=result.acquisition_id,
                 )
                 observation_id = memory.add_observation(
                     conn,
@@ -113,20 +114,26 @@ def _brief(domain: dict, recent: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _search(ctx: Context, queries: list[str]) -> tuple[list[SearchResult], dict[str, str]]:
+def _search(
+    ctx: Context, queries: list[str], sources: list[str]
+) -> tuple[list[SearchResult], dict[str, str]]:
     """Distinct recent results across queries, and the query that found each.
 
-    The Scout looks for what is new, so it searches news within a window and
-    drops anything dated before it: old announcements resurface in search
-    results and would otherwise be recorded as current events.
+    The Scout uses the domain's discovery sources (the default search when
+    none are set). It looks for what is new, so it searches within a window
+    and drops anything dated before it: old announcements resurface in
+    search results and would otherwise be recorded as current events.
     """
     days = ctx.settings.scout_recent_days
     cutoff = datetime.now(UTC) - timedelta(days=days)
     results: list[SearchResult] = []
     found_by: dict[str, str] = {}
     for query in queries:
-        for result in ctx.acquisition.search(
-            query, ctx.settings.max_search_results, recent_days=days
+        for result in ctx.acquisition.discover(
+            query,
+            max_results=ctx.settings.max_search_results,
+            recent_days=days,
+            sources=sources or None,
         ):
             published = parse_date(result.published_at)
             if result.url in found_by or (published and published < cutoff):

@@ -1,4 +1,4 @@
-"""Tavily adapter: search and extract through one API."""
+"""Tavily adapter: discovery (web and news search) and extraction through one API."""
 
 import httpx
 
@@ -18,7 +18,7 @@ class TavilyProvider:
             transport=transport,
         )
 
-    def search(
+    def discover(
         self, query: str, max_results: int, *, recent_days: int | None = None
     ) -> list[SearchResult]:
         body = {"query": query, "max_results": max_results, "search_depth": "basic"}
