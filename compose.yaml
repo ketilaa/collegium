@@ -98,7 +98,7 @@ services:
     command: ["collegium", "scheduler"]
     environment:
       COLLEGIUM_WORKER_DATABASE_URL: postgresql://collegium_worker_app:${COLLEGIUM_WORKER_PASSWORD:-worker}@db:5432/collegium
-      COLLEGIUM_SCOUT_INTERVAL_HOURS: ${COLLEGIUM_SCOUT_INTERVAL_HOURS:-24}
+      COLLEGIUM_STRATEGY_INTERVAL_HOURS: ${COLLEGIUM_STRATEGY_INTERVAL_HOURS:-24}
     restart: unless-stopped
     depends_on:
       logins:

@@ -98,6 +98,8 @@ class Scout(Role):
             raise LookupError(f"domain {domain_id} not found")
 
         brief = _brief(domain, recent, entities)
+        if job.payload.get("focus"):
+            brief += f"\n\nThe Strategist asks you to look into: {job.payload['focus']}"
         system = self.system_prompt()
         plan = ctx.llm.generate(
             system, brief + "\n\nWhich web searches should you run now?", SearchPlan

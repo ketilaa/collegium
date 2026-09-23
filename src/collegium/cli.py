@@ -53,6 +53,22 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("scout", help="ask the Scout to explore a domain now (owner)")
     p.add_argument("slug")
 
+    p = sub.add_parser("strategize", help="ask the Strategist to plan a domain now (owner)")
+    p.add_argument("slug")
+
+    p = sub.add_parser("goals", help="the organization's goals")
+    p.add_argument("--all", action="store_true", help="include achieved and abandoned")
+
+    sub.add_parser("programs", help="research programs, proposed and open")
+
+    sub.add_parser("decisions", help="decisions waiting for the owner")
+
+    p = sub.add_parser("approve", help="approve a proposed decision (owner)")
+    p.add_argument("decision", help="decision id or unique prefix")
+    p = sub.add_parser("reject", help="reject a proposed decision (owner)")
+    p.add_argument("decision", help="decision id or unique prefix")
+    p.add_argument("--reason", help="kept as your upheld objection to the proposal")
+
     p = sub.add_parser("resolve", help="send hypotheses with open critiques to be resolved (owner)")
     p.add_argument("hypothesis", nargs="?", help="id or prefix; omit with --all")
     p.add_argument(
@@ -112,7 +128,7 @@ def _worker(args, settings: Settings) -> None:
 
 def _scheduler(args, settings: Settings) -> None:
     db = Database(require(settings.worker_database_url, "COLLEGIUM_WORKER_DATABASE_URL"))
-    interval = timedelta(hours=settings.scout_interval_hours)
+    interval = timedelta(hours=settings.strategy_interval_hours)
     if args.once:
         print(f"enqueued {scheduler.tick(db, interval)} jobs")
     else:
@@ -257,6 +273,90 @@ def _scout(args, settings: Settings) -> None:
             raise SystemExit(f"no domain {args.slug!r}")
         job_id = jobs.enqueue(conn, "scout", {"domain_id": domain["id"]}, priority=2)
     print(f"queued scout job {job_id}")
+
+
+def _strategize(args, settings: Settings) -> None:
+    with _board(settings).acting_as("owner") as conn:
+        domain = memory.domain_by_slug(conn, args.slug)
+        if domain is None:
+            raise SystemExit(f"no domain {args.slug!r}")
+        job_id = jobs.enqueue(conn, "strategize", {"domain_id": domain["id"]}, priority=2)
+    print(f"queued planning job {job_id}")
+
+
+def _goals(args, settings: Settings) -> None:
+    where = "" if args.all else "WHERE g.status = 'active'"
+    with _reader(settings).reading() as conn:
+        rows = conn.execute(
+            "SELECT g.*, n.created_at, (SELECT count(*) FROM jobs j "
+            "WHERE j.payload->>'goal_id' = g.id::text) AS jobs FROM goals g "
+            f"JOIN nodes n ON n.id = g.id {where} ORDER BY g.status, g.priority, n.created_at"
+        ).fetchall()
+    for g in rows:
+        print(
+            f"{str(g['id'])[:8]}  {g['status']:9} p{g['priority']}  {g['jobs']:2} jobs  "
+            f"{g['statement']}\n{'':24}done when: {g['success_criteria']}"
+        )
+
+
+def _programs(args, settings: Settings) -> None:
+    with _reader(settings).reading() as conn:
+        rows = conn.execute("SELECT * FROM programs ORDER BY status, priority").fetchall()
+    for p in rows:
+        print(f"{str(p['id'])[:8]}  {p['status']:9} {p['name']}\n{'':20}{p['charter']}")
+
+
+def _decisions(args, settings: Settings) -> None:
+    with _reader(settings).reading() as conn:
+        rows = conn.execute(
+            "SELECT d.*, a.name AS proposed_by, n.created_at FROM decisions d "
+            "JOIN nodes n ON n.id = d.id JOIN actors a ON a.id = n.created_by "
+            "WHERE d.status = 'proposed' ORDER BY n.created_at"
+        ).fetchall()
+    for d in rows:
+        print(
+            f"{str(d['id'])[:8]}  proposed by the {d['proposed_by']} on "
+            f"{_local(d['created_at']):%Y-%m-%d}\n  {d['statement']}\n  Why: {d['rationale']}"
+        )
+    if not rows:
+        print("no decisions waiting")
+
+
+def _resolve_decision(args, settings: Settings, status: str) -> None:
+    with _board(settings).acting_as("owner") as conn:
+        rows = conn.execute(
+            "SELECT id FROM decisions WHERE status = 'proposed' AND id::text LIKE %s",
+            (args.decision + "%",),
+        ).fetchall()
+        if len(rows) != 1:
+            raise SystemExit(f"{len(rows)} proposed decisions match {args.decision!r}")
+        decision_id = rows[0]["id"]
+        conn.execute(
+            "UPDATE decisions SET status = %s, resolved_by = current_actor(), "
+            "resolved_at = now() WHERE id = %s",
+            (status, decision_id),
+        )
+        if status == "rejected" and args.reason:
+            # The owner's objection, kept as an upheld critique of the proposal.
+            critique_id = memory.add_critique(
+                conn,
+                target_id=decision_id,
+                argument=args.reason,
+                alternative_explanation=None,
+                severity=3,
+            )
+            memory.set_critique_status(
+                conn, critique_id, "upheld", "The owner's reason for rejecting the proposal."
+            )
+        # A decision about a program opens or closes it.
+        program_status = "active" if status == "approved" else "closed"
+        opened = conn.execute(
+            "UPDATE programs SET status = %s WHERE id IN (SELECT object_id FROM relationships "
+            "WHERE subject_id = %s AND predicate = 'concerns') RETURNING name",
+            (program_status, decision_id),
+        ).fetchall()
+    what = f"; program {opened[0]['name']} is now {program_status}" if opened else ""
+    print(f"decision {str(decision_id)[:8]} {status}{what}")
 
 
 def _resolve(args, settings: Settings) -> None:
@@ -445,6 +545,12 @@ COMMANDS = {
     "scout": _scout,
     "hypotheses": _hypotheses,
     "resolve": _resolve,
+    "strategize": _strategize,
+    "goals": _goals,
+    "programs": _programs,
+    "decisions": _decisions,
+    "approve": lambda args, settings: _resolve_decision(args, settings, "approved"),
+    "reject": lambda args, settings: _resolve_decision(args, settings, "rejected"),
     "why": _why,
     "jobs": _jobs,
     "acquisitions": _acquisitions,

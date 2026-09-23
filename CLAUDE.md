@@ -39,6 +39,9 @@ uv run collegium domain sources ai-agents tavily hackernews   # Scout's discover
 uv run collegium acquisitions            # recent calls to external providers
 uv run collegium entities [slug]         # entities mentioned most
 uv run collegium resolve --all           # send hypotheses with open critiques through the loop
+uv run collegium strategize ai-agents    # plan now (otherwise daily)
+uv run collegium goals | programs | decisions
+uv run collegium approve <id> | reject <id> --reason "..."   # the owner's decisions
 uv run collegium feed add ai-agents <url> # approve a feed for a domain (also list/pause/resume/retire)
 ```
 
@@ -73,7 +76,7 @@ Core workflow: Scout → Researcher → Skeptic → Historian. The Strategist si
 
 ## Code architecture
 
-- **Pipeline:** work is a chain of jobs in the `jobs` table: `scout` (per domain) → `research` (per observation) → `review` (per hypothesis) → `record`, plus `map` (entities mentioned, after research) and the critique loop: `record` → `resolve` (Researcher investigates open critiques) → `review` (Skeptic settles them) → `record`, at most 2 rounds. Each role enqueues the next step. Owner commands and the scheduler enqueue `scout` jobs.
+- **Pipeline:** work is a chain of jobs in the `jobs` table: `scout` (per domain) → `research` (per observation) → `review` (per hypothesis) → `record`, The scheduler queues a daily `strategize` job per domain; the Strategist (`roles/strategist.py`, gaps in `strategy.py`) sets goals and queues `scout` (with a focus), `corroborate` and `resolve` jobs within the budget, and proposes programs as decisions for the owner. Also `map` (entities mentioned, after research) and the critique loop: `record` → `resolve` (Researcher investigates open critiques) → `review` (Skeptic settles them) → `record`, at most 2 rounds. Each role enqueues the next step. Owner commands and the scheduler enqueue `scout` jobs.
 - **Prepare/persist:** a role's `prepare()` (`src/collegium/roles/`) does the slow work (reading memory, searching, calling the model) outside any transaction, and returns a `persist(conn)` function. `worker.run_once` runs that function in one transaction acting as the role, together with finishing the run and the job, so knowledge and follow-up jobs commit atomically. On failure, the job is retried with backoff and nothing is written.
 - **Runs:** every job execution creates a `runs` row with the model and `role_version` (a hash of the role's prompt files), and all rows written carry that run id.
 - **Grounding** (`grounding.py`): the model cites search results and documents by number, not URL. Out-of-range citations are dropped, and evidence is stored only if its excerpt is found in the document. The stored excerpt is the source's own wording. Scout observations must quote their lead; names and numbers in the statement must occur in the quote (`unsupported_terms`), and a model call checks each statement against its quote. The quote is stored as evidence supporting the observation.

@@ -229,6 +229,68 @@ def paid_calls_in_window(
     return row["n"], row["oldest"]
 
 
+def add_goal(
+    conn: Connection,
+    *,
+    statement: str,
+    success_criteria: str | None,
+    priority: int,
+    program_id: UUID | None = None,
+) -> UUID:
+    return _insert_node(
+        conn,
+        "goal",
+        "goals",
+        {
+            "statement": statement,
+            "success_criteria": success_criteria,
+            "priority": min(5, max(1, priority)),
+            "program_id": program_id,
+            "status": "active",
+        },
+    )
+
+
+def set_goal_status(conn: Connection, goal_id: UUID, status: str) -> None:
+    conn.execute("UPDATE goals SET status = %s WHERE id = %s", (status, goal_id))
+
+
+def add_program(conn: Connection, *, name: str, charter: str) -> UUID:
+    """A research program, proposed: the owner decides whether it opens."""
+    return _insert_node(
+        conn, "program", "programs", {"name": name, "charter": charter, "status": "proposed"}
+    )
+
+
+def add_decision(conn: Connection, *, statement: str, rationale: str) -> UUID:
+    return _insert_node(
+        conn, "decision", "decisions", {"statement": statement, "rationale": rationale}
+    )
+
+
+def active_goals(conn: Connection, domain_ids: list[UUID]) -> list[dict]:
+    """Active goals in these domains, each with the ids of what it is about."""
+    return conn.execute(
+        "SELECT g.id, g.statement, g.success_criteria, g.priority, n.created_at, "
+        "coalesce(array_agg(r.object_id) FILTER (WHERE r.object_id IS NOT NULL), '{}') "
+        "AS about FROM goals g JOIN nodes n ON n.id = g.id "
+        "JOIN node_domains d ON d.node_id = g.id "
+        "LEFT JOIN relationships r ON r.subject_id = g.id AND r.predicate = 'investigates' "
+        "AND r.retracted_at IS NULL "
+        "WHERE g.status = 'active' AND d.domain_id = ANY(%s) "
+        "GROUP BY g.id, n.created_at ORDER BY g.priority, n.created_at",
+        (domain_ids,),
+    ).fetchall()
+
+
+def programs(conn: Connection, domain_ids: list[UUID]) -> list[dict]:
+    return conn.execute(
+        "SELECT p.* FROM programs p JOIN node_domains d ON d.node_id = p.id "
+        "WHERE d.domain_id = ANY(%s) AND p.status <> 'closed' ORDER BY p.priority",
+        (domain_ids,),
+    ).fetchall()
+
+
 def set_observation_status(conn: Connection, observation_id: UUID, status: str) -> None:
     conn.execute("UPDATE observations SET status = %s WHERE id = %s", (status, observation_id))
 

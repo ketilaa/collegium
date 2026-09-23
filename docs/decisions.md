@@ -452,3 +452,32 @@ using one of its attempts.
   fits the plan. Compose now passes `COLLEGIUM_DAILY_CALL_BUDGET` and the
   other tuning settings to the worker, so the owner's env file controls
   them.
+
+## 2026-09-23 · Milestone 3, part 3: the Strategist
+
+The scheduler now queues a `strategize` job per active domain each day
+(`COLLEGIUM_STRATEGY_INTERVAL_HOURS`) instead of a fixed scout. The
+Strategist starts from deterministic gap checks (`strategy.py`): live
+hypotheses short of independent support, serious critiques still open after
+the loop's two rounds, entities mentioned at least twice that no hypothesis
+or goal is about, and a domain not scouted for 20 hours. The model sees the
+domain's hypotheses, entities, goals, programs, gaps and remaining budget
+under labels, and returns an assessment, at most three goals with actions
+(scout with a focus, corroborate, resolve) and at most one program
+proposal. The code then decides:
+
+- goals are created active (owner's decision), matched to existing goals
+  by label or statement so they are continued rather than duplicated, and
+  linked to what they investigate; goals whose hypotheses have all been
+  decided are marked achieved;
+- actions are queued most important goal first, each costed at about 8
+  paid calls, only while they fit the remaining budget minus a reserve of 5;
+  invalid targets are skipped; one scout a day is kept whenever the domain
+  is due for one and the budget allows;
+- a program is created only as `proposed`, with a decision that `concerns`
+  it; the owner approves (program opens) or rejects (program closes, and a
+  given reason is kept as an upheld critique of the proposal) with
+  `collegium approve|reject`.
+
+A `corroborate` job has the Researcher look for independent evidence either
+way, excluding sites already cited, then sends the hypothesis for review.

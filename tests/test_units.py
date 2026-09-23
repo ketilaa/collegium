@@ -95,16 +95,16 @@ def test_pages_on_one_site_count_as_one_source():
     assert site("https://news.example/a") != site("https://research.example/b")
 
 
-def test_scheduler_scouts_each_active_domain_once_per_interval(worker_db, add_domain):
+def test_scheduler_plans_each_active_domain_once_per_interval(worker_db, add_domain):
     add_domain("ai-agents", "AI and agents")
     add_domain("energy", "Energy")
     assert scheduler.tick(worker_db, timedelta(hours=24)) == 2
     assert scheduler.tick(worker_db, timedelta(hours=24)) == 0
     with worker_db.reading() as conn:
-        requested_by = conn.execute(
-            "SELECT DISTINCT a.name FROM jobs j JOIN actors a ON a.id = j.requested_by"
+        rows = conn.execute(
+            "SELECT DISTINCT j.kind, a.name FROM jobs j JOIN actors a ON a.id = j.requested_by"
         ).fetchall()
-    assert [r["name"] for r in requested_by] == ["scheduler"]
+    assert [(r["kind"], r["name"]) for r in rows] == [("strategize", "scheduler")]
 
 
 def test_clean_text_keeps_link_text_and_drops_targets_and_images():

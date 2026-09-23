@@ -60,8 +60,9 @@ class Settings:
         default_factory=lambda: int(_env("COLLEGIUM_DAILY_CALL_BUDGET", "50"))
     )
 
-    scout_interval_hours: float = field(
-        default_factory=lambda: float(_env("COLLEGIUM_SCOUT_INTERVAL_HOURS", "24"))
+    # How often the Strategist plans each domain.
+    strategy_interval_hours: float = field(
+        default_factory=lambda: float(_env("COLLEGIUM_STRATEGY_INTERVAL_HOURS", "24"))
     )
 
 
