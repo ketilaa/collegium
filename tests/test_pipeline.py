@@ -9,7 +9,12 @@ from conftest import FakeProvider
 from collegium import jobs, worker
 from collegium.roles.base import EvidenceItem, SearchPlan, Stance
 from collegium.roles.researcher import ProposedHypothesis, ResearchFindings
-from collegium.roles.scout import ProposedObservation, ScoutReport
+from collegium.roles.scout import (
+    ObservationCheck,
+    ObservationChecks,
+    ProposedObservation,
+    ScoutReport,
+)
 from collegium.roles.skeptic import ProposedCritique, SkepticReview
 
 PRICE_CUT = "https://news.example/acme-price-cut"
@@ -44,6 +49,7 @@ def script_scout(llm, *, investigate=True):
         ScoutReport(
             observations=[
                 ProposedObservation(
+                    quote="inference costs for its Frontier model fell by 50%",
                     statement="Acme AI halved inference prices for its Frontier model.",
                     source=1,
                     occurred_at="2026-09-01",
@@ -51,6 +57,7 @@ def script_scout(llm, *, investigate=True):
                     investigate=investigate,
                 ),
                 ProposedObservation(  # cites a result that does not exist
+                    quote="nothing like this appears anywhere",
                     statement="A made-up observation.",
                     source=42,
                     why_it_matters="None.",
@@ -192,6 +199,8 @@ def test_full_workflow_accepts_a_grounded_hypothesis(
                 "inference costs for its “Frontier” model fell by 50% compared with last year",
                 "several recent price reductions were temporary promotional offers",
                 "the price of running frontier models fell by roughly half",
+                # the Scout's quote, kept as evidence for the observation
+                "inference costs for its “Frontier” model fell by 50%",
             ]
         )
 
@@ -275,6 +284,10 @@ def test_accepted_refinement_supersedes_the_original(
         ScoutReport(
             observations=[
                 ProposedObservation(
+                    quote=(
+                        "Independent analysts found that several recent price reductions "
+                        "were temporary promotional offers"
+                    ),
                     statement="Analysts say recent AI price cuts were partly promotional.",
                     source=2,
                     why_it_matters="Challenges the accepted view on falling costs.",
@@ -449,6 +462,10 @@ def test_scout_searches_recent_news_and_drops_old_results(
         ScoutReport(
             observations=[
                 ProposedObservation(
+                    quote=(
+                        "Independent analysts found that several recent price reductions "
+                        "were temporary promotional offers"
+                    ),
                     statement="Analysts say recent AI price cuts were partly promotional.",
                     source=1,
                     why_it_matters="w",
@@ -492,7 +509,11 @@ def test_repeated_hypothesis_strengthens_the_existing_one(
         ScoutReport(
             observations=[
                 ProposedObservation(
-                    statement="Analysts measured inference prices across providers.",
+                    quote=(
+                        "measurements across twelve providers show that the price of running "
+                        "frontier"
+                    ),
+                    statement="Measurements across twelve providers show frontier prices falling.",
                     source=3,
                     why_it_matters="w",
                     investigate=True,
@@ -547,6 +568,10 @@ def test_scout_uses_the_domains_discovery_sources_and_records_how_it_found_them(
         ScoutReport(
             observations=[
                 ProposedObservation(
+                    quote=(
+                        "measurements across twelve providers show that the price of running "
+                        "frontier"
+                    ),
                     statement="Measurements show frontier inference prices halved in a year.",
                     source=2,  # interleaved: R1 from fake, R2 from hn
                     why_it_matters="w",
@@ -625,3 +650,78 @@ def test_only_the_board_sets_discovery_sources(worker_db, add_domain):
         worker_db.acting_as("strategist") as conn,
     ):
         conn.execute("UPDATE domains SET discovery_sources = '{hn}' WHERE id = %s", (domain_id,))
+
+
+def test_scout_observations_must_be_grounded_and_checked(
+    make_context, llm, board_db, worker_db, add_domain
+):
+    domain_id = add_domain()
+    ctx = make_context(PAGES)
+    quote = "inference costs for its Frontier model fell by 50%"
+    llm.add(SearchPlan, SearchPlan(queries=["AI prices"]))
+    llm.add(
+        ScoutReport,
+        ScoutReport(
+            observations=[
+                ProposedObservation(  # kept
+                    source=1,
+                    quote=quote,
+                    statement="Acme AI says Frontier inference costs fell by 50%.",
+                    why_it_matters="w",
+                    investigate=False,
+                ),
+                ProposedObservation(  # the quote is not in the result
+                    source=1,
+                    quote="Acme AI tripled its revenue this quarter thanks to Frontier",
+                    statement="Acme AI tripled its revenue.",
+                    why_it_matters="w",
+                    investigate=False,
+                ),
+                ProposedObservation(  # a figure the quote does not contain
+                    source=1,
+                    quote=quote,
+                    statement="Acme AI says Frontier inference costs fell by 70%.",
+                    why_it_matters="w",
+                    investigate=False,
+                ),
+                ProposedObservation(  # passes the cheap checks, fails the model's
+                    source=1,
+                    quote=quote,
+                    statement="Acme AI says Frontier training costs fell by 50%.",
+                    why_it_matters="w",
+                    investigate=False,
+                ),
+            ]
+        ),
+    )
+    llm.add(
+        ObservationChecks,
+        ObservationChecks(
+            checks=[
+                ObservationCheck(number=1, supported=True),
+                ObservationCheck(number=2, supported=False, problem="training, not inference"),
+            ]
+        ),
+    )
+    enqueue_scout(board_db, domain_id)
+    worker.drain(ctx)
+
+    # Only the two proposals that survived the cheap checks were sent to the model.
+    [check_prompt] = llm.prompts_for(ObservationChecks)
+    assert "[2] Statement: Acme AI says Frontier training costs" in check_prompt
+    assert "[3]" not in check_prompt
+
+    with worker_db.reading() as conn:
+        rows = conn.execute(
+            "SELECT o.statement, e.excerpt, l.stance FROM observations o "
+            "JOIN evidence_links l ON l.target_id = o.id JOIN evidence e ON e.id = l.evidence_id"
+        ).fetchall()
+        assert [(r["statement"], r["excerpt"], r["stance"]) for r in rows] == [
+            (
+                "Acme AI says Frontier inference costs fell by 50%.",
+                "inference costs for its “Frontier” model fell by 50%",
+                "supports",
+            )
+        ]
+        notes = conn.execute("SELECT notes FROM runs").fetchone()["notes"]
+        assert "rejected: 1 quote not in result, 1 unsupported names, 1 failed check" in notes

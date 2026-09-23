@@ -5,6 +5,7 @@ stored when its excerpt can be found in the source text, and what is stored
 is the source's own wording, not the model's version of it.
 """
 
+import re
 from difflib import SequenceMatcher
 
 MIN_EXCERPT_CHARS = 20
@@ -95,3 +96,26 @@ def _original(document: str, index: list[int], start: int, end: int) -> str:
     while b < len(document) and document[b].isalnum():
         b += 1
     return document[a:b].strip()
+
+
+# Capitalised words (names, organisations, roles) and numbers: the parts of a
+# statement a model most often gets wrong when paraphrasing.
+_NAME_OR_NUMBER = re.compile(r"\b[A-Z][\w&.-]*|\b\d[\d.,]*")
+_POSSESSIVE = re.compile(r"['’]s\b")
+
+
+def unsupported_terms(statement: str, support: str) -> list[str]:
+    """Names and numbers in `statement` that do not occur in `support`.
+
+    A cheap check that a paraphrase has not introduced a name or a figure.
+    It cannot tell whether names are correctly associated ("Anthropic CEO
+    Sam Altman" passes if both names occur), so it complements, not
+    replaces, a check by the model.
+    """
+    text, _ = _normalize(_POSSESSIVE.sub("", support).replace(",", ""))
+    missing = []
+    for term in _NAME_OR_NUMBER.findall(_POSSESSIVE.sub("", statement)):
+        key, _ = _normalize(term.replace(",", "").rstrip("."))
+        if key and not re.search(rf"(?<!\w){re.escape(key)}(?!\w)", text):
+            missing.append(term.rstrip("."))
+    return missing

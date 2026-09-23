@@ -239,3 +239,26 @@ Found and not yet fixed: Scout observations are the model's own sentences
 and are not checked against the lead they cite. One run produced "Anthropic
 CEO Sam Altman", which is wrong. Observations should be grounded the way
 evidence is.
+
+## 2026-09-23 · Milestone 2.5, part 2: grounded observations
+
+Scout observations were the model's own sentences, and one read "Anthropic
+CEO Sam Altman". Observations are now held to the same standard as
+evidence, in three layers:
+
+1. **Quote.** The Scout copies the words from the result that state the
+   observation. The quote must be found in the result's title or snippet.
+2. **Names and numbers.** Every capitalised word and number in the
+   statement must occur in the quote or title. This catches invented names
+   and figures cheaply, but not a wrong association of names that both
+   occur.
+3. **Check by the model.** The surviving statements are sent back, each
+   with its quote, in one call: is every name, role, number and date stated
+   by the quote? A statement without a positive verdict is dropped. A
+   focused yes/no check on a short quote is far more reliable than the
+   original generation.
+
+The quote is stored as evidence supporting the observation, so every
+observation shows the source's own words. Rejections are counted in the
+run's notes. In the first live run, 5 of 5 quotes were found and 1
+statement failed the model's check.

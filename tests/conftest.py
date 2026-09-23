@@ -6,6 +6,7 @@ memory tables cannot be emptied.
 """
 
 import os
+import re
 from collections import defaultdict
 from collections.abc import Callable
 from pathlib import Path
@@ -81,6 +82,18 @@ def board_db(db_url):
 # ---------------------------------------------------------------------------
 
 
+def _approve_all_observations(user: str):
+    from collegium.roles.scout import ObservationCheck, ObservationChecks
+
+    numbers = [int(n) for n in re.findall(r"^\[(\d+)\] Statement:", user, re.MULTILINE)]
+    return ObservationChecks(checks=[ObservationCheck(number=n, supported=True) for n in numbers])
+
+
+# Responses used when a test has not scripted one: the Scout's check of its
+# own observations passes unless a test says otherwise.
+DEFAULTS = {"ObservationChecks": _approve_all_observations}
+
+
 class ScriptedLLM:
     """Returns queued responses per schema, and records every prompt."""
 
@@ -95,6 +108,8 @@ class ScriptedLLM:
 
     def generate(self, system, user, schema):
         self.calls.append((schema, user))
+        if not self._queue[schema] and schema.__name__ in DEFAULTS:
+            return DEFAULTS[schema.__name__](user)
         if not self._queue[schema]:
             raise AssertionError(f"no scripted response for {schema.__name__}")
         response = self._queue[schema].pop(0)

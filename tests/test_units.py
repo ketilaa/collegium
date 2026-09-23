@@ -12,7 +12,7 @@ from collegium.acquisition import (
     clean_text,
 )
 from collegium.acquisition.hackernews import keywords
-from collegium.grounding import locate_excerpt
+from collegium.grounding import locate_excerpt, unsupported_terms
 from collegium.llm import extract_json
 from collegium.roles.base import EvidenceItem, SearchPlan, Stance, ground_evidence
 from collegium.roles.historian import decide, site
@@ -237,3 +237,26 @@ def test_hacker_news_queries_are_reduced_to_keywords():
     assert keywords("recent developments in AI models") == "developments ai models"
     assert keywords("What's new with GPT-5.6 and C++?") == "gpt-5.6 c++"
     assert keywords("the latest") == "the latest"  # nothing left: keep the query
+
+
+QUOTE = (
+    "OpenAI CEO Sam Altman and Anthropic’s Dario Amodei urged the industry to slow "
+    "down, citing 3 incidents in 2026 and 1,000 affected agents."
+)
+
+
+@pytest.mark.parametrize(
+    ("statement", "missing"),
+    [
+        ("Anthropic's Dario Amodei cited 3 incidents.", []),
+        ("OpenAI's Sam Altman mentioned 1000 affected agents.", []),
+        (
+            "Google CEO Sundar Pichai cited 5 incidents in 2025.",
+            ["Google", "Sundar", "Pichai", "5", "2025"],
+        ),
+        # Wrong association of names that both occur: left to the model's check.
+        ("Anthropic CEO Sam Altman urged a slowdown.", []),
+    ],
+)
+def test_unsupported_terms(statement, missing):
+    assert unsupported_terms(statement, QUOTE) == missing

@@ -1,5 +1,6 @@
 """The Scout: breadth-first exploration of a domain, producing observations."""
 
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -9,13 +10,20 @@ from collegium import jobs, memory
 from collegium.acquisition import SearchResult
 from collegium.dates import parse_date
 from collegium.db import Connection
+from collegium.grounding import locate_excerpt, unsupported_terms
 from collegium.jobs import Job
 from collegium.roles.base import Context, NothingToWorkWith, Persist, Role, SearchPlan
 
 
 class ProposedObservation(BaseModel):
-    statement: str = Field(description="One factual sentence about what was observed")
     source: int = Field(description="Number of the search result it comes from, e.g. 3 for [R3]")
+    quote: str = Field(
+        description="Words copied exactly from that result that state what was observed"
+    )
+    statement: str = Field(
+        description="One factual sentence saying what the quote says, with names, roles, "
+        "numbers and dates exactly as in the quote"
+    )
     occurred_at: str | None = Field(
         None, description="ISO date the event happened, if the result says"
     )
@@ -25,6 +33,45 @@ class ProposedObservation(BaseModel):
 
 class ScoutReport(BaseModel):
     observations: list[ProposedObservation] = Field(max_length=5)
+
+
+class ObservationCheck(BaseModel):
+    number: int = Field(description="Number of the statement checked, e.g. 2 for [2]")
+    supported: bool
+    problem: str | None = Field(None, description="What the quote does not support, if any")
+
+
+class ObservationChecks(BaseModel):
+    checks: list[ObservationCheck]
+
+
+@dataclass(frozen=True)
+class Grounded:
+    proposal: ProposedObservation
+    result: SearchResult
+    quote: str  # the lead's own words
+
+
+def ground_observations(
+    proposals: list[ProposedObservation], results: list[SearchResult]
+) -> tuple[list[Grounded], dict[str, int]]:
+    """Keep proposals whose quote is in the cited lead and whose statement
+    introduces no name or number the quote and title lack."""
+    kept: list[Grounded] = []
+    dropped = {"no such result": 0, "quote not in result": 0, "unsupported names": 0}
+    for p in proposals:
+        if not 1 <= p.source <= len(results):
+            dropped["no such result"] += 1
+            continue
+        result = results[p.source - 1]
+        quote = locate_excerpt(p.quote, f"{result.title}\n{result.snippet}")
+        if quote is None:
+            dropped["quote not in result"] += 1
+        elif unsupported_terms(p.statement, f"{result.title}\n{quote}"):
+            dropped["unsupported names"] += 1
+        else:
+            kept.append(Grounded(p, result, quote))
+    return kept, dropped
 
 
 class Scout(Role):
@@ -59,16 +106,18 @@ class Scout(Role):
             + "\n\nWhich observations should the organization record?",
             ScoutReport,
         )
+        grounded, dropped = ground_observations(report.observations, results)
+        grounded, dropped["failed check"] = _verify(ctx, system, grounded)
         known = {_key(o["statement"]) for o in recent}
 
         def persist(conn: Connection) -> str:
             recorded = investigating = skipped = 0
-            for obs in report.observations:
-                if not 1 <= obs.source <= len(results) or _key(obs.statement) in known:
+            for g in grounded:
+                obs, result = g.proposal, g.result
+                if _key(obs.statement) in known:
                     skipped += 1
                     continue
                 known.add(_key(obs.statement))
-                result = results[obs.source - 1]
                 source_id = memory.record_source(
                     conn,
                     uri=result.url,
@@ -91,18 +140,59 @@ class Scout(Role):
                     status="investigating" if obs.investigate else "proposed",
                 )
                 memory.tag_domains(conn, observation_id, [domain_id])
+                # The lead's own words, kept as evidence for the observation.
+                evidence_id = memory.add_evidence(
+                    conn,
+                    summary=f"The source reports: {obs.statement}",
+                    excerpt=g.quote,
+                    source_id=source_id,
+                    reliability=None,
+                )
+                memory.tag_domains(conn, evidence_id, [domain_id])
+                memory.link_evidence(
+                    conn,
+                    evidence_id=evidence_id,
+                    target_id=observation_id,
+                    target_kind="observation",
+                    stance="supports",
+                    rationale="Quoted by the Scout when recording the observation.",
+                )
                 recorded += 1
                 if obs.investigate:
                     jobs.enqueue(
                         conn, "research", {"observation_id": observation_id}, parent_job_id=job.id
                     )
                     investigating += 1
+            rejected = ", ".join(f"{n} {why}" for why, n in dropped.items() if n) or "none"
             return (
                 f"queries={plan.queries}; recorded {recorded} observations, "
-                f"{investigating} sent for research, {skipped} skipped"
+                f"{investigating} sent for research, {skipped} already known; "
+                f"rejected: {rejected}"
             )
 
         return persist
+
+
+def _verify(ctx: Context, system: str, grounded: list[Grounded]) -> tuple[list[Grounded], int]:
+    """Ask the model whether each quote really states its statement. The
+    cheap checks cannot tell a wrong association of names ("Anthropic CEO
+    Sam Altman") from a right one. A statement without a verdict fails."""
+    if not grounded:
+        return [], 0
+    listing = "\n\n".join(
+        f"[{i}] Statement: {g.proposal.statement}\n    Quote: {g.quote}"
+        for i, g in enumerate(grounded, 1)
+    )
+    checks = ctx.llm.generate(
+        system,
+        "Check each statement against its quote. A statement is supported only if "
+        "the quote itself says it: every name, role, organisation, number and date "
+        "must match, and nothing may be added.\n\n" + listing,
+        ObservationChecks,
+    )
+    supported = {c.number for c in checks.checks if c.supported}
+    kept = [g for i, g in enumerate(grounded, 1) if i in supported]
+    return kept, len(grounded) - len(kept)
 
 
 def _brief(domain: dict, recent: list[dict]) -> str:
