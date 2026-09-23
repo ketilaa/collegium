@@ -394,6 +394,23 @@ def supporting_source_uris(conn: Connection, hypothesis_id: UUID) -> list[str]:
     return [r["uri"] for r in rows if r["uri"]]
 
 
+def citations(conn: Connection, target_id: UUID) -> list[dict]:
+    """The evidence for or against a record, each with its source and the
+    external call that found the source: the full chain from belief to
+    where the words came from and how the organization came across them."""
+    return conn.execute(
+        "SELECT e.id, e.summary, e.excerpt, e.reliability, l.stance, "
+        "s.uri, s.title AS source_title, s.published_at, s.retrieved_at, s.metadata, "
+        "q.capability, q.provider, q.request, q.requested_at, fa.name AS found_by "
+        "FROM evidence_links l JOIN evidence e ON e.id = l.evidence_id "
+        "LEFT JOIN sources s ON s.id = e.source_id "
+        "LEFT JOIN acquisitions q ON q.id = s.acquisition_id "
+        "LEFT JOIN actors fa ON fa.id = q.requested_by "
+        "WHERE l.target_id = %s AND l.retracted_at IS NULL ORDER BY l.created_at",
+        (target_id,),
+    ).fetchall()
+
+
 def critiques_of(conn: Connection, target_id: UUID) -> list[dict]:
     return conn.execute(
         "SELECT k.*, n.created_at FROM critiques k JOIN nodes n ON n.id = k.id "

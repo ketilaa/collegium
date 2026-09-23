@@ -31,7 +31,7 @@ uv run collegium domain add ai-agents "AI and agents"   # owner commands use the
 uv run collegium scout ai-agents
 uv run collegium worker --drain          # process due jobs, then exit
 uv run collegium hypotheses
-uv run collegium why <hypothesis-id-prefix>
+uv run collegium why <id-prefix>          # hypothesis or observation, with its citation chain
 uv run collegium jobs
 uv run collegium domain sources ai-agents tavily hackernews   # Scout's discovery sources
 uv run collegium acquisitions            # recent calls to external providers
@@ -107,7 +107,7 @@ This means history and provenance must be kept, not overwritten.
 
 1. Institutional memory: Postgres schema and audit history. Knowledge must survive restarts and agent replacement.
 2. Research workflow: Scout, Researcher, Skeptic and Historian, with a minimal acquisition layer (`search`/`extract`, one Tavily adapter).
-2.5. Knowledge acquisition layer. Part 1 done: discover/extract split, Hacker News adapter, per-domain discovery sources, call log. Part 2 so far: grounded Scout observations, crawling owner-approved feeds. Related entities (`map` jobs) done. Remaining: citation tracking.
+2.5. Knowledge acquisition layer. Part 1 done: discover/extract split, Hacker News adapter, per-domain discovery sources, call log. Part 2 so far: grounded Scout observations, crawling owner-approved feeds. Related entities (`map` jobs) and citation tracking (`collegium why`) done.
 3. Strategy layer: Strategist, knowledge-gap detection and research programs. Includes the critique-resolution loop: open critiques are investigated and resolved, which is how hypotheses come to be accepted. Until then almost nothing is accepted, by design.
 4. Board interface: a dashboard with Mission, Programs, Goals, Hypotheses, Contradictions, Recent Discoveries and "Ask the Organization".
 5. Long-term evolution: cross-domain knowledge and belief revision.

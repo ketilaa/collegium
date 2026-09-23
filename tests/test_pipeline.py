@@ -729,3 +729,35 @@ def test_scout_observations_must_be_grounded_and_checked(
         ]
         notes = conn.execute("SELECT notes FROM runs").fetchone()["notes"]
         assert "rejected: 1 quote not in result, 1 unsupported names, 1 failed check" in notes
+
+
+def test_why_traces_beliefs_to_sources_and_how_they_were_found(
+    make_context, llm, board_db, worker_db, add_domain, db_url, monkeypatch, capsys
+):
+    from collegium import cli
+
+    domain_id = add_domain()
+    ctx = make_context(PAGES)
+    script_scout(llm)
+    script_research(llm)
+    script_review(llm)
+    enqueue_scout(board_db, domain_id)
+    worker.drain(ctx)
+    with worker_db.reading() as conn:
+        hid = conn.execute("SELECT id FROM hypotheses").fetchone()["id"]
+        oid = conn.execute("SELECT id FROM observations").fetchone()["id"]
+
+    monkeypatch.setenv("COLLEGIUM_BOARD_DATABASE_URL", db_url)
+    cli.main(["why", str(hid)[:8]])
+    out = capsys.readouterr().out
+    assert out.startswith(f"Hypothesis: {HYPOTHESIS}")
+    assert "Derived from:\n  " in out
+    assert f"Source: Acme AI cuts prices <{PRICE_CUT}>" in out
+    assert 'Found by the researcher searching fake for "Acme AI inference costs"' in out
+    assert 'Found by the skeptic searching fake for "AI price cuts temporary promotions"' in out
+
+    cli.main(["why", str(oid)])
+    out = capsys.readouterr().out
+    assert out.startswith("Observation: Acme AI halved inference prices")
+    assert 'Found by the scout searching fake for "AI inference price changes"' in out
+    assert f"accepted     {HYPOTHESIS}" in out

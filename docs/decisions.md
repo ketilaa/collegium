@@ -330,3 +330,14 @@ This is the organization's own reading of "discover related entities": it
 builds a map of who and what its knowledge is about, rather than asking a
 provider for similar pages. Entity resolution is by exact name or alias;
 merging spelling variants the model does not reconcile is left for later.
+
+## 2026-09-23 · Milestone 2.5, part 2: citation tracking
+
+Every belief can now be traced end to end: hypothesis or observation →
+evidence (the source's own words, stance, reliability, injection flags) →
+source (title, URL, publication date) → the external call that found it
+(which role, which provider, which query or approved feed, when).
+`memory.citations` returns that chain, and `collegium why <id>` prints it
+for hypotheses and observations, together with the observations a
+hypothesis derives from, the hypotheses derived from an observation, and
+the entities an observation mentions.

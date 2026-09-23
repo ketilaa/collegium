@@ -55,8 +55,8 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("hypotheses", help="list hypotheses and current confidence")
     p.add_argument("--all", action="store_true", help="include rejected and superseded")
 
-    p = sub.add_parser("why", help="explain why the organization holds a belief")
-    p.add_argument("hypothesis", help="hypothesis id or unique prefix")
+    p = sub.add_parser("why", help="explain a hypothesis or observation and its sources")
+    p.add_argument("id", help="hypothesis or observation id, or a unique prefix")
 
     p = sub.add_parser("entities", help="entities the organization knows, most mentioned first")
     p.add_argument("slug", nargs="?", help="only this domain")
@@ -269,28 +269,44 @@ def _hypotheses(args, settings: Settings) -> None:
 def _why(args, settings: Settings) -> None:
     with _reader(settings).reading() as conn:
         matches = conn.execute(
-            "SELECT id FROM hypotheses WHERE id::text LIKE %s", (args.hypothesis + "%",)
+            "SELECT id, kind FROM nodes WHERE kind IN ('hypothesis', 'observation') "
+            "AND id::text LIKE %s",
+            (args.id + "%",),
         ).fetchall()
         if len(matches) != 1:
-            raise SystemExit(f"{len(matches)} hypotheses match {args.hypothesis!r}")
-        hid = matches[0]["id"]
-        h = conn.execute("SELECT * FROM hypothesis_overview WHERE id = %s", (hid,)).fetchone()
-        proposer = conn.execute(
-            "SELECT name FROM actors WHERE id = %s", (h["proposed_by"],)
-        ).fetchone()["name"]
-        statuses = conn.execute(
-            "SELECT s.at, s.from_status, s.to_status, a.name FROM hypothesis_status_history s "
-            "JOIN actors a ON a.id = s.actor_id WHERE s.hypothesis_id = %s ORDER BY s.at",
-            (hid,),
-        ).fetchall()
-        history = memory.confidence_history(conn, hid)
-        evidence = memory.hypothesis_evidence(conn, hid)
-        critiques = memory.critiques_of(conn, hid)
+            raise SystemExit(f"{len(matches)} hypotheses or observations match {args.id!r}")
+        node = matches[0]
+        if node["kind"] == "hypothesis":
+            _why_hypothesis(conn, node["id"])
+        else:
+            _why_observation(conn, node["id"])
 
-    print(f"{h['statement']}\n")
-    print(f"Status {h['status']}, proposed by {proposer} on {_local(h['created_at']):%Y-%m-%d}")
+
+def _why_hypothesis(conn, hid) -> None:
+    h = conn.execute("SELECT * FROM hypothesis_overview WHERE id = %s", (hid,)).fetchone()
+    proposer = conn.execute("SELECT name FROM actors WHERE id = %s", (h["proposed_by"],))
+    statuses = conn.execute(
+        "SELECT s.at, s.from_status, s.to_status, a.name FROM hypothesis_status_history s "
+        "JOIN actors a ON a.id = s.actor_id WHERE s.hypothesis_id = %s ORDER BY s.at",
+        (hid,),
+    ).fetchall()
+    derived = conn.execute(
+        "SELECT o.id, o.statement FROM relationships r JOIN observations o ON o.id = r.object_id "
+        "WHERE r.subject_id = %s AND r.predicate = 'derived_from' AND r.retracted_at IS NULL",
+        (hid,),
+    ).fetchall()
+
+    print(f"Hypothesis: {h['statement']}\n")
+    print(
+        f"Status {h['status']}, proposed by {proposer.fetchone()['name']} "
+        f"on {_local(h['created_at']):%Y-%m-%d}"
+    )
     if h["first_accepted_at"]:
         print(f"First accepted {_local(h['first_accepted_at']):%Y-%m-%d %H:%M}")
+    if derived:
+        print("\nDerived from:")
+        for o in derived:
+            print(f"  {str(o['id'])[:8]}  {o['statement']}")
     print("\nStatus history:")
     for s in statuses:
         print(
@@ -298,22 +314,81 @@ def _why(args, settings: Settings) -> None:
             f"  ({s['name']})"
         )
     print("\nConfidence history:")
-    for c in history:
+    for c in memory.confidence_history(conn, hid):
         print(
             f"  {_local(c['assessed_at']):%Y-%m-%d %H:%M}  {c['confidence']:.2f}  "
             f"({c['assessed_by']}) {c['rationale']}"
         )
-    print("\nEvidence:")
-    for e in evidence:
-        print(f'  [{e["stance"]}] {e["summary"]}\n      "{e["excerpt"]}"\n      {e["source_uri"]}')
+    _print_citations(memory.citations(conn, hid))
     print("\nCritiques:")
-    for c in critiques:
+    for c in memory.critiques_of(conn, hid):
         alt = (
             f"\n      Alternative: {c['alternative_explanation']}"
             if c["alternative_explanation"]
             else ""
         )
         print(f"  [{c['status']}, severity {c['severity']}] {c['argument']}{alt}")
+
+
+def _why_observation(conn, oid) -> None:
+    o = conn.execute(
+        "SELECT o.*, n.created_at, a.name AS recorded_by FROM observations o "
+        "JOIN nodes n ON n.id = o.id JOIN actors a ON a.id = n.created_by WHERE o.id = %s",
+        (oid,),
+    ).fetchone()
+    hypotheses = conn.execute(
+        "SELECT h.id, h.statement, h.status FROM relationships r "
+        "JOIN hypotheses h ON h.id = r.subject_id "
+        "WHERE r.object_id = %s AND r.predicate = 'derived_from' AND r.retracted_at IS NULL",
+        (oid,),
+    ).fetchall()
+    entities = conn.execute(
+        "SELECT e.name, e.entity_type FROM relationships r JOIN entities e ON e.id = r.object_id "
+        "WHERE r.subject_id = %s AND r.predicate = 'mentions' AND r.retracted_at IS NULL "
+        "ORDER BY e.name",
+        (oid,),
+    ).fetchall()
+    print(f"Observation: {o['statement']}\n")
+    when = f", occurred {_local(o['occurred_at']):%Y-%m-%d}" if o["occurred_at"] else ""
+    print(
+        f"Status {o['status']}, recorded by {o['recorded_by']} "
+        f"on {_local(o['created_at']):%Y-%m-%d}{when}"
+    )
+    if o["recommendation"]:
+        print(f"Why it may matter: {o['recommendation']}")
+    if entities:
+        print("Mentions: " + ", ".join(f"{e['name']} ({e['entity_type']})" for e in entities))
+    _print_citations(memory.citations(conn, oid))
+    if hypotheses:
+        print("\nHypotheses derived from it:")
+        for h in hypotheses:
+            print(f"  {str(h['id'])[:8]}  {h['status']:12} {h['statement']}")
+
+
+def _print_citations(rows: list[dict]) -> None:
+    print("\nEvidence:")
+    for e in rows:
+        extra = [f"reliability {e['reliability']}"] if e["reliability"] is not None else []
+        signals = (e["metadata"] or {}).get("injection_signals")
+        if signals:
+            extra.append(f"flagged: {', '.join(signals)}")
+        print(f"  [{e['stance']}] {e['summary']}" + (f"  ({'; '.join(extra)})" if extra else ""))
+        print(f'      "{e["excerpt"]}"')
+        published = f", published {_local(e['published_at']):%Y-%m-%d}" if e["published_at"] else ""
+        print(f"      Source: {e['source_title'] or ''} <{e['uri']}>{published}")
+        print(f"      {_found_via(e)}")
+
+
+def _found_via(e: dict) -> str:
+    """How the organization came across a source."""
+    if e["capability"] is None:
+        return "Found: not recorded"
+    request = e["request"] or {}
+    if e["capability"] == "crawl":
+        how = f"reading approved feed {request.get('url')}"
+    else:
+        how = f'searching {e["provider"]} for "{request.get("query")}"'
+    return f"Found by the {e['found_by']} {how} on {_local(e['requested_at']):%Y-%m-%d %H:%M}"
 
 
 def _jobs(args, settings: Settings) -> None:
