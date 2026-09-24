@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status %}
+{% block title %}Programs{% endblock %}
+{% block content %}
+<h1>Research programs</h1>
+<p class="lede">Programs are proposed by the Strategist and opened or closed by you.</p>
+{% for p in programs %}
+  <article class="card">
+    <h2>{{ p.name }} {{ status(p.status) }}</h2>
+    <p>{{ p.charter }}</p>
+    <div class="meta">Priority {{ p.priority }} · proposed {{ p.created_at|local("%Y-%m-%d") }} · {{ p.goals }} goals
+      {% if p.status == "proposed" %} · <code>collegium approve</code> or <code>reject</code> the decision about it{% endif %}</div>
+    {% set goals = goals_by_program.get(p.id, []) %}
+    {% if goals %}
+      <ul class="plain">{% for g in goals %}<li>{{ status(g.status) }} {{ g.statement }}</li>{% endfor %}</ul>
+    {% endif %}
+  </article>
+{% else %}
+  <p class="empty">No programs yet.</p>
+{% endfor %}
+{% endblock %}

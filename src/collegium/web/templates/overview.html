@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status, hypothesis_link, ops_strip %}
+{% block title %}Overview{% endblock %}
+{% block content %}
+<h1>Overview</h1>
+{{ ops_strip(ops) }}
+
+{% if decisions %}
+<section class="callout">
+  <h2>Waiting for you</h2>
+  <ul class="plain">
+    {% for d in decisions %}
+      <li><strong>{{ d.statement }}</strong>
+        <div class="meta">Proposed by the {{ d.proposed_by }} on {{ d.created_at|local("%Y-%m-%d") }} · <code>collegium approve {{ d.id|short }}</code></div>
+        <p>{{ d.rationale }}</p></li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<div class="columns">
+  <section>
+    <h2>Beliefs</h2>
+    <dl class="tiles">
+      {% for s in ["accepted", "under_review", "proposed"] %}
+        <div><dt>{{ s|label|capitalize }}</dt><dd><a href="/hypotheses">{{ counts[s] }}</a></dd></div>
+      {% endfor %}
+    </dl>
+    <h2>Active goals</h2>
+    {% if goals %}
+      <ol class="plain">
+        {% for g in goals %}<li><span class="prio">p{{ g.priority }}</span> {{ g.statement }}</li>{% endfor %}
+      </ol>
+      <p><a href="/goals">All goals</a></p>
+    {% else %}<p class="empty">No active goals. The Strategist sets them when it plans each working day.</p>{% endif %}
+    {% if programs %}
+      <h2>Open programs</h2>
+      <ul class="plain">{% for p in programs %}<li>{{ p.name }}</li>{% endfor %}</ul>
+    {% endif %}
+  </section>
+  <section>
+    <h2>This week</h2>
+    {% if changes %}
+      <ul class="plain">
+        {% for c in changes %}
+          <li>{{ status(c.to_status) }} {{ hypothesis_link(c) }}
+            <div class="meta">{{ c.at|local }} · {{ c.actor }}</div></li>
+        {% endfor %}
+      </ul>
+    {% else %}<p class="empty">No hypotheses changed this week.</p>{% endif %}
+    <h2>Latest observations</h2>
+    {% if observations %}
+      <ul class="plain">
+        {% for o in observations %}
+          <li><a href="/observations/{{ o.id }}">{{ o.statement }}</a>
+            <div class="meta">{{ o.created_at|local }} · {{ o.recorded_by }}</div></li>
+        {% endfor %}
+      </ul>
+      <p><a href="/discoveries">All discoveries</a></p>
+    {% else %}<p class="empty">Nothing observed this week.</p>{% endif %}
+  </section>
+</div>
+{% endblock %}

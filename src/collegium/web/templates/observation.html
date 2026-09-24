@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status %}
+{% block title %}Observation{% endblock %}
+{% block content %}
+{% set o = observation %}
+<p class="crumb"><a href="/discoveries">Discoveries</a></p>
+<h1 class="claim">{{ o.statement }}</h1>
+<p class="meta">{{ status(o.status) }} · recorded by the {{ o.recorded_by }} on {{ o.created_at|local("%Y-%m-%d") }}
+  {% if o.occurred_at %} · occurred {{ o.occurred_at|local("%Y-%m-%d") }}{% endif %} · <code>{{ o.id|short }}</code></p>
+{% if o.recommendation %}<section><h2>Why it may matter</h2><p class="prose">{{ o.recommendation }}</p></section>{% endif %}
+{% if entities %}<p><strong>Mentions:</strong> {% for e in entities %}{{ e.name }} <span class="kind">{{ e.entity_type }}</span>{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+{% include "_citations.html" %}
+{% if hypotheses %}
+  <h2>Hypotheses derived from it</h2>
+  <ul class="plain">{% for h in hypotheses %}<li>{{ status(h.status) }} <a href="/hypotheses/{{ h.id }}">{{ h.statement }}</a></li>{% endfor %}</ul>
+{% endif %}
+{% endblock %}

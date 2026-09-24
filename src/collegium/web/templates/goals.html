@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status %}
+{% block title %}Goals{% endblock %}
+{% block content %}
+<h1>{% if all %}All goals{% else %}Active goals{% endif %}</h1>
+<p class="lede">Set by the Strategist from gaps in memory. {% if all %}<a href="/goals">Only active</a>{% else %}<a href="/goals?all=1">Include achieved and abandoned</a>{% endif %}</p>
+{% for g in goals %}
+  <article class="card">
+    <h2><span class="prio">p{{ g.priority }}</span> {{ g.statement }} {% if all %}{{ status(g.status) }}{% endif %}</h2>
+    {% if g.success_criteria %}<p><strong>Done when:</strong> {{ g.success_criteria }}</p>{% endif %}
+    <div class="meta">Set {{ g.created_at|local("%Y-%m-%d") }} · {{ g.jobs }} jobs{% if g.program %} · program {{ g.program }}{% endif %}</div>
+    {% if g.about %}
+      <h3>Investigates</h3>
+      <ul class="plain">
+        {% for t in g.about %}
+          <li>
+            {% if t.kind == "hypothesis" %}{{ status(t.status) }} <a href="/hypotheses/{{ t.id }}">{{ t.label }}</a>
+            {% elif t.kind == "observation" %}<a href="/observations/{{ t.id }}">{{ t.label }}</a>
+            {% else %}<span class="kind">{{ t.kind }}</span> {{ t.label }}{% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  </article>
+{% else %}
+  <p class="empty">No goals.</p>
+{% endfor %}
+{% endblock %}

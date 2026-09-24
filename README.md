@@ -37,6 +37,10 @@ uv run collegium hypotheses         # what the organization believes
 uv run collegium why <id>           # and why
 ```
 
+The board is at <http://localhost:8000> once `docker compose up -d` is
+running (or `uv run collegium web` on the host). It has no login yet and
+listens on localhost only.
+
 Run the tests with `uv run pytest` (needs `docker compose up -d db`).
 
 ## Backups

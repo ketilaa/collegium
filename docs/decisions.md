@@ -493,3 +493,61 @@ scheduler plans each domain once per working day, at the first check after
 opening, replacing `COLLEGIUM_STRATEGY_INTERVAL_HOURS`. Work queued outside
 hours, by the owner, the scheduler or the budget, waits for the next
 opening. A manual `collegium worker --drain` ignores working hours.
+
+## 2026-09-24 · Milestone 4 plan and the owner's decisions
+
+Milestone 4 in four parts: (1) a read-only board: programs, goals,
+hypotheses with their full `why` chain and confidence over time, recent
+discoveries and operations; (2) the owner's actions: the decisions inbox,
+challenging a hypothesis, managing domains and feeds; (3) Mission and
+Contradictions; (4) Ask the Organization.
+
+Decided by the owner:
+
+- **One web service.** A single FastAPI app serves the server-rendered
+  board (Jinja and htmx) and is the API. JSON endpoints are added only when
+  something other than the board needs them. This merges VISION.md's API
+  and Web UI components into one service for now.
+- **No authentication yet.** It is added before the board is deployed where
+  anyone else can reach it. Until then the web service listens on
+  localhost only.
+- **The mission is a decision.** The organization's mission and each
+  domain's mission are approved decisions linked with `governs`; changing a
+  mission supersedes the old decision, so its history is kept. The
+  Strategist reads the domain's mission.
+- **The owner's critiques go through the loop.** A critique written by the
+  owner queues a `resolve` job and starts a fresh two rounds. The Skeptic
+  may dismiss it, but must give a reason, and the board shows it
+  prominently.
+- **Ask the Organization** answers from memory only, with no external
+  search, citing what it uses. `ask` jobs run whenever the owner asks,
+  outside working hours too, since the owner is waiting and they make no
+  paid calls. Questions and answers are stored, and a question memory could
+  not answer becomes a knowledge gap the Strategist sees.
+- **Contradictions** start with what is already stored: live hypotheses
+  with both supporting and contradicting evidence, serious critiques upheld
+  or still open after the loop, and hypotheses the Skeptic rejected at high
+  confidence. Detecting contradictions between two hypotheses waits for
+  Milestone 5.
+
+## 2026-09-24 · Milestone 4, part 1: the read-only board
+
+`collegium web` (and the `web` Compose service, published on
+127.0.0.1 only) serves the board: overview, programs, goals, hypotheses,
+each hypothesis's full explanation with a confidence chart, observations,
+recent discoveries and operations (refreshed every 15 seconds with htmx).
+The read queries moved from `cli.py` into `board.py`, so the CLI and the
+board show the same things.
+
+- **One connection per request**, opened with the board login. There is
+  one user, so a pool is not worth it yet.
+- **Outside text stays inert.** Excerpts, titles and statements come from
+  the web and are escaped by Jinja. Source addresses are linked only if
+  they are http or https. A strict content security policy lets the page
+  load nothing but its own stylesheet and the vendored htmx, so even a
+  missed escape could not run a script.
+- **Charts are drawn on the server** as plain SVG, so no chart library is
+  needed and the policy stays strict.
+- **The web service holds no provider keys.** It shows the budget by
+  counting calls to the paid providers (`metered_provider_names`), without
+  building the providers.

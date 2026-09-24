@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status %}
+{% block title %}Hypotheses{% endblock %}
+{% block content %}
+<h1>{% if all %}All hypotheses{% else %}Live hypotheses{% endif %}</h1>
+<p class="lede">Highest confidence first. {% if all %}<a href="/hypotheses">Only live</a>{% else %}<a href="/hypotheses?all=1">Include rejected and superseded</a>{% endif %}</p>
+{% if hypotheses %}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Hypothesis</th><th>Status</th><th class="num">Confidence</th><th class="num" title="Supporting / contradicting evidence">For / against</th><th class="num">Open critiques</th></tr></thead>
+  <tbody>
+    {% for h in hypotheses %}
+      <tr>
+        <td><a href="/hypotheses/{{ h.id }}">{{ h.statement }}</a>
+          {% if h.domains %}<div class="meta">{{ h.domains|join(", ") }}</div>{% endif %}</td>
+        <td>{{ status(h.status) }}</td>
+        <td class="num">{{ h.current_confidence|confidence }}</td>
+        <td class="num">{{ h.supporting_evidence }} / {{ h.contradicting_evidence }}</td>
+        <td class="num">{{ h.open_critiques or "" }}</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}<p class="empty">No hypotheses yet.</p>{% endif %}
+{% endblock %}

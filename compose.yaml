@@ -110,5 +110,22 @@ services:
       logins:
         condition: service_completed_successfully
 
+  # The board. It has no login yet, so it is published on localhost only.
+  web:
+    build: .
+    command: ["collegium", "web", "--host", "0.0.0.0"]
+    environment:
+      COLLEGIUM_BOARD_DATABASE_URL: postgresql://collegium_board_app:${COLLEGIUM_BOARD_PASSWORD:-board}@db:5432/collegium
+      COLLEGIUM_DAILY_CALL_BUDGET: ${COLLEGIUM_DAILY_CALL_BUDGET:-50}
+      COLLEGIUM_WORK_HOURS: ${COLLEGIUM_WORK_HOURS:-08:00-16:00}
+      COLLEGIUM_WORK_DAYS: ${COLLEGIUM_WORK_DAYS:-mon-fri}
+      COLLEGIUM_TIMEZONE: ${COLLEGIUM_TIMEZONE:-Europe/Oslo}
+    ports:
+      - "127.0.0.1:${COLLEGIUM_WEB_PORT:-8000}:8000"
+    restart: unless-stopped
+    depends_on:
+      logins:
+        condition: service_completed_successfully
+
 volumes:
   db-data:

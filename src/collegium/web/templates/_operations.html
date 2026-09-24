@@ -1,0 +1,26 @@
+{% from "_macros.html" import ops_strip, status %}
+{{ ops_strip(ops) }}
+<h2>Jobs</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Queued</th><th>Kind</th><th>Status</th><th class="num">Attempts</th><th>Outcome</th></tr></thead>
+  <tbody>
+    {% for j in jobs %}
+      <tr><td class="nowrap">{{ j.created_at|local("%m-%d %H:%M") }}</td><td>{{ j.kind }}</td><td>{{ status(j.status) }}</td>
+        <td class="num">{{ j.attempts }}</td><td>{% if j.status == "succeeded" %}{{ j.notes or "" }}{% else %}{{ j.last_error or "" }}{% endif %}</td></tr>
+    {% else %}<tr><td colspan="5" class="empty">No jobs yet.</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+<h2>Calls to external providers</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>When</th><th>Role</th><th>Capability</th><th>Provider</th><th>Result</th><th>Request</th></tr></thead>
+  <tbody>
+    {% for q in acquisitions %}
+      <tr><td class="nowrap">{{ q.requested_at|local("%m-%d %H:%M") }}</td><td>{{ q.actor }}</td><td>{{ q.capability }}</td><td>{{ q.provider }}</td>
+        <td>{% if q.error %}<span class="flag">{{ q.error }}</span>{% else %}{{ q.result_count }} results{% endif %}</td><td>{{ q|request }}</td></tr>
+    {% else %}<tr><td colspan="6" class="empty">No calls yet.</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>

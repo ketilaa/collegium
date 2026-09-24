@@ -1,0 +1,27 @@
+{% macro status(value) -%}
+  <span class="status status-{{ value }}">{{ value|label }}</span>
+{%- endmacro %}
+
+{% macro hypothesis_link(h) -%}
+  <a href="/hypotheses/{{ h.id }}">{{ h.statement }}</a>
+{%- endmacro %}
+
+{% macro ops_strip(ops) -%}
+  <dl class="strip">
+    <div>
+      <dt>Working hours</dt>
+      <dd>{% if ops.open %}Open{% else %}Closed until {{ ops.next_opening|local("%a %H:%M") }}{% endif %}
+        <small>{{ ops.hours }}</small></dd>
+    </div>
+    <div>
+      <dt>Paid calls, last 24 hours</dt>
+      <dd>{{ ops.budget_used }} of {{ ops.budget }}
+        {% if ops.budget_frees and ops.budget_used >= ops.budget %}<small>frees {{ ops.budget_frees|local("%a %H:%M") }}</small>{% endif %}</dd>
+    </div>
+    <div>
+      <dt>Jobs</dt>
+      <dd>{{ ops.job_counts.get("running", 0) }} running, {{ ops.job_counts.get("queued", 0) }} queued
+        {% if ops.job_counts.get("failed") %}<small>{{ ops.job_counts.failed }} failed</small>{% endif %}</dd>
+    </div>
+  </dl>
+{%- endmacro %}

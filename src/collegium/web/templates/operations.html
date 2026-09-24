@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Operations{% endblock %}
+{% block content %}
+<h1>Operations</h1>
+<div hx-get="/operations/live" hx-trigger="every 15s" hx-swap="innerHTML">
+  {% include "_operations.html" %}
+</div>
+{% endblock %}

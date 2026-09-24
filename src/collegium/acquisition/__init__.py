@@ -341,6 +341,16 @@ def acquisition_from_settings(settings: Settings) -> Acquisition:
     return Acquisition(discovery, extractor, default=settings.search_provider, crawler=FeedReader())
 
 
+def metered_provider_names(settings: Settings) -> list[str]:
+    """The paid providers `acquisition_from_settings` would use, known without
+    their keys, so the board can show the budget without holding them."""
+    if settings.search_provider == "tavily":
+        from collegium.acquisition.tavily import TavilyProvider
+
+        return [TavilyProvider.name] if TavilyProvider.metered else []
+    return []
+
+
 _IMAGE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
 _LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
 _BLANK_LINES = re.compile(r"\n{3,}")

@@ -6,7 +6,7 @@ from datetime import datetime
 
 import truststore
 
-from collegium import jobs, memory, scheduler, worker
+from collegium import board, jobs, memory, scheduler, worker
 from collegium.acquisition import acquisition_from_settings
 from collegium.acquisition.feeds import FeedReader
 from collegium.config import Settings, require
@@ -25,6 +25,10 @@ def main(argv: list[str] | None = None) -> None:
 
     p = sub.add_parser("scheduler", help="enqueue recurring work")
     p.add_argument("--once", action="store_true")
+
+    p = sub.add_parser("web", help="serve the board (no login yet: keep it on localhost)")
+    p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--port", type=int, default=8000)
 
     p = sub.add_parser("domain", help="manage research domains (owner)")
     dsub = p.add_subparsers(dest="action", required=True)
@@ -139,6 +143,15 @@ def _scheduler(args, settings: Settings) -> None:
         scheduler.run_forever(db, hours)
 
 
+def _web(args, settings: Settings) -> None:
+    import uvicorn
+
+    from collegium.web import create_app
+
+    url = require(settings.board_database_url, "COLLEGIUM_BOARD_DATABASE_URL")
+    uvicorn.run(create_app(settings, lambda: Database(url)), host=args.host, port=args.port)
+
+
 # ---------------------------------------------------------------------------
 # Owner commands
 # ---------------------------------------------------------------------------
@@ -170,10 +183,7 @@ def _domain(args, settings: Settings) -> None:
         _domain_sources(args, settings)
     else:
         with _reader(settings).reading() as conn:
-            rows = conn.execute(
-                "SELECT slug, name, status, discovery_sources FROM domains ORDER BY slug"
-            )
-            for d in rows:
+            for d in board.domains(conn):
                 sources = ", ".join(d["discovery_sources"]) or "default"
                 print(f"{d['slug']:30} {d['status']:8} {d['name']}  [{sources}]")
 
@@ -214,13 +224,9 @@ def _entities(args, settings: Settings) -> None:
 
 def _acquisitions(args, settings: Settings) -> None:
     with _reader(settings).reading() as conn:
-        rows = conn.execute(
-            "SELECT q.*, a.name AS actor FROM acquisitions q "
-            "JOIN actors a ON a.id = q.requested_by ORDER BY q.requested_at DESC LIMIT %s",
-            (args.limit,),
-        ).fetchall()
+        rows = board.acquisitions(conn, args.limit)
     for q in rows:
-        request = q["request"].get("query") or ", ".join(q["request"].get("urls", []))
+        request = board.acquisition_request(q)
         outcome = f"error: {q['error']}" if q["error"] else f"{q['result_count']} results"
         print(
             f"{_local(q['requested_at']):%m-%d %H:%M}  {q['actor']:10} {q['capability']:8} "
@@ -289,13 +295,8 @@ def _strategize(args, settings: Settings) -> None:
 
 
 def _goals(args, settings: Settings) -> None:
-    where = "" if args.all else "WHERE g.status = 'active'"
     with _reader(settings).reading() as conn:
-        rows = conn.execute(
-            "SELECT g.*, n.created_at, (SELECT count(*) FROM jobs j "
-            "WHERE j.payload->>'goal_id' = g.id::text) AS jobs FROM goals g "
-            f"JOIN nodes n ON n.id = g.id {where} ORDER BY g.status, g.priority, n.created_at"
-        ).fetchall()
+        rows = board.goals(conn, include_all=args.all)
     for g in rows:
         print(
             f"{str(g['id'])[:8]}  {g['status']:9} p{g['priority']}  {g['jobs']:2} jobs  "
@@ -305,18 +306,14 @@ def _goals(args, settings: Settings) -> None:
 
 def _programs(args, settings: Settings) -> None:
     with _reader(settings).reading() as conn:
-        rows = conn.execute("SELECT * FROM programs ORDER BY status, priority").fetchall()
+        rows = board.programs(conn)
     for p in rows:
         print(f"{str(p['id'])[:8]}  {p['status']:9} {p['name']}\n{'':20}{p['charter']}")
 
 
 def _decisions(args, settings: Settings) -> None:
     with _reader(settings).reading() as conn:
-        rows = conn.execute(
-            "SELECT d.*, a.name AS proposed_by, n.created_at FROM decisions d "
-            "JOIN nodes n ON n.id = d.id JOIN actors a ON a.id = n.created_by "
-            "WHERE d.status = 'proposed' ORDER BY n.created_at"
-        ).fetchall()
+        rows = board.decisions_waiting(conn)
     for d in rows:
         print(
             f"{str(d['id'])[:8]}  proposed by the {d['proposed_by']} on "
@@ -385,11 +382,8 @@ def _resolve(args, settings: Settings) -> None:
 
 
 def _hypotheses(args, settings: Settings) -> None:
-    where = "" if args.all else "WHERE status IN ('proposed', 'under_review', 'accepted')"
     with _reader(settings).reading() as conn:
-        rows = conn.execute(
-            f"SELECT * FROM hypothesis_overview {where} ORDER BY current_confidence DESC NULLS LAST"
-        ).fetchall()
+        rows = board.hypotheses(conn, include_all=args.all)
     for h in rows:
         conf = f"{h['current_confidence']:.2f}" if h["current_confidence"] is not None else "  - "
         print(
@@ -401,11 +395,7 @@ def _hypotheses(args, settings: Settings) -> None:
 
 def _why(args, settings: Settings) -> None:
     with _reader(settings).reading() as conn:
-        matches = conn.execute(
-            "SELECT id, kind FROM nodes WHERE kind IN ('hypothesis', 'observation') "
-            "AND id::text LIKE %s",
-            (args.id + "%",),
-        ).fetchall()
+        matches = board.match_nodes(conn, args.id, ["hypothesis", "observation"])
         if len(matches) != 1:
             raise SystemExit(f"{len(matches)} hypotheses or observations match {args.id!r}")
         node = matches[0]
@@ -416,45 +406,33 @@ def _why(args, settings: Settings) -> None:
 
 
 def _why_hypothesis(conn, hid) -> None:
-    h = conn.execute("SELECT * FROM hypothesis_overview WHERE id = %s", (hid,)).fetchone()
-    proposer = conn.execute("SELECT name FROM actors WHERE id = %s", (h["proposed_by"],))
-    statuses = conn.execute(
-        "SELECT s.at, s.from_status, s.to_status, a.name FROM hypothesis_status_history s "
-        "JOIN actors a ON a.id = s.actor_id WHERE s.hypothesis_id = %s ORDER BY s.at",
-        (hid,),
-    ).fetchall()
-    derived = conn.execute(
-        "SELECT o.id, o.statement FROM relationships r JOIN observations o ON o.id = r.object_id "
-        "WHERE r.subject_id = %s AND r.predicate = 'derived_from' AND r.retracted_at IS NULL",
-        (hid,),
-    ).fetchall()
-
+    detail = board.hypothesis_detail(conn, hid)
+    h = detail["hypothesis"]
     print(f"Hypothesis: {h['statement']}\n")
     print(
-        f"Status {h['status']}, proposed by {proposer.fetchone()['name']} "
-        f"on {_local(h['created_at']):%Y-%m-%d}"
+        f"Status {h['status']}, proposed by {h['proposer']} on {_local(h['created_at']):%Y-%m-%d}"
     )
     if h["first_accepted_at"]:
         print(f"First accepted {_local(h['first_accepted_at']):%Y-%m-%d %H:%M}")
-    if derived:
+    if detail["derived_from"]:
         print("\nDerived from:")
-        for o in derived:
+        for o in detail["derived_from"]:
             print(f"  {str(o['id'])[:8]}  {o['statement']}")
     print("\nStatus history:")
-    for s in statuses:
+    for s in detail["statuses"]:
         print(
             f"  {_local(s['at']):%Y-%m-%d %H:%M}  {s['from_status'] or '-'} -> {s['to_status']}"
             f"  ({s['name']})"
         )
     print("\nConfidence history:")
-    for c in memory.confidence_history(conn, hid):
+    for c in detail["confidence"]:
         print(
             f"  {_local(c['assessed_at']):%Y-%m-%d %H:%M}  {c['confidence']:.2f}  "
             f"({c['assessed_by']}) {c['rationale']}"
         )
-    _print_citations(memory.citations(conn, hid))
+    _print_citations(detail["citations"])
     print("\nCritiques:")
-    for c in memory.critiques_of(conn, hid):
+    for c in detail["critiques"]:
         alt = (
             f"\n      Alternative: {c['alternative_explanation']}"
             if c["alternative_explanation"]
@@ -466,23 +444,8 @@ def _why_hypothesis(conn, hid) -> None:
 
 
 def _why_observation(conn, oid) -> None:
-    o = conn.execute(
-        "SELECT o.*, n.created_at, a.name AS recorded_by FROM observations o "
-        "JOIN nodes n ON n.id = o.id JOIN actors a ON a.id = n.created_by WHERE o.id = %s",
-        (oid,),
-    ).fetchone()
-    hypotheses = conn.execute(
-        "SELECT h.id, h.statement, h.status FROM relationships r "
-        "JOIN hypotheses h ON h.id = r.subject_id "
-        "WHERE r.object_id = %s AND r.predicate = 'derived_from' AND r.retracted_at IS NULL",
-        (oid,),
-    ).fetchall()
-    entities = conn.execute(
-        "SELECT e.name, e.entity_type FROM relationships r JOIN entities e ON e.id = r.object_id "
-        "WHERE r.subject_id = %s AND r.predicate = 'mentions' AND r.retracted_at IS NULL "
-        "ORDER BY e.name",
-        (oid,),
-    ).fetchall()
+    detail = board.observation_detail(conn, oid)
+    o = detail["observation"]
     print(f"Observation: {o['statement']}\n")
     when = f", occurred {_local(o['occurred_at']):%Y-%m-%d}" if o["occurred_at"] else ""
     print(
@@ -491,12 +454,15 @@ def _why_observation(conn, oid) -> None:
     )
     if o["recommendation"]:
         print(f"Why it may matter: {o['recommendation']}")
-    if entities:
-        print("Mentions: " + ", ".join(f"{e['name']} ({e['entity_type']})" for e in entities))
-    _print_citations(memory.citations(conn, oid))
-    if hypotheses:
+    if detail["entities"]:
+        print(
+            "Mentions: "
+            + ", ".join(f"{e['name']} ({e['entity_type']})" for e in detail["entities"])
+        )
+    _print_citations(detail["citations"])
+    if detail["hypotheses"]:
         print("\nHypotheses derived from it:")
-        for h in hypotheses:
+        for h in detail["hypotheses"]:
             print(f"  {str(h['id'])[:8]}  {h['status']:12} {h['statement']}")
 
 
@@ -511,28 +477,12 @@ def _print_citations(rows: list[dict]) -> None:
         print(f'      "{e["excerpt"]}"')
         published = f", published {_local(e['published_at']):%Y-%m-%d}" if e["published_at"] else ""
         print(f"      Source: {e['source_title'] or ''} <{e['uri']}>{published}")
-        print(f"      {_found_via(e)}")
-
-
-def _found_via(e: dict) -> str:
-    """How the organization came across a source."""
-    if e["capability"] is None:
-        return "Found: not recorded"
-    request = e["request"] or {}
-    if e["capability"] == "crawl":
-        how = f"reading approved feed {request.get('url')}"
-    else:
-        how = f'searching {e["provider"]} for "{request.get("query")}"'
-    return f"Found by the {e['found_by']} {how} on {_local(e['requested_at']):%Y-%m-%d %H:%M}"
+        print(f"      {board.found_via(e, _local)}")
 
 
 def _jobs(args, settings: Settings) -> None:
     with _reader(settings).reading() as conn:
-        rows = conn.execute(
-            "SELECT j.*, r.notes FROM jobs j LEFT JOIN runs r ON r.id = j.run_id "
-            "ORDER BY j.created_at DESC LIMIT %s",
-            (args.limit,),
-        ).fetchall()
+        rows = board.jobs(conn, args.limit)
     for j in rows:
         detail = j["last_error"] if j["status"] != "succeeded" else j["notes"]
         print(
@@ -544,6 +494,7 @@ def _jobs(args, settings: Settings) -> None:
 COMMANDS = {
     "worker": _worker,
     "scheduler": _scheduler,
+    "web": _web,
     "domain": _domain,
     "feed": _feed,
     "scout": _scout,

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status, hypothesis_link %}
+{% block title %}Discoveries{% endblock %}
+{% block content %}
+<h1>Recent discoveries</h1>
+<nav class="filters" aria-label="Period">
+  {% for d, name in windows.items() %}
+    <a href="/discoveries?days={{ d }}"{% if d == days %} aria-current="page"{% endif %}>{{ name }}</a>
+  {% endfor %}
+</nav>
+<div class="columns">
+  <section>
+    <h2>Observations <span class="count">{{ observations|length }}</span></h2>
+    {% for o in observations %}
+      <article class="card">
+        <a href="/observations/{{ o.id }}">{{ o.statement }}</a>
+        {% if o.recommendation %}<p>{{ o.recommendation }}</p>{% endif %}
+        <div class="meta">{{ status(o.status) }} · {{ o.created_at|local }} · {{ o.recorded_by }}</div>
+      </article>
+    {% else %}<p class="empty">Nothing observed in this period.</p>{% endfor %}
+  </section>
+  <section>
+    <h2>Hypotheses that moved <span class="count">{{ changes|length }}</span></h2>
+    <ul class="plain">
+      {% for c in changes %}
+        <li>{{ status(c.to_status) }} {{ hypothesis_link(c) }}
+          <div class="meta">{{ c.at|local }} · {{ c.actor }}{% if c.from_status %} · was {{ c.from_status|label }}{% endif %}</div></li>
+      {% else %}<li class="empty">None in this period.</li>{% endfor %}
+    </ul>
+    <h2>New entities <span class="count">{{ entities|length }}</span></h2>
+    <ul class="plain">
+      {% for e in entities %}
+        <li>{{ e.name }} <span class="kind">{{ e.entity_type }}</span> <span class="meta">{{ e.mentions }} mentions</span></li>
+      {% else %}<li class="empty">None in this period.</li>{% endfor %}
+    </ul>
+  </section>
+</div>
+{% endblock %}

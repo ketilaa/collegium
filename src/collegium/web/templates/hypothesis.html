@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status %}
+{% block title %}Hypothesis{% endblock %}
+{% block content %}
+{% set h = hypothesis %}
+<p class="crumb"><a href="/hypotheses">Hypotheses</a></p>
+<h1 class="claim">{{ h.statement }}</h1>
+<p class="meta">{{ status(h.status) }} · proposed by the {{ h.proposer }} on {{ h.created_at|local("%Y-%m-%d") }}
+  {% if h.first_accepted_at %} · first accepted {{ h.first_accepted_at|local }}{% endif %}
+  · <code>{{ h.id|short }}</code></p>
+{% if h.superseded_by %}<p class="callout">Superseded by <a href="/hypotheses/{{ h.superseded_by }}">a refined hypothesis</a>.</p>{% endif %}
+{% if h.rationale %}<section><h2>Rationale</h2><p class="prose">{{ h.rationale }}</p></section>{% endif %}
+
+<section>
+  <h2>Confidence over time</h2>
+  {% if chart %}
+  <figure class="chart">
+    <svg viewBox="0 0 {{ chart.width }} {{ chart.height }}" role="img" aria-label="Confidence over time, now {{ h.current_confidence|confidence }}">
+      {% for y, label in chart.grid %}
+        <line class="grid" x1="{{ chart.plot_left }}" x2="{{ chart.plot_right }}" y1="{{ y }}" y2="{{ y }}"/>
+        <text class="axis" x="{{ chart.plot_left - 8 }}" y="{{ y + 4 }}" text-anchor="end">{{ label }}</text>
+      {% endfor %}
+      <line class="threshold" x1="{{ chart.plot_left }}" x2="{{ chart.plot_right }}" y1="{{ chart.threshold }}" y2="{{ chart.threshold }}"/>
+      {% if chart.points|length > 1 %}<polyline class="series" points="{{ chart.line }}"/>{% endif %}
+      {% for p in chart.points %}
+        <g class="point">
+          <circle class="hit" cx="{{ p.x }}" cy="{{ p.y }}" r="12"/>
+          <circle class="dot" cx="{{ p.x }}" cy="{{ p.y }}" r="4"/>
+          <title>{{ p.confidence|confidence }} · {{ p.at|local }} · {{ p.by }}</title>
+        </g>
+      {% endfor %}
+      {% for x, at in chart.x_labels %}
+        <text class="axis" x="{{ x }}" y="{{ chart.height - 8 }}" text-anchor="{% if loop.first and chart.x_labels|length > 1 %}start{% elif loop.last and chart.x_labels|length > 1 %}end{% else %}middle{% endif %}">{{ at|local("%b %d %H:%M") }}</text>
+      {% endfor %}
+    </svg>
+    <figcaption class="meta">Dashed line: the Historian accepts a hypothesis from {{ chart.threshold_value }}, given independent support and no serious open critique. Hover a point for who assessed it.</figcaption>
+  </figure>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>When</th><th class="num">Confidence</th><th>By</th><th>Why</th></tr></thead>
+    <tbody>
+      {% for c in confidence %}
+        <tr><td class="nowrap">{{ c.assessed_at|local }}</td><td class="num">{{ c.confidence|confidence }}</td><td>{{ c.assessed_by }}</td><td>{{ c.rationale }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}<p class="empty">Not assessed yet.</p>{% endif %}
+</section>
+
+<section>
+  <h2>Critiques</h2>
+  {% for c in critiques %}
+    <article class="critique critique-{{ c.status }}">
+      <div class="meta">{{ status(c.status) }} · severity {{ c.severity }} · raised by the {{ c.raised_by }} on {{ c.created_at|local("%Y-%m-%d") }}</div>
+      <p>{{ c.argument }}</p>
+      {% if c.alternative_explanation %}<p><strong>Alternative:</strong> {{ c.alternative_explanation }}</p>{% endif %}
+      {% if c.resolution %}<p class="resolution"><strong>{{ c.status|capitalize }}{% if c.settled_by %} by the {{ c.settled_by }}{% endif %}:</strong> {{ c.resolution }}</p>{% endif %}
+    </article>
+  {% else %}<p class="empty">No critiques.</p>{% endfor %}
+</section>
+
+{% include "_citations.html" %}
+
+<section class="columns">
+  <div>
+    <h2>Status history</h2>
+    <ol class="plain">
+      {% for s in statuses %}
+        <li>{{ s.at|local }} · {{ (s.from_status or "new")|label }} → {{ s.to_status|label }} <span class="meta">({{ s.name }})</span></li>
+      {% endfor %}
+    </ol>
+  </div>
+  <div>
+    {% if derived_from %}<h2>Derived from</h2>
+      <ul class="plain">{% for o in derived_from %}<li><a href="/observations/{{ o.id }}">{{ o.statement }}</a></li>{% endfor %}</ul>{% endif %}
+    {% if refines %}<h2>Refines</h2>
+      <ul class="plain">{% for r in refines %}<li>{{ status(r.status) }} <a href="/hypotheses/{{ r.id }}">{{ r.statement }}</a></li>{% endfor %}</ul>{% endif %}
+    {% if refined_by %}<h2>Refined by</h2>
+      <ul class="plain">{% for r in refined_by %}<li>{{ status(r.status) }} <a href="/hypotheses/{{ r.id }}">{{ r.statement }}</a></li>{% endfor %}</ul>{% endif %}
+    {% if goals %}<h2>Goals investigating it</h2>
+      <ul class="plain">{% for g in goals %}<li>{{ status(g.status) }} {{ g.statement }}</li>{% endfor %}</ul>{% endif %}
+  </div>
+</section>
+{% endblock %}

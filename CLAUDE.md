@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-Milestone 1 (institutional memory) is done. Milestone 2 (research workflow) is implemented and has run end to end against Qwen2.5 7B and 14B on llama.cpp and live Tavily search, in throwaway databases. Milestone 2.5 part 1 (acquisition layer) is done. There is no API or web UI yet. The owner's secrets live in `~/.collegium/.env`: never read or print that file, only source it into a command's environment.
+Milestones 1 (institutional memory), 2 (research workflow), 2.5 (acquisition layer) and 3 (strategy layer) are done. Milestone 4 (board interface) is in progress; its plan is in `docs/decisions.md`. The owner's secrets live in `~/.collegium/.env`: never read or print that file, only source it into a command's environment.
 
 `VISION.md` is the source of truth for intent. `docs/decisions.md` records the technical decisions made so far and why. Read both before making design decisions, and add an entry to `docs/decisions.md` when you make a new one.
 
@@ -20,7 +20,7 @@ Milestone 1 (institutional memory) is done. Milestone 2 (research workflow) is i
 docker compose up -d db                  # Postgres on localhost:5432 (collegium/collegium)
 docker compose run --rm migrate          # apply pending migrations with dbmate
 docker compose run --rm logins           # create/update the worker and board login users
-docker compose up -d                     # everything: db, migrate, logins, worker, scheduler
+docker compose up -d                     # everything: db, migrate, logins, worker, scheduler, web
 
 docker compose up -d backup              # daily pg_dump into COLLEGIUM_BACKUP_DIR (see README)
 
@@ -29,6 +29,7 @@ uv run pytest tests/test_pipeline.py::test_skeptic_rejection_is_recorded   # one
 uv run ruff check . && uv run ruff format .
 
 uv run collegium --help                  # CLI; needs env vars from .env.example
+uv run collegium web                     # the board on http://localhost:8000 (no login yet)
 uv run collegium domain add ai-agents "AI and agents"   # owner commands use the board login
 uv run collegium scout ai-agents
 uv run collegium worker --drain          # process due jobs, then exit
@@ -87,6 +88,7 @@ Core workflow: Scout → Researcher → Skeptic → Historian. The Strategist si
 - **Untrusted text** (`untrusted.py`): all outside text is sanitized in the acquisition layer (control tokens and hidden characters removed; injection signals stored in item metadata as `injection_signals`). Any outside text put into a prompt, including excerpts read back from memory, must be wrapped with `fence()`. Evidence from flagged documents is capped at reliability 0.3.
 - **Labels in prompts:** existing hypotheses are shown to the model as `E1..En`, new ones are `H1..Hn`, and the Skeptic's target is `H`. Code maps labels to ids; the model never sees UUIDs.
 - **Acquisition** (`acquisition/`): roles use the `Acquisition` facade (`discover`, `extract`, `gather`), never a provider. `Discovery` and `Extractor` are the provider protocols; vendor code lives only in adapters (`tavily.py`, `hackernews.py`). The worker gives each run a recording `Acquisition`, so every external call lands in `acquisitions` with its run, and sources carry the `acquisition_id` that found them. Providers with `thin_leads = True` get their top leads enriched from the page. `memory.py` is the only module that writes knowledge rows.
+- **Board** (`web/`): one FastAPI app, server-rendered with Jinja and htmx, connecting as the board login. Read queries live in `board.py`, shared with the CLI. Outside text is shown only through Jinja autoescaping, source links only when `http_url` allows them, and a strict CSP forbids anything not served by the app. There is no login yet, so it listens on localhost only.
 - **Prompts** live in `src/collegium/roles/prompts/`: `organization.md` is shared and each role has its own file. Changing a prompt changes that role's `role_version`.
 
 ## Memory model

@@ -1,0 +1,21 @@
+{% for stance, heading in [("supports", "Supporting evidence"), ("contradicts", "Contradicting evidence"), ("context", "Context")] %}
+  {% set items = evidence.get(stance, []) %}
+  {% if items %}
+  <h2>{{ heading }} <span class="count">{{ items|length }}</span></h2>
+  {% for e in items %}
+    <article class="evidence evidence-{{ stance }}">
+      <p>{{ e.summary }}</p>
+      <blockquote>{{ e.excerpt }}</blockquote>
+      <div class="meta">
+        {% set href = e.uri|http_url %}
+        {% if href %}<a href="{{ href }}" rel="noopener noreferrer nofollow" target="_blank">{{ e.source_title or e.uri }}</a>{% else %}{{ e.source_title or e.uri or "Unknown source" }}{% endif %}
+        {% if e.published_at %} · published {{ e.published_at|local("%Y-%m-%d") }}{% endif %}
+        {% if e.reliability is not none %} · reliability {{ e.reliability }}{% endif %}
+      </div>
+      {% set signals = (e.metadata or {}).get("injection_signals") %}
+      {% if signals %}<div class="flag">Flagged: {{ signals|join(", ") }}</div>{% endif %}
+      <div class="meta">{{ e|found_via }}</div>
+    </article>
+  {% endfor %}
+  {% endif %}
+{% endfor %}
