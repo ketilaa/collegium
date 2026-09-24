@@ -1,6 +1,9 @@
 """Reading RSS and Atom feeds that the owner has approved for a domain.
 
-A feed item is a lead like a search result. Feeds are fetched as they are,
+A feed item is a lead like a search result. Many feeds carry the whole
+article (RSS content:encoded, Atom content), not just a teaser; the lead
+then opens with the article itself, so it is not thin and needs no paid
+extraction to be judged and quoted. Feeds are fetched as they are,
 with no query, so what is sent out is only the feed's own URL. XML from
 outside is parsed with defusedxml, which refuses entity-expansion attacks.
 """
@@ -11,11 +14,14 @@ import re
 import httpx
 from defusedxml import ElementTree
 
-from collegium.acquisition import SearchResult
+from collegium.acquisition import ENRICHED_SNIPPET_CHARS, SearchResult
 
 USER_AGENT = "Collegium/0.1 (research; read-only)"
 _TAGS = re.compile(r"<[^>]+>")
 ATOM = "{http://www.w3.org/2005/Atom}"
+CONTENT = "{http://purl.org/rss/1.0/modules/content/}encoded"
+# As much of the article as an enriched lead gets from its page.
+LEAD_CHARS = ENRICHED_SNIPPET_CHARS
 
 
 class FeedError(ValueError):
@@ -59,14 +65,14 @@ def _rss_item(item) -> SearchResult:
     return SearchResult(
         url=item.findtext("link").strip(),
         title=_text(item.findtext("title")) or item.findtext("link").strip(),
-        snippet=_text(item.findtext("description")),
+        snippet=_text(item.findtext(CONTENT) or item.findtext("description")),
         published_at=(item.findtext("pubDate") or "").strip() or None,
     )
 
 
 def _atom_entry(entry) -> SearchResult:
     url = _atom_link(entry)
-    summary = entry.findtext(f"{ATOM}summary") or entry.findtext(f"{ATOM}content")
+    summary = entry.findtext(f"{ATOM}content") or entry.findtext(f"{ATOM}summary")
     published = entry.findtext(f"{ATOM}published") or entry.findtext(f"{ATOM}updated")
     return SearchResult(
         url=url,
@@ -85,4 +91,4 @@ def _atom_link(entry) -> str | None:
 
 def _text(value: str | None) -> str:
     """Feed text is often HTML: strip tags and entities, collapse spaces."""
-    return " ".join(html.unescape(_TAGS.sub(" ", value or "")).split())[:500]
+    return " ".join(html.unescape(_TAGS.sub(" ", value or "")).split())[:LEAD_CHARS]

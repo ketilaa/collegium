@@ -10,8 +10,8 @@ from conftest import PAGES_FOR_FEEDS
 from defusedxml import EntitiesForbidden
 
 from collegium import jobs, worker
-from collegium.acquisition import SearchResult
-from collegium.acquisition.feeds import FeedError, FeedReader, parse_feed
+from collegium.acquisition import THIN_SNIPPET_CHARS, Acquisition, SearchResult
+from collegium.acquisition.feeds import LEAD_CHARS, FeedError, FeedReader, parse_feed
 from collegium.roles.base import SearchPlan
 from collegium.roles.scout import ProposedObservation, ScoutReport
 
@@ -50,6 +50,51 @@ def test_atom_entries_use_the_alternate_link():
         "Abstract text.",
         "2026-09-20T10:00:00Z",
     )
+
+
+FULL_TEXT = "We measured what agents cost to run for a month. " * 30
+
+FULL_RSS = f"""<?xml version="1.0"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel>
+  <item><title>Agents</title><link>https://lab.example/agents</link>
+    <description>A teaser.</description>
+    <content:encoded><![CDATA[<p>{FULL_TEXT}</p>]]></content:encoded></item>
+</channel></rss>""".encode()
+
+FULL_ATOM = f"""<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"><title>Papers</title>
+  <entry><title>A paper</title><link href="https://papers.example/1"/>
+    <summary>Abstract.</summary>
+    <content type="html">&lt;p&gt;{FULL_TEXT}&lt;/p&gt;</content></entry>
+</feed>""".encode()
+
+
+@pytest.mark.parametrize("feed", [FULL_RSS, FULL_ATOM])
+def test_full_text_in_a_feed_is_read_instead_of_the_teaser(feed):
+    [item] = parse_feed(feed)
+    assert item.snippet.startswith("We measured what agents cost to run for a month.")
+    # The opening of the article, as long as an enriched lead, so it is not thin.
+    assert len(item.snippet) == LEAD_CHARS >= THIN_SNIPPET_CHARS
+
+
+def test_feeds_with_full_text_need_no_paid_extraction():
+    class Unreachable:
+        name = "tavily"
+        metered = True
+
+        def extract(self, urls):
+            raise AssertionError("a full-text feed was sent for extraction")
+
+    class Reader:
+        name = "feed"
+        thin_leads = True
+
+        def crawl(self, url, max_items):
+            return parse_feed(FULL_RSS)
+
+    acquisition = Acquisition({"x": Unreachable()}, Unreachable(), default="x", crawler=Reader())
+    [lead] = acquisition.crawl("https://lab.example/rss", max_items=5)
+    assert lead.snippet.startswith("We measured")
 
 
 def test_non_feeds_are_refused():

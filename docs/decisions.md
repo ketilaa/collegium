@@ -655,3 +655,13 @@ already audited; the outcome keeps the reason with the goal. The next plan
 is shown the five most recently abandoned goals with their reasons, so it
 does not set them again. The board's Goals page and `collegium goals --all`
 show the outcome.
+
+## 2026-09-24 · Full text from feeds
+
+Seven of the ten approved feeds carry the whole article (RSS
+`content:encoded`, Atom `content`), but the parser read only the summary,
+so their leads were thin and each feed cost a paid Tavily extraction per
+scout. Leads now open with the article text when the feed has it, cut to
+the same 600 characters an enriched lead gets, so prompts keep their size.
+Measured on the approved feeds: feeds needing a paid call per scout fell
+from 10 to 4 (digi.no, NRK, Stack Overflow Blog, Simon Willison).
