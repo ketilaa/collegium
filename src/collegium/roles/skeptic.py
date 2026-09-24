@@ -5,7 +5,9 @@ A first review (round 0) follows research. Later rounds follow the
 Researcher's investigation of open critiques: the Skeptic then decides for
 each critique whether it stands (upheld), has been answered (addressed) or
 was mistaken (dismissed), and may raise at most one new critique, so the
-loop converges.
+loop converges. Later rounds do not search: the Researcher has just
+gathered the evidence on exactly these critiques, and memory is consulted
+before the outside world.
 """
 
 from typing import Literal
@@ -64,6 +66,9 @@ class Skeptic(Role):
     job_kind = "review"
     prompt_file = "skeptic.md"
 
+    def searches_for(self, job: Job) -> bool:
+        return int(job.payload.get("round", 0)) == 0
+
     def prepare(self, ctx: Context, job: Job) -> Persist:
         hypothesis_id = UUID(job.payload["hypothesis_id"])
         round_ = int(job.payload.get("round", 0))
@@ -83,19 +88,27 @@ class Skeptic(Role):
         labels = {f"C{i}": c["id"] for i, c in enumerate(open_, 1)}
         brief = _brief(h, evidence, critiques, open_, about, history)
         system = self.system_prompt()
-        plan = ctx.llm.generate(
-            system,
-            brief + "\n\nWhich web searches would find counter-evidence or alternatives?",
-            SearchPlan,
-        )
-        # The Skeptic can still reason about existing evidence when search
-        # finds nothing new.
-        documents = self.gather(ctx, plan.queries)
+        queries: list[str] = []
+        documents = []
+        if self.searches_for(job):
+            plan = ctx.llm.generate(
+                system,
+                brief + "\n\nWhich web searches would find counter-evidence or alternatives?",
+                SearchPlan,
+            )
+            queries = plan.queries
+            # The Skeptic can still reason about existing evidence when search
+            # finds nothing new.
+            documents = self.gather(ctx, queries)
         review = ctx.llm.generate(
             system,
             brief
-            + "\n\nNew documents:\n\n"
-            + render_documents(documents)
+            + (
+                "\n\nNew documents:\n\n" + render_documents(documents)
+                if self.searches_for(job)
+                else "\n\nNo new search this round: the evidence above was just gathered "
+                "on the open critiques. Judge by it."
+            )
             + "\n\nWhat is your review of hypothesis H?",
             SkepticReview,
         )
@@ -134,7 +147,8 @@ class Skeptic(Role):
                 parent_job_id=job.id,
             )
             return (
-                f"round {round_}: queries={plan.queries}; verdict {review.verdict} at "
+                f"round {round_}: queries={queries or 'none, memory only'}; "
+                f"verdict {review.verdict} at "
                 f"{review.confidence:.2f}; {settled} of {len(open_)} open critiques settled, "
                 f"{len(new_critiques)} new critiques, "
                 f"{outcome.stored} evidence stored, {len(grounding.dropped)} ungrounded dropped."

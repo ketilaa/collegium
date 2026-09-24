@@ -31,7 +31,9 @@ def run_once(ctx: Context) -> bool:
         return False
 
     role = ROLES[job.kind]
-    if role.searches and ctx.acquisition is not None:
+    # Wait for the budget only when the job's main route is paid. With free
+    # search and reading first, paid fallbacks are skipped instead.
+    if role.searches_for(job) and ctx.acquisition is not None and ctx.acquisition.paid_first:
         reopens = _budget_reopens(ctx, MIN_BUDGET_TO_START)
         if reopens is not None:
             with ctx.db.reading() as conn:

@@ -1,0 +1,19 @@
+# SearXNG for Collegium: the organization's own metasearch, used by the
+# worker through its JSON API. Only reachable from localhost (compose.yaml).
+use_default_settings: true
+
+general:
+  instance_name: "Collegium search"
+
+server:
+  # Set through SEARXNG_SECRET in compose.yaml.
+  secret_key: "set-by-environment"
+  limiter: false
+  image_proxy: false
+  method: "GET"
+
+search:
+  safe_search: 0
+  formats:
+    - html
+    - json

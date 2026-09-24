@@ -3,6 +3,7 @@
 from dataclasses import replace
 
 import pytest
+from conftest import FakeProvider
 from test_pipeline import (
     HYPOTHESIS,
     INDEPENDENT,
@@ -19,6 +20,7 @@ from collegium.roles.mapper import EntityMap, MentionedEntity
 from collegium.roles.resolver import ResolutionFindings
 from collegium.roles.scout import ScoutReport
 from collegium.roles.strategist import (
+    MAX_FREE_ACTIONS,
     Action,
     GoalAbandonment,
     PlannedGoal,
@@ -67,11 +69,18 @@ def test_gaps_are_found(domain_with_weak_hypothesis, worker_db):
 
 
 def test_plan_sets_goals_queues_work_within_budget_and_proposes_programs(
-    domain_with_weak_hypothesis, llm, board_db, worker_db
+    domain_with_weak_hypothesis, llm, board_db, worker_db, make_context
 ):
     domain_id, ctx = domain_with_weak_hypothesis
-    # Budget for one action beyond the reserve: 5 + 8.
-    ctx = replace(ctx, settings=replace(ctx.settings, daily_call_budget=13))
+    # Paid search, with budget for one action beyond the reserve (5 + 8) on
+    # top of the calls the fixture already made.
+    paid = FakeProvider(PAGES)
+    paid.metered = True
+    with worker_db.reading() as conn:
+        used, _ = memory.paid_calls_in_window(conn, ["fake"])
+    ctx = replace(
+        make_context(web=paid), settings=replace(ctx.settings, daily_call_budget=used + 13)
+    )
     llm.add(
         StrategyPlan,
         StrategyPlan(
@@ -163,10 +172,47 @@ def test_plan_sets_goals_queues_work_within_budget_and_proposes_programs(
         assert conn.execute("SELECT count(*) AS n FROM programs").fetchone()["n"] == 1
 
 
-def _goal(statement, existing=None):
+def _goal(statement, existing=None, priority=2):
     return PlannedGoal(
-        existing=existing, statement=statement, success_criteria="c", priority=2, about=["H1"]
+        existing=existing,
+        statement=statement,
+        success_criteria="c",
+        priority=priority,
+        about=["H1"],
     )
+
+
+def test_free_search_limits_plans_by_actions_not_budget(
+    domain_with_weak_hypothesis, llm, board_db, worker_db
+):
+    domain_id, ctx = domain_with_weak_hypothesis  # free search: the fakes are not metered
+    ctx = replace(ctx, settings=replace(ctx.settings, daily_call_budget=0))
+    many = [Action(kind="corroborate", target="H1")] * 3
+    llm.add(
+        StrategyPlan,
+        StrategyPlan(
+            assessment="a",
+            goals=[
+                PlannedGoal(
+                    statement=f"Goal {i}",
+                    success_criteria="c",
+                    priority=i,
+                    about=["H1"],
+                    actions=many,
+                )
+                for i in (1, 2, 3)
+            ],
+        ),
+    )
+    _strategize(board_db, domain_id)
+    worker.run_once(ctx)
+    brief = llm.prompts_for(StrategyPlan)[-1]
+    assert "Search is free" in brief and "Paid searches left" not in brief
+    with worker_db.reading() as conn:
+        queued = conn.execute(
+            "SELECT count(*) AS n FROM jobs WHERE kind = 'corroborate' AND status = 'pending'"
+        ).fetchone()["n"]
+    assert queued == MAX_FREE_ACTIONS  # nine planned, spent budget irrelevant
 
 
 def test_goals_that_no_longer_serve_the_mission_are_abandoned(
@@ -178,7 +224,10 @@ def test_goals_that_no_longer_serve_the_mission_are_abandoned(
         StrategyPlan,
         StrategyPlan(
             assessment="a",
-            goals=[_goal("Follow OpenAI's safety work"), _goal("Measure agent reliability")],
+            goals=[
+                _goal("Follow OpenAI's safety work", priority=1),
+                _goal("Measure agent reliability", priority=2),
+            ],
         ),
     )
     _strategize(board_db, domain_id)

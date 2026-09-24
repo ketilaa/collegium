@@ -50,6 +50,10 @@ class Role:
     uses_llm: ClassVar[bool] = True
     searches: ClassVar[bool] = True  # makes external calls; subject to the budget
 
+    def searches_for(self, job: Job) -> bool:
+        """Whether this job makes external calls (some rounds do not)."""
+        return self.searches
+
     def system_prompt(self) -> str:
         prompts = resources.files("collegium.roles") / "prompts"
         shared = (prompts / "organization.md").read_text()

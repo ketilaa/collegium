@@ -213,3 +213,44 @@ def test_llm_gives_up_on_replies_that_keep_running_away():
     )
     with pytest.raises(LLMError, match="cut off at 2048 tokens"):
         llm.generate("sys", "user", SearchPlan)
+
+
+def test_searxng_returns_web_leads_within_the_time_window():
+    from collegium.acquisition.searxng import SearXNGDiscovery, time_range
+
+    seen = []
+
+    def handler(request):
+        seen.append(dict(request.url.params))
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "url": "https://news.example/juniors",
+                        "title": "Færre juniorstillinger",
+                        "content": "Antallet utlysninger falt.",
+                        "publishedDate": "2026-09-20T08:00:00",
+                        "score": 2.5,
+                        "engines": ["bing", "duckduckgo"],
+                    },
+                    {"url": "javascript:alert(1)", "title": "bad"},
+                    {"url": "https://news.example/untitled", "title": ""},
+                    {"url": "https://blog.example/b", "title": "B", "content": "b"},
+                ]
+            },
+        )
+
+    searxng = SearXNGDiscovery("http://searxng:8080/", transport=httpx.MockTransport(handler))
+    results = searxng.discover("juniorutviklere KI", 5, recent_days=30)
+    assert [r.url for r in results] == ["https://news.example/juniors", "https://blog.example/b"]
+    assert results[0].metadata == {"engines": ["bing", "duckduckgo"]}
+    assert seen[0] | {} == {
+        "q": "juniorutviklere KI",
+        "format": "json",
+        "language": "all",
+        "safesearch": "0",
+        "time_range": "month",
+    }
+    assert [time_range(d) for d in (None, 1, 7, 30, 90)] == [None, "day", "week", "month", "year"]
+    assert len(searxng.discover("x", 1)) == 1

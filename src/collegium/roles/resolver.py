@@ -28,6 +28,9 @@ from collegium.roles.base import (
 )
 
 MAX_ROUNDS = 2
+# Searches per round: the critiques are specific, so a few targeted
+# queries settle them better than many.
+MAX_QUERIES = 2
 
 
 class ResolutionFindings(BaseModel):
@@ -59,9 +62,10 @@ class Resolver(Role):
         plan = ctx.llm.generate(
             system, brief + "\n\nWhich web searches would settle these critiques?", SearchPlan
         )
-        documents = self.gather(ctx, plan.queries)
+        queries = plan.queries[:MAX_QUERIES]
+        documents = self.gather(ctx, queries)
         if not documents:
-            raise NothingToWorkWith(f"no documents for {plan.queries}")
+            raise NothingToWorkWith(f"no documents for {queries}")
         findings = ctx.llm.generate(
             system,
             brief
@@ -83,7 +87,7 @@ class Resolver(Role):
                 parent_job_id=job.id,
             )
             return (
-                f"round {round_}: queries={plan.queries}; {len(critiques)} open critiques; "
+                f"round {round_}: queries={queries}; {len(critiques)} open critiques; "
                 f"{outcome.stored} evidence stored, {len(grounding.dropped)} ungrounded dropped; "
                 f"sent back to the Skeptic.{grounding.describe_dropped()}" + flag_note(documents)
             )

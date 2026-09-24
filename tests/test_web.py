@@ -227,6 +227,7 @@ def test_owner_challenge_goes_through_the_loop(client, researched, worker_db, ll
     resolve(llm)
     review(
         llm,
+        searches=False,
         resolutions=[
             CritiqueResolution(critique="C1", status="addressed", resolution="Answered."),
             CritiqueResolution(
@@ -312,10 +313,18 @@ def test_the_board_knows_the_sources_without_keys():
         metered_provider_names,
     )
 
-    settings = replace(Settings(), tavily_api_key="key")
-    acquisition = acquisition_from_settings(settings)
-    assert discovery_source_names(settings) == acquisition.sources
-    assert metered_provider_names(settings) == acquisition.metered_providers
+    for settings in [
+        replace(Settings(), tavily_api_key="key", search_provider="tavily"),
+        replace(
+            Settings(),
+            tavily_api_key="key",
+            searxng_url="http://searxng:8080",
+            search_provider="searxng",
+        ),
+    ]:
+        acquisition = acquisition_from_settings(settings)
+        assert discovery_source_names(settings) == acquisition.sources
+        assert metered_provider_names(settings) == acquisition.metered_providers
 
 
 # ---------------------------------------------------------------------------

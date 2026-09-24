@@ -349,7 +349,7 @@ def active_goals(conn: Connection, domain_ids: list[UUID]) -> list[dict]:
         "LEFT JOIN relationships r ON r.subject_id = g.id AND r.predicate = 'investigates' "
         "AND r.retracted_at IS NULL "
         "WHERE g.status = 'active' AND d.domain_id = ANY(%s) "
-        "GROUP BY g.id, n.created_at ORDER BY g.priority, n.created_at",
+        "GROUP BY g.id, n.created_at ORDER BY g.priority, n.created_at, g.id",
         (domain_ids,),
     ).fetchall()
 

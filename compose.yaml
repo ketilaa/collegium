@@ -82,6 +82,8 @@ services:
       COLLEGIUM_LLM_MODEL: ${COLLEGIUM_LLM_MODEL:-qwen3:14b}
       COLLEGIUM_LLM_MAX_TOKENS: ${COLLEGIUM_LLM_MAX_TOKENS:-2048}
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      # Free search first; Tavily is the fallback.
+      COLLEGIUM_SEARXNG_URL: http://searxng:8080
       # Paid calls per 24 hours; keep 30 x days-per-month within the plan.
       COLLEGIUM_DAILY_CALL_BUDGET: ${COLLEGIUM_DAILY_CALL_BUDGET:-50}
       COLLEGIUM_SCOUT_RECENT_DAYS: ${COLLEGIUM_SCOUT_RECENT_DAYS:-30}
@@ -96,6 +98,8 @@ services:
     depends_on:
       logins:
         condition: service_completed_successfully
+      searxng:
+        condition: service_started
 
   scheduler:
     build: .
@@ -116,6 +120,7 @@ services:
     command: ["collegium", "web", "--host", "0.0.0.0"]
     environment:
       COLLEGIUM_BOARD_DATABASE_URL: postgresql://collegium_board_app:${COLLEGIUM_BOARD_PASSWORD:-board}@db:5432/collegium
+      COLLEGIUM_SEARXNG_URL: http://searxng:8080
       COLLEGIUM_DAILY_CALL_BUDGET: ${COLLEGIUM_DAILY_CALL_BUDGET:-50}
       COLLEGIUM_WORK_HOURS: ${COLLEGIUM_WORK_HOURS:-08:00-16:00}
       COLLEGIUM_WORK_DAYS: ${COLLEGIUM_WORK_DAYS:-mon-fri}
@@ -126,6 +131,18 @@ services:
     depends_on:
       logins:
         condition: service_completed_successfully
+
+  # The organization's own metasearch engine: free search without a quota.
+  # Published on localhost only, for the CLI on the host.
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-collegium-local-only}
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+    ports:
+      - "127.0.0.1:${COLLEGIUM_SEARXNG_PORT:-8888}:8080"
+    restart: unless-stopped
 
 volumes:
   db-data:

@@ -7,7 +7,10 @@ Three capabilities, each behind a protocol:
 - extraction reads the pages leads point to.
 
 Roles use `Acquisition`, which holds the named discovery providers, a
-crawler and one extractor, and never a vendor directly. It can record every external call,
+crawler and an extractor, and never a vendor directly. Free providers come
+first: a fallback extractor reads what the first could not, and a fallback
+search answers when the default search fails or finds nothing. Paid
+providers are best kept as those fallbacks. It can record every external call,
 so the organization knows how it found each source and what it has
 revealed to providers.
 
@@ -104,15 +107,20 @@ class Acquisition:
         *,
         default: str,
         crawler: Crawler | None = None,
+        fallback_extractor: Extractor | None = None,
+        fallback_search: str | None = None,
         recorder: Recorder | None = None,
         budget: Budget | None = None,
     ):
-        if default not in discovery:
-            raise UnknownSource(default)
+        for name in (default, fallback_search):
+            if name is not None and name not in discovery:
+                raise UnknownSource(name)
         self._discovery = dict(discovery)
         self._extractor = extractor
+        self._fallback_extractor = fallback_extractor
         self._crawler = crawler
         self.default = default
+        self._fallback_search = fallback_search if fallback_search != default else None
         self._recorder = recorder
         self._budget = budget
 
@@ -128,10 +136,19 @@ class Acquisition:
         names = {name for name, p in self._discovery.items() if getattr(p, "metered", False)}
         names |= {
             p.name
-            for p in (self._extractor, self._crawler)
+            for p in (self._extractor, self._fallback_extractor, self._crawler)
             if p is not None and getattr(p, "metered", False)
         }
         return sorted(names)
+
+    @property
+    def paid_first(self) -> bool:
+        """Whether the default search or the first extractor costs money.
+        If not, work can go ahead with the budget spent: paid fallbacks are
+        then skipped rather than waited for."""
+        return getattr(self._discovery[self.default], "metered", False) or getattr(
+            self._extractor, "metered", False
+        )
 
     def for_run(self, recorder: Recorder, budget: Budget | None = None) -> "Acquisition":
         """This acquisition, recording every call and enforcing a budget."""
@@ -140,6 +157,8 @@ class Acquisition:
             self._extractor,
             default=self.default,
             crawler=self._crawler,
+            fallback_extractor=self._fallback_extractor,
+            fallback_search=self._fallback_search,
             recorder=recorder,
             budget=budget,
         )
@@ -153,28 +172,47 @@ class Acquisition:
         sources: list[str] | None = None,
     ) -> list[SearchResult]:
         """Leads from each source, interleaved so no source crowds out the
-        others. With no sources given, the default one is used."""
+        others. With no sources given, the default one is used, and the
+        fallback search if the default fails or finds nothing. A paid source
+        whose budget is spent is skipped when other sources remain."""
+        names = list(sources or [self.default])
         per_source = []
-        for name in sources or [self.default]:
-            provider = self._discovery.get(name)
-            if provider is None:
-                raise UnknownSource(name)
-            request = {"query": query, "max_results": max_results, "recent_days": recent_days}
-            results, acquisition_id = self._call(
-                "discover",
-                name,
-                request,
-                lambda p=provider: p.discover(query, max_results, recent_days=recent_days),
-                metered=getattr(provider, "metered", False),
-            )
-            results = [
-                _clean_lead(replace(r, provider=name, acquisition_id=acquisition_id))
-                for r in results
-            ]
-            if getattr(provider, "thin_leads", False):
-                results = self._enrich(results)
+        for name in names:
+            try:
+                results = self._discover_from(name, query, max_results, recent_days)
+            except BudgetExhausted:
+                if len(names) == 1:
+                    raise
+                continue
+            except Exception:
+                if sources or self._fallback_search is None:
+                    raise
+                results = []
+            if not results and not sources and self._fallback_search is not None:
+                results = self._discover_from(
+                    self._fallback_search, query, max_results, recent_days
+                )
             per_source.append(results)
         return interleave(per_source)
+
+    def _discover_from(
+        self, name: str, query: str, max_results: int, recent_days: int | None
+    ) -> list[SearchResult]:
+        provider = self._discovery.get(name)
+        if provider is None:
+            raise UnknownSource(name)
+        request = {"query": query, "max_results": max_results, "recent_days": recent_days}
+        results, acquisition_id = self._call(
+            "discover",
+            name,
+            request,
+            lambda: provider.discover(query, max_results, recent_days=recent_days),
+            metered=getattr(provider, "metered", False),
+        )
+        results = [
+            _clean_lead(replace(r, provider=name, acquisition_id=acquisition_id)) for r in results
+        ]
+        return self._enrich(results) if getattr(provider, "thin_leads", False) else results
 
     def crawl(self, url: str, *, max_items: int) -> list[SearchResult]:
         """Leads from an approved source, such as the newest items of a feed."""
@@ -200,7 +238,9 @@ class Acquisition:
         try:
             pages = {d.url: d for d in self.extract(thin)}
         except BudgetExhausted:
-            raise
+            if self.paid_first:
+                raise
+            return results  # enrichment is a nicety; free work goes on
         except Exception:
             return results
         enriched = []
@@ -217,16 +257,31 @@ class Acquisition:
         return enriched
 
     def extract(self, urls: list[str]) -> list[Document]:
+        """Read these pages: first with the extractor, then whatever it could
+        not read with the fallback. With free reading first, a spent budget
+        leaves the rest unread instead of stopping the work."""
+        documents = self._extract_with(self._extractor, urls)
+        read = {d.url for d in documents if d.content.strip()}
+        rest = [u for u in urls if u not in read]
+        if rest and self._fallback_extractor is not None:
+            try:
+                documents += self._extract_with(self._fallback_extractor, rest)
+            except BudgetExhausted:
+                if self.paid_first:
+                    raise
+        return [_clean_document(d) for d in documents]
+
+    def _extract_with(self, extractor: Extractor, urls: list[str]) -> list[Document]:
         if not urls:
             return []
         documents, _ = self._call(
             "extract",
-            self._extractor.name,
+            extractor.name,
             {"urls": urls},
-            lambda: self._extractor.extract(urls),
-            metered=getattr(self._extractor, "metered", False),
+            lambda: extractor.extract(urls),
+            metered=getattr(extractor, "metered", False),
         )
-        return [_clean_document(d) for d in documents]
+        return documents
 
     def gather(
         self,
@@ -326,35 +381,49 @@ def interleave(lists: list[list[SearchResult]]) -> list[SearchResult]:
 
 
 def acquisition_from_settings(settings: Settings) -> Acquisition:
+    """Free providers first: SearXNG (if configured) for search, the web
+    extractor for reading, with Tavily as the paid fallback for both."""
     from collegium.acquisition.feeds import FeedReader
     from collegium.acquisition.hackernews import HackerNewsDiscovery
+    from collegium.acquisition.tavily import TavilyProvider
+    from collegium.acquisition.web import WebExtractor
 
     discovery: dict[str, Discovery] = {"hackernews": HackerNewsDiscovery()}
-    if settings.search_provider == "tavily":
-        from collegium.acquisition.tavily import TavilyProvider
+    if settings.searxng_url:
+        from collegium.acquisition.searxng import SearXNGDiscovery
 
+        discovery["searxng"] = SearXNGDiscovery(settings.searxng_url)
+    tavily = None
+    if settings.tavily_api_key or settings.search_provider == "tavily":
         tavily = TavilyProvider(require(settings.tavily_api_key, "TAVILY_API_KEY"))
         discovery["tavily"] = tavily
-        extractor: Extractor = tavily
-    else:
+    if settings.search_provider not in discovery:
         raise SystemExit(f"unknown COLLEGIUM_SEARCH_PROVIDER {settings.search_provider!r}")
-    return Acquisition(discovery, extractor, default=settings.search_provider, crawler=FeedReader())
+    return Acquisition(
+        discovery,
+        WebExtractor(),
+        default=settings.search_provider,
+        crawler=FeedReader(),
+        fallback_extractor=tavily,
+        fallback_search="tavily" if tavily else None,
+    )
 
 
 def discovery_source_names(settings: Settings) -> list[str]:
     """The discovery sources `acquisition_from_settings` registers, known
     without their keys, so the board can offer them without holding keys."""
-    return sorted({"hackernews", settings.search_provider})
+    names = {"hackernews", "tavily", settings.search_provider}
+    if settings.searxng_url:
+        names.add("searxng")
+    return sorted(names)
 
 
 def metered_provider_names(settings: Settings) -> list[str]:
     """The paid providers `acquisition_from_settings` would use, known without
     their keys, so the board can show the budget without holding them."""
-    if settings.search_provider == "tavily":
-        from collegium.acquisition.tavily import TavilyProvider
+    from collegium.acquisition.tavily import TavilyProvider
 
-        return [TavilyProvider.name] if TavilyProvider.metered else []
-    return []
+    return [TavilyProvider.name] if TavilyProvider.metered else []
 
 
 _IMAGE = re.compile(r"!\[[^\]]*\]\([^)]*\)")

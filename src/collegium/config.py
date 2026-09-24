@@ -33,8 +33,13 @@ class Settings:
         default_factory=lambda: float(_env("COLLEGIUM_LLM_TIMEOUT_SECONDS", "600"))
     )
 
+    # The organization's own SearXNG (free, no quota); when set, it is the
+    # default search and Tavily becomes the fallback.
+    searxng_url: str | None = field(default_factory=lambda: _env("COLLEGIUM_SEARXNG_URL"))
     search_provider: str = field(
-        default_factory=lambda: _env("COLLEGIUM_SEARCH_PROVIDER", "tavily")
+        default_factory=lambda: _env(
+            "COLLEGIUM_SEARCH_PROVIDER", "searxng" if _env("COLLEGIUM_SEARXNG_URL") else "tavily"
+        )
     )
     tavily_api_key: str | None = field(default_factory=lambda: _env("TAVILY_API_KEY"))
 

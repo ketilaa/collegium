@@ -20,8 +20,12 @@ from collegium.roles.skeptic import CritiqueResolution, ProposedCritique, Skepti
 OBJECTION = "The price cuts may be temporary promotions rather than a trend."
 
 
-def review(llm, *, critiques=(), resolutions=(), confidence=0.7, verdict="undecided"):
-    llm.add(SearchPlan, SearchPlan(queries=["price cut promotions"]))
+def review(
+    llm, *, critiques=(), resolutions=(), confidence=0.7, verdict="undecided", searches=True
+):
+    """A Skeptic review. Reviews after a resolve (searches=False) do not search."""
+    if searches:
+        llm.add(SearchPlan, SearchPlan(queries=["price cut promotions"]))
     llm.add(
         SkepticReview,
         SkepticReview(
@@ -67,6 +71,7 @@ def test_answered_critique_lets_the_hypothesis_be_accepted(
     resolve(llm)
     review(
         llm,
+        searches=False,
         resolutions=[
             CritiqueResolution(
                 critique="C1", status="addressed", resolution="Measured across twelve providers."
@@ -77,8 +82,12 @@ def test_answered_critique_lets_the_hypothesis_be_accepted(
     enqueue_scout(board_db, domain_id)
     worker.drain(ctx)
 
-    # The Skeptic saw the critique with the evidence gathered about it.
+    # The Skeptic saw the critique with the evidence gathered about it, and
+    # did not search again: only the first review planned searches.
     second_review = [u for s, u in llm.calls if s is SkepticReview][1]
+    assert "No new search this round" in second_review
+    skeptic_plans = [u for s, u in llm.calls if s is SearchPlan and "counter-evidence" in u]
+    assert len(skeptic_plans) == 1
     assert f"[C1] (severity 4) {OBJECTION}" in second_review
     assert "Evidence contradicts C1: Measurements across providers" in second_review
 
@@ -123,7 +132,7 @@ def test_upheld_critique_keeps_blocking_and_unsettled_ones_stop_after_max_rounds
     review(llm, critiques=[ProposedCritique(argument=OBJECTION, severity=4)])
     for _ in range(2):  # two rounds, neither settles the critique
         resolve(llm, stance="context")
-        review(llm)
+        review(llm, searches=False)
     enqueue_scout(board_db, domain_id)
     worker.drain(ctx)
 
@@ -152,6 +161,7 @@ def test_later_rounds_add_at_most_one_new_critique(
     resolve(llm)
     review(
         llm,
+        searches=False,
         resolutions=[CritiqueResolution(critique="C1", status="upheld", resolution="Stands.")],
         critiques=[ProposedCritique(argument=f"New objection {i}", severity=2) for i in range(3)],
     )

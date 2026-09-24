@@ -10,7 +10,9 @@ then applies the rules that are not the model's to decide:
 - goals the model says no longer serve the missions are abandoned, with
   its reason kept as the goal's outcome, if they are active goals of this
   domain and the same plan does not also continue them;
-- actions are queued only within the remaining budget, most important
+- actions are queued most important first, within the remaining paid
+  budget when search is paid, or up to MAX_FREE_ACTIONS a plan when search
+  and reading are free (the local model's time is then the limit);
   first, and one scout per day is always kept;
 - a program is only ever proposed, as a decision for the owner.
 """
@@ -29,6 +31,9 @@ from collegium.roles.base import Context, Persist, Role
 ACTION_COST = {"scout": 8, "corroborate": 8, "resolve": 8}
 # Paid calls the Strategist leaves for work already queued.
 RESERVE = 5
+# Actions per plan when search and reading are free: each one keeps the
+# local model busy for several jobs, and plans are made daily.
+MAX_FREE_ACTIONS = 6
 
 
 class Action(BaseModel):
@@ -86,7 +91,8 @@ class Strategist(Role):
             programs = memory.programs(conn, [domain_id])
             abandoned = memory.closed_goals(conn, [domain_id], "abandoned")
             gaps = strategy.find_gaps(conn, domain_id)
-            budget = _remaining_budget(ctx, conn)
+            paid = ctx.acquisition is not None and ctx.acquisition.paid_first
+            budget = _remaining_budget(ctx, conn) if paid else None
             missions = (memory.mission(conn, None), memory.mission(conn, domain_id))
             open_critiques = {
                 h["id"]: len(memory.open_critiques(conn, h["id"])) for h in hypotheses
@@ -125,7 +131,12 @@ class Strategist(Role):
             notes += [f"abandoned goal: {s} ({reason})" for s, reason in abandoned_now.values()]
             closed = achieved | set(abandoned_now)
 
-            allowance = budget - RESERVE
+            # In paid calls when search is paid, otherwise in actions.
+            allowance = budget - RESERVE if budget is not None else MAX_FREE_ACTIONS
+
+            def cost(kind: str) -> int:
+                return ACTION_COST[kind] if budget is not None else 1
+
             queued: list[str] = []
             skipped = 0
             scouted = False
@@ -161,11 +172,10 @@ class Strategist(Role):
                     if payload is None:
                         skipped += 1
                         continue
-                    cost = ACTION_COST[action.kind]
-                    if cost > allowance:
+                    if cost(action.kind) > allowance:
                         skipped += 1
                         continue
-                    allowance -= cost
+                    allowance -= cost(action.kind)
                     jobs.enqueue(
                         conn, action.kind, {**payload, "goal_id": goal_id}, parent_job_id=job.id
                     )
@@ -175,7 +185,7 @@ class Strategist(Role):
             # One scout a day keeps the organization's view current, whatever
             # the plan says, if the budget allows.
             if not scouted and any(g.kind == "not scouted" for g in gaps):
-                if ACTION_COST["scout"] <= allowance:
+                if cost("scout") <= allowance:
                     jobs.enqueue(conn, "scout", {"domain_id": domain_id}, parent_job_id=job.id)
                     queued.append("scout")
                 else:
@@ -203,7 +213,7 @@ class Strategist(Role):
             notes.append(
                 f"{len(gaps)} gaps; queued {', '.join(queued) or 'nothing'}"
                 + (f"; {skipped} actions skipped (budget or invalid)" if skipped else "")
-                + f"; budget left before queueing {budget}"
+                + (f"; budget left before queueing {budget}" if budget is not None else "")
             )
             return "; ".join(notes)
 
@@ -316,8 +326,14 @@ def _brief(
         lines.append(f"- {gap.kind}: {about}{gap.description}")
     if not gaps:
         lines.append("- none")
-    lines.append(
-        f"\nPaid searches left in the next 24 hours: {budget}. Each action costs about "
-        f"{ACTION_COST['scout']}."
-    )
+    if budget is not None:
+        lines.append(
+            f"\nPaid searches left in the next 24 hours: {budget}. Each action costs about "
+            f"{ACTION_COST['scout']}."
+        )
+    else:
+        lines.append(
+            f"\nSearch is free. The limit is the organization's time: at most "
+            f"{MAX_FREE_ACTIONS} actions are carried out from this plan."
+        )
     return "\n".join(lines)

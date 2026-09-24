@@ -665,3 +665,38 @@ scout. Leads now open with the article text when the feed has it, cut to
 the same 600 characters an enriched lead gets, so prompts keep their size.
 Measured on the approved feeds: feeds needing a paid call per scout fell
 from 10 to 4 (digi.no, NRK, Stack Overflow Blog, Simon Willison).
+
+## 2026-09-24 · Free first: our own search and page reading
+
+Tavily was the bottleneck: every search and page read went through it,
+about 4 paid calls per research, review or resolve job, so an observation
+taken through the whole critique loop cost about 24 of the ~30 calls a day
+the owner's plan allows. The owner decided to make the free route the main
+one and keep Tavily as the fallback.
+
+- **Reading pages** (`acquisition/web.py`): fetched directly and reduced to
+  the article text with trafilatura (Apache-2.0). Pages it cannot read
+  (errors, PDFs, cookie walls, JavaScript-built pages, under 400 characters
+  of text) go to Tavily. Tested on real pages: 8 of 9 read free, including
+  kode24, SINTEF and CNBC. Fetching ourselves means outside addresses are
+  fetched from inside the organization's network, so only http(s) on ports
+  80/443 to hosts that resolve to public addresses are fetched, checked
+  again at every redirect (a DNS answer changing between check and fetch
+  is not guarded against); robots.txt is respected; pages over 3 MB are
+  refused.
+- **Searching** (`acquisition/searxng.py` and the `searxng` Compose
+  service, owner-approved as a sixth service): the organization's own
+  SearXNG metasearch, free and without quota, published on localhost only.
+  It is the default search when `COLLEGIUM_SEARXNG_URL` is set; Tavily
+  answers when it fails or finds nothing. Tested: 10 results per query in
+  about a second from Brave, Google and DuckDuckGo, including Norwegian
+  sources (kode24, SINTEF, digi.no). The engines it asks can throttle it;
+  DuckDuckGo showed a CAPTCHA on the first query.
+- **Fewer searches in the critique loop.** The Skeptic does not search in
+  a review that follows a resolve (the Researcher has just gathered the
+  evidence on those critiques), and a resolve uses at most 2 queries.
+- **The budget follows the route.** Jobs wait for budget only when their
+  main route is paid; otherwise a spent budget just skips the paid
+  fallbacks. The Strategist plans within the paid budget when search is
+  paid, and up to 6 actions a plan when it is free, since the local model's
+  time is then the limit.
