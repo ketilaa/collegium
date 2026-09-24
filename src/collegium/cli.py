@@ -291,6 +291,7 @@ def _goals(args, settings: Settings) -> None:
         print(
             f"{str(g['id'])[:8]}  {g['status']:9} p{g['priority']}  {g['jobs']:2} jobs  "
             f"{g['statement']}\n{'':24}done when: {g['success_criteria']}"
+            + (f"\n{'':24}{g['status']}: {g['outcome']}" if g["outcome"] else "")
         )
 
 

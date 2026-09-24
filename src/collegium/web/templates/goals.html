@@ -8,6 +8,7 @@
   <article class="card">
     <h2><span class="prio">p{{ g.priority }}</span> {{ g.statement }} {% if all %}{{ status(g.status) }}{% endif %}</h2>
     {% if g.success_criteria %}<p><strong>Done when:</strong> {{ g.success_criteria }}</p>{% endif %}
+    {% if g.outcome and g.status != "active" %}<p class="resolution"><strong>{{ g.status|capitalize }}:</strong> {{ g.outcome }}</p>{% endif %}
     <div class="meta">Set {{ g.created_at|local("%Y-%m-%d") }} · {{ g.jobs }} jobs{% if g.program %} · program {{ g.program }}{% endif %}</div>
     {% if g.about %}
       <h3>Investigates</h3>

@@ -639,3 +639,19 @@ free ones.
 - **Feeds approved.** developers-ai: digi.no, NRK Teknologi, Indeed Hiring
   Lab, GitHub Blog, The Pragmatic Engineer, Stack Overflow Blog, Martin
   Fowler, Addy Osmani. ai-agents: METR (Simon Willison was already there).
+
+## 2026-09-24 · The Strategist abandons goals
+
+With the missions set, the Strategist still kept two goals that did not
+serve them: nothing let it drop a goal, and its prompt says to continue
+existing goals rather than create similar ones. Its plan now has an
+`abandon` list (G label and reason). The code abandons only active goals
+of the domain being planned, never one the same plan also continues (when
+the model contradicts itself, the goal stays), and ignores unknown labels.
+
+Migration 0009 adds `goals.outcome`: the reason a goal was abandoned, or
+that everything it investigated was decided. The status change itself was
+already audited; the outcome keeps the reason with the goal. The next plan
+is shown the five most recently abandoned goals with their reasons, so it
+does not set them again. The board's Goals page and `collegium goals --all`
+show the outcome.

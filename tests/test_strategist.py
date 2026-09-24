@@ -18,7 +18,13 @@ from collegium.roles.base import EvidenceItem, SearchPlan, Stance
 from collegium.roles.mapper import EntityMap, MentionedEntity
 from collegium.roles.resolver import ResolutionFindings
 from collegium.roles.scout import ScoutReport
-from collegium.roles.strategist import Action, PlannedGoal, ProgramProposal, StrategyPlan
+from collegium.roles.strategist import (
+    Action,
+    GoalAbandonment,
+    PlannedGoal,
+    ProgramProposal,
+    StrategyPlan,
+)
 
 
 @pytest.fixture
@@ -155,6 +161,65 @@ def test_plan_sets_goals_queues_work_within_budget_and_proposes_programs(
         )
         assert conn.execute("SELECT count(*) AS n FROM goals").fetchone()["n"] == 1
         assert conn.execute("SELECT count(*) AS n FROM programs").fetchone()["n"] == 1
+
+
+def _goal(statement, existing=None):
+    return PlannedGoal(
+        existing=existing, statement=statement, success_criteria="c", priority=2, about=["H1"]
+    )
+
+
+def test_goals_that_no_longer_serve_the_mission_are_abandoned(
+    domain_with_weak_hypothesis, llm, board_db, worker_db
+):
+    domain_id, ctx = domain_with_weak_hypothesis
+    ctx = replace(ctx, settings=replace(ctx.settings, daily_call_budget=0))  # plan only
+    llm.add(
+        StrategyPlan,
+        StrategyPlan(
+            assessment="a",
+            goals=[_goal("Follow OpenAI's safety work"), _goal("Measure agent reliability")],
+        ),
+    )
+    _strategize(board_db, domain_id)
+    worker.run_once(ctx)
+
+    # G1 is off-mission; G2 is both continued and abandoned (kept); G7 does not exist.
+    llm.add(
+        StrategyPlan,
+        StrategyPlan(
+            assessment="b",
+            goals=[_goal("Measure agent reliability", existing="G2")],
+            abandon=[
+                GoalAbandonment(goal="G1", reason="The mission is about agent reliability."),
+                GoalAbandonment(goal="G2", reason="Contradicts the plan."),
+                GoalAbandonment(goal="G7", reason="No such goal."),
+            ],
+        ),
+    )
+    _strategize(board_db, domain_id)
+    worker.run_once(ctx)
+    with worker_db.reading() as conn:
+        goals = {
+            g["statement"]: g for g in conn.execute("SELECT statement, status, outcome FROM goals")
+        }
+        notes = conn.execute("SELECT notes FROM runs WHERE notes LIKE 'assessment: b%%'")
+        notes = notes.fetchone()["notes"]
+    assert goals["Follow OpenAI's safety work"]["status"] == "abandoned"
+    assert goals["Follow OpenAI's safety work"]["outcome"] == (
+        "The mission is about agent reliability."
+    )
+    assert goals["Measure agent reliability"]["status"] == "active"
+    assert "abandoned goal: Follow OpenAI's safety work" in notes
+
+    # The next plan is told what was dropped and why, so it is not set again.
+    llm.add(StrategyPlan, StrategyPlan(assessment="c", goals=[]))
+    _strategize(board_db, domain_id)
+    worker.run_once(ctx)
+    brief = llm.prompts_for(StrategyPlan)[-1]
+    assert "Recently abandoned goals" in brief
+    assert "- Follow OpenAI's safety work Reason: The mission is about agent reliability." in brief
+    assert "[G1] (priority 2) Measure agent reliability" in brief
 
 
 def test_owner_approves_or_rejects_proposals(

@@ -7,6 +7,9 @@ then applies the rules that are not the model's to decide:
 
 - goals are created active (the owner's decision), without duplicates,
   and closed once everything they investigate has been decided;
+- goals the model says no longer serve the missions are abandoned, with
+  its reason kept as the goal's outcome, if they are active goals of this
+  domain and the same plan does not also continue them;
 - actions are queued only within the remaining budget, most important
   first, and one scout per day is always kept;
 - a program is only ever proposed, as a decision for the owner.
@@ -43,6 +46,11 @@ class PlannedGoal(BaseModel):
     actions: list[Action] = Field(default_factory=list, max_length=3)
 
 
+class GoalAbandonment(BaseModel):
+    goal: str = Field(description="G label of an active goal")
+    reason: str = Field(description="Why it no longer deserves attention")
+
+
 class ProgramProposal(BaseModel):
     name: str
     charter: str = Field(description="Why this deserves sustained attention, and its scope")
@@ -52,6 +60,11 @@ class ProgramProposal(BaseModel):
 class StrategyPlan(BaseModel):
     assessment: str
     goals: list[PlannedGoal] = Field(max_length=3)
+    abandon: list[GoalAbandonment] = Field(
+        default_factory=list,
+        max_length=3,
+        description="Active goals to stop pursuing: off-mission, stale or superseded",
+    )
     program: ProgramProposal | None = None
 
 
@@ -71,6 +84,7 @@ class Strategist(Role):
             entities = memory.top_entities(conn, [domain_id], limit=15)
             goals = memory.active_goals(conn, [domain_id])
             programs = memory.programs(conn, [domain_id])
+            abandoned = memory.closed_goals(conn, [domain_id], "abandoned")
             gaps = strategy.find_gaps(conn, domain_id)
             budget = _remaining_budget(ctx, conn)
             missions = (memory.mission(conn, None), memory.mission(conn, domain_id))
@@ -91,6 +105,7 @@ class Strategist(Role):
             open_critiques,
             entities,
             goals,
+            abandoned,
             programs,
             gaps,
             label_of,
@@ -103,9 +118,12 @@ class Strategist(Role):
 
         def persist(conn: Connection) -> str:
             notes = [f"assessment: {plan.assessment}"]
-            closed = _close_finished_goals(conn, goals)
-            if closed:
-                notes.append(f"{closed} goals achieved")
+            achieved = _close_finished_goals(conn, goals)
+            if achieved:
+                notes.append(f"{len(achieved)} goals achieved")
+            abandoned_now = _abandon_goals(conn, plan, labels, goals, achieved)
+            notes += [f"abandoned goal: {s} ({reason})" for s, reason in abandoned_now.values()]
+            closed = achieved | set(abandoned_now)
 
             allowance = budget - RESERVE
             queued: list[str] = []
@@ -116,6 +134,8 @@ class Strategist(Role):
                 goal_id = labels.get((planned.existing or "").strip().upper())
                 if goal_id is None:
                     goal_id = existing_goals.get(memory.statement_key(planned.statement))
+                if goal_id in closed:
+                    continue  # closed in this run; nothing more to do for it
                 if goal_id is None:
                     goal_id = memory.add_goal(
                         conn,
@@ -201,16 +221,37 @@ def _payload(action: Action, domain_id, labels, hypothesis_ids) -> dict | None:
     return {"hypothesis_id": target}
 
 
-def _close_finished_goals(conn: Connection, goals: list[dict]) -> int:
+def _close_finished_goals(conn: Connection, goals: list[dict]) -> set[UUID]:
     """Goals whose hypotheses have all been decided are achieved."""
-    closed = 0
+    closed = set()
     for g in goals:
         targets = [memory.hypothesis(conn, t) for t in g["about"]]
         hypotheses = [h for h in targets if h is not None]
         if hypotheses and all(h["status"] not in ("proposed", "under_review") for h in hypotheses):
-            memory.set_goal_status(conn, g["id"], "achieved")
-            closed += 1
+            memory.set_goal_status(
+                conn, g["id"], "achieved", "Every hypothesis it investigated has been decided."
+            )
+            closed.add(g["id"])
     return closed
+
+
+def _abandon_goals(
+    conn: Connection, plan: StrategyPlan, labels: dict, goals: list[dict], achieved: set[UUID]
+) -> dict[UUID, tuple[str, str]]:
+    """Abandon the goals the plan drops, keeping the reason. Only active
+    goals of this domain can be abandoned, never one the same plan also
+    continues: when the model contradicts itself, the goal stays."""
+    active = {g["id"]: g for g in goals if g["id"] not in achieved}
+    continued = {labels.get((p.existing or "").strip().upper()) for p in plan.goals}
+    abandoned: dict[UUID, tuple[str, str]] = {}
+    for a in plan.abandon:
+        goal_id = labels.get(a.goal.strip().upper())
+        reason = a.reason.strip()
+        if goal_id not in active or goal_id in continued or goal_id in abandoned or not reason:
+            continue
+        memory.set_goal_status(conn, goal_id, "abandoned", reason)
+        abandoned[goal_id] = (active[goal_id]["statement"], reason)
+    return abandoned
 
 
 def _remaining_budget(ctx: Context, conn: Connection) -> int:
@@ -221,7 +262,17 @@ def _remaining_budget(ctx: Context, conn: Connection) -> int:
 
 
 def _brief(
-    domain, missions, hypotheses, open_critiques, entities, goals, programs, gaps, label_of, budget
+    domain,
+    missions,
+    hypotheses,
+    open_critiques,
+    entities,
+    goals,
+    abandoned,
+    programs,
+    gaps,
+    label_of,
+    budget,
 ) -> str:
     lines = [f"Domain: {domain['name']}"]
     if domain.get("description"):
@@ -254,6 +305,9 @@ def _brief(
         )
     if not goals:
         lines.append("- none")
+    if abandoned:
+        lines.append("\nRecently abandoned goals (do not set them again unless something changed):")
+        lines += [f"- {g['statement']} Reason: {g['outcome']}" for g in abandoned]
     lines.append("\nResearch programs:")
     lines += [f"- ({p['status']}) {p['name']}: {p['charter']}" for p in programs] or ["- none"]
     lines.append("\nKnowledge gaps found:")

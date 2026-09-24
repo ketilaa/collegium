@@ -251,8 +251,29 @@ def add_goal(
     )
 
 
-def set_goal_status(conn: Connection, goal_id: UUID, status: str) -> None:
-    conn.execute("UPDATE goals SET status = %s WHERE id = %s", (status, goal_id))
+def set_goal_status(
+    conn: Connection, goal_id: UUID, status: str, outcome: str | None = None
+) -> None:
+    """Change a goal's status; a closed goal keeps why it was closed."""
+    conn.execute(
+        "UPDATE goals SET status = %s, outcome = coalesce(%s, outcome) WHERE id = %s",
+        (status, outcome, goal_id),
+    )
+
+
+def closed_goals(
+    conn: Connection, domain_ids: list[UUID], status: str, limit: int = 5
+) -> list[dict]:
+    """Goals most recently closed with this status, newest first."""
+    return conn.execute(
+        "SELECT g.id, g.statement, g.outcome, max(l.at) AS closed_at FROM goals g "
+        "JOIN node_domains d ON d.node_id = g.id "
+        "JOIN audit_log l ON l.table_name = 'goals' AND l.row_id = g.id "
+        "AND l.new_row ->> 'status' = g.status "
+        "WHERE g.status = %s AND d.domain_id = ANY(%s) "
+        "GROUP BY g.id ORDER BY closed_at DESC LIMIT %s",
+        (status, domain_ids, limit),
+    ).fetchall()
 
 
 def add_program(conn: Connection, *, name: str, charter: str) -> UUID:

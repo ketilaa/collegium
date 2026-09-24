@@ -22,6 +22,10 @@ Return a plan:
   - corroborate: look for independent sources on a hypothesis (H label),
     for hypotheses short of independent support;
   - resolve: investigate the open critiques of a hypothesis (H label).
+- Goals to abandon: active goals (G labels) that no longer serve the
+  missions, have gone stale, or are covered by another goal, each with a
+  short reason. Abandoned goals stay on record with your reason. Do not
+  both continue and abandon the same goal.
 - At most one new research program, only if the domain has a lasting
   direction worth sustained attention that no program covers. The owner
   decides whether it opens; propose one rarely.
