@@ -45,6 +45,7 @@ uv run collegium goals | programs | decisions
 uv run collegium approve <id> | reject <id> --reason "..."   # the owner's decisions
 uv run collegium challenge <id> "objection" --severity 3      # the owner's critique; goes through the loop
 uv run collegium domain pause|resume|retire ai-agents
+uv run collegium mission ["statement"] [--domain ai-agents]   # show, or set, the owner's missions
 uv run collegium feed add ai-agents <url> # approve a feed for a domain (also list/pause/resume/retire)
 ```
 
@@ -112,6 +113,7 @@ This means history and provenance must be kept, not overwritten.
 - `relationships` and `critiques` are nodes too, so they can be critiqued, linked and backed by evidence. `evidence_links` and `confidence_assessments` target a node by `(target_id, target_kind)`.
 - Nothing is deleted: knowledge is retired through `status`, and links are retracted with `retracted_at`. Statements are never edited; a changed claim is a new record that supersedes the old one. `confidence_assessments` and `audit_log` are append-only. Every table is audited automatically.
 - Access goes through group roles: `collegium_reader`, `collegium_worker` (agents: insert knowledge, update only lifecycle columns) and `collegium_board` (the owner's interface: also domains and resolving decisions). Only board logins may act as the `owner` actor. Any table added in a later migration must be granted to these roles explicitly. Login users (`collegium_worker_app`, `collegium_board_app`) are created by `db/logins.sql`, not by migrations, because passwords are deployment secrets.
+- Only the owner decides: a decision that is not `proposed` may only be written by the `owner` actor (trigger), so agents can propose but never approve. The owner's missions are approved decisions with `topic = 'mission'`, tagged to their domain through `node_domains` (none for the organization's); a new mission supersedes the old.
 - Actors: `owner`, `system`, one per role, and `scheduler` (kind `service`). Unaudited tables that need actor checks call `assert_session_actor()` from a trigger, as `jobs` does.
 - Domains and vocabularies are data. Adding a research area never needs a migration.
 

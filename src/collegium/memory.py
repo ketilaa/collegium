@@ -6,7 +6,7 @@ records who wrote what. Nothing here commits; callers own the transaction.
 
 import hashlib
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -266,6 +266,56 @@ def add_decision(conn: Connection, *, statement: str, rationale: str) -> UUID:
     return _insert_node(
         conn, "decision", "decisions", {"statement": statement, "rationale": rationale}
     )
+
+
+def set_mission(conn: Connection, statement: str, domain_id: UUID | None) -> UUID:
+    """The owner's mission for the organization (no domain) or one domain:
+    an approved decision that supersedes the mission before it."""
+    previous = mission(conn, domain_id)
+    actor = conn.execute("SELECT current_actor() AS id").fetchone()["id"]
+    mission_id = _insert_node(
+        conn,
+        "decision",
+        "decisions",
+        {
+            "statement": statement,
+            "rationale": "The owner's mission.",
+            "topic": "mission",
+            "status": "approved",
+            "resolved_by": actor,
+            "resolved_at": datetime.now(UTC),
+        },
+    )
+    if domain_id is not None:
+        tag_domains(conn, mission_id, [domain_id])
+    if previous is not None:
+        conn.execute(
+            "UPDATE decisions SET status = 'superseded', superseded_by = %s WHERE id = %s",
+            (mission_id, previous["id"]),
+        )
+    return mission_id
+
+
+def missions(conn: Connection, domain_id: UUID | None) -> list[dict]:
+    """Every mission set for the organization (no domain) or a domain,
+    newest first; the first is current unless it was superseded."""
+    return conn.execute(
+        "SELECT d.* FROM decisions d WHERE d.topic = 'mission' "
+        "AND d.status IN ('approved', 'superseded') AND "
+        + (
+            "EXISTS (SELECT 1 FROM node_domains n WHERE n.node_id = d.id AND n.domain_id = %s) "
+            if domain_id is not None
+            else "NOT EXISTS (SELECT 1 FROM node_domains n WHERE n.node_id = d.id) "
+        )
+        + "ORDER BY d.resolved_at DESC",
+        (domain_id,) if domain_id is not None else (),
+    ).fetchall()
+
+
+def mission(conn: Connection, domain_id: UUID | None) -> dict | None:
+    """The current mission for the organization (no domain) or a domain."""
+    current = [m for m in missions(conn, domain_id) if m["status"] == "approved"]
+    return current[0] if current else None
 
 
 def active_goals(conn: Connection, domain_ids: list[UUID]) -> list[dict]:

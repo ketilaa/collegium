@@ -13,8 +13,9 @@
     <a class="brand" href="/">Collegium</a>
     <nav>
       {% set here = request.url.path %}
-      {% for href, name in [("/", "Overview"), ("/programs", "Programs"), ("/goals", "Goals"),
-                            ("/hypotheses", "Hypotheses"), ("/discoveries", "Discoveries"),
+      {% for href, name in [("/", "Overview"), ("/mission", "Mission"), ("/programs", "Programs"),
+                            ("/goals", "Goals"), ("/hypotheses", "Hypotheses"),
+                            ("/contradictions", "Contradictions"), ("/discoveries", "Discoveries"),
                             ("/decisions", "Decisions"), ("/domains", "Domains"),
                             ("/operations", "Operations")] %}
         <a href="{{ href }}"{% if here == href or (href != "/" and here.startswith(href)) %} aria-current="page"{% endif %}>{{ name }}</a>

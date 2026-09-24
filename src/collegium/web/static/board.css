@@ -219,3 +219,8 @@ form.inline input[type="url"] { flex: 1 1 240px; }
 label.check { display: inline-flex; gap: 0.3rem; align-items: center; margin-right: 0.5rem; }
 li.row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem; align-items: center; }
 li.row form.inline { margin: 0; }
+
+.mission { margin: 0 0 1.5rem; }
+.mission-statement { font-family: var(--serif); font-size: 1.2rem; line-height: 1.45; margin: 0 0 0.35rem; max-width: 70ch; }
+.mission p.meta { margin: 0.15rem 0; }
+details > summary.meta { cursor: pointer; margin-top: 0.5rem; }

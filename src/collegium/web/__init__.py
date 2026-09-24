@@ -106,6 +106,8 @@ def create_app(settings: Settings, database: Callable[[], Database], crawler=Non
         return page(
             request,
             "overview.html",
+            missions=board.missions(conn),
+            contradictions=board.contradiction_count(board.contradictions(conn)),
             decisions=board.decisions_waiting(conn),
             challenges=board.owner_challenges(conn, limit=5),
             goals=board.goals(conn)[:5],
@@ -125,6 +127,14 @@ def create_app(settings: Settings, database: Callable[[], Database], crawler=Non
             programs=board.programs(conn),
             goals_by_program=_group(goals, "program_id"),
         )
+
+    @app.get("/mission", response_class=HTMLResponse)
+    def mission(request: Request, conn: Reading):
+        return page(request, "mission.html", missions=board.missions(conn))
+
+    @app.get("/contradictions", response_class=HTMLResponse)
+    def contradictions(request: Request, conn: Reading):
+        return page(request, "contradictions.html", **board.contradictions(conn))
 
     @app.get("/decisions", response_class=HTMLResponse)
     def decisions(request: Request, conn: Reading):

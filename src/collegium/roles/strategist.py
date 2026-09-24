@@ -73,6 +73,7 @@ class Strategist(Role):
             programs = memory.programs(conn, [domain_id])
             gaps = strategy.find_gaps(conn, domain_id)
             budget = _remaining_budget(ctx, conn)
+            missions = (memory.mission(conn, None), memory.mission(conn, domain_id))
             open_critiques = {
                 h["id"]: len(memory.open_critiques(conn, h["id"])) for h in hypotheses
             }
@@ -84,7 +85,16 @@ class Strategist(Role):
         label_of = {v: k for k, v in labels.items()}
 
         brief = _brief(
-            domain, hypotheses, open_critiques, entities, goals, programs, gaps, label_of, budget
+            domain,
+            missions,
+            hypotheses,
+            open_critiques,
+            entities,
+            goals,
+            programs,
+            gaps,
+            label_of,
+            budget,
         )
         plan = ctx.llm.generate(
             self.system_prompt(), brief + "\n\nWhat is your plan?", StrategyPlan
@@ -211,11 +221,17 @@ def _remaining_budget(ctx: Context, conn: Connection) -> int:
 
 
 def _brief(
-    domain, hypotheses, open_critiques, entities, goals, programs, gaps, label_of, budget
+    domain, missions, hypotheses, open_critiques, entities, goals, programs, gaps, label_of, budget
 ) -> str:
     lines = [f"Domain: {domain['name']}"]
     if domain.get("description"):
         lines.append(domain["description"])
+    # Missions are the owner's own words, not outside text.
+    organization, domain_mission = missions
+    if organization:
+        lines.append(f"\nThe organization's mission, set by the owner: {organization['statement']}")
+    if domain_mission:
+        lines.append(f"This domain's mission, set by the owner: {domain_mission['statement']}")
     lines.append("\nHypotheses:")
     for h in hypotheses:
         conf = f"{h['confidence']:.2f}" if h["confidence"] is not None else "unassessed"

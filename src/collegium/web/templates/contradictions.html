@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status %}
+{% block title %}Contradictions{% endblock %}
+{% block content %}
+<h1>Contradictions</h1>
+<p class="lede">Where the organization's knowledge disagrees with itself. These are the places most worth your attention.</p>
+
+<h2>Evidence pulling both ways <span class="count">{{ contested|length }}</span></h2>
+<p class="meta">Live hypotheses with evidence both for and against them.</p>
+{% if contested %}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Hypothesis</th><th>Status</th><th class="num">Confidence</th><th class="num">For / against</th></tr></thead>
+  <tbody>
+    {% for h in contested %}
+      <tr><td><a href="/hypotheses/{{ h.id }}">{{ h.statement }}</a></td><td>{{ status(h.status) }}</td>
+        <td class="num">{{ h.current_confidence|confidence }}</td><td class="num">{{ h.supporting_evidence }} / {{ h.contradicting_evidence }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}<p class="empty">None.</p>{% endif %}
+
+<h2>Serious objections that stand <span class="count">{{ unsettled|length }}</span></h2>
+<p class="meta">Critiques of severity 3 or more that were upheld, or are still open after both rounds of the critique loop. Each one blocks acceptance.</p>
+{% for c in unsettled %}
+  <article class="critique critique-{{ c.status }}{% if c.raised_by == 'owner' %} critique-owner{% endif %}">
+    <div class="meta">{{ status(c.status) }} · severity {{ c.severity }} · {% if c.raised_by == 'owner' %}<strong>your challenge</strong>{% else %}raised by the {{ c.raised_by }}{% endif %}{% if c.status == "open" %} · the loop could not settle it{% endif %}</div>
+    <p>{{ c.argument }}</p>
+    {% if c.resolution %}<p class="resolution">{{ c.resolution }}</p>{% endif %}
+    <div class="meta">On {{ status(c.hypothesis_status) }} <a href="/hypotheses/{{ c.hypothesis_id }}">{{ c.statement }}</a></div>
+  </article>
+{% else %}<p class="empty">None.</p>{% endfor %}
+
+<h2>Believed, then rejected <span class="count">{{ overruled|length }}</span></h2>
+<p class="meta">Hypotheses the Researcher rated at 0.6 or more that the review rejected. Worth a second look if you doubt the rejection; challenges only reach live hypotheses.</p>
+{% if overruled %}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Hypothesis</th><th class="num">Researcher's confidence</th><th class="num">Final</th></tr></thead>
+  <tbody>
+    {% for h in overruled %}
+      <tr><td><a href="/hypotheses/{{ h.id }}">{{ h.statement }}</a></td><td class="num">{{ h.researcher_confidence|confidence }}</td><td class="num">{{ h.current_confidence|confidence }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}<p class="empty">None.</p>{% endif %}
+{% endblock %}

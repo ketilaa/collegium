@@ -87,6 +87,19 @@ def challenge(
     return critique_id
 
 
+def set_mission(conn: Connection, statement: str, slug: str | None = None) -> UUID:
+    """Set the organization's mission, or a domain's. The old one is kept,
+    superseded, so the history of what the organization was for remains."""
+    statement = statement.strip()
+    if not statement:
+        raise OwnerError("A mission needs a statement.")
+    domain_id = domain(conn, slug)["id"] if slug else None
+    current = memory.mission(conn, domain_id)
+    if current is not None and current["statement"] == statement:
+        raise OwnerError("That is already the mission.")
+    return memory.set_mission(conn, statement, domain_id)
+
+
 def add_domain(conn: Connection, slug: str, name: str, description: str | None = None) -> UUID:
     slug, name = slug.strip().lower(), name.strip()
     if not slug or not name:

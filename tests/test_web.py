@@ -1,6 +1,7 @@
 """The board: every page renders from real memory, and outside text stays inert."""
 
 from dataclasses import replace
+from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
@@ -8,7 +9,7 @@ from markupsafe import escape
 from test_feeds import BROKEN, FEED, FakeCrawler
 from test_pipeline import PAGES, enqueue_scout, script_research, script_review, script_scout
 
-from collegium import memory, worker
+from collegium import board, memory, worker
 from collegium.config import Settings
 from collegium.db import Database
 from collegium.web import create_app, http_url
@@ -315,3 +316,106 @@ def test_the_board_knows_the_sources_without_keys():
     acquisition = acquisition_from_settings(settings)
     assert discovery_source_names(settings) == acquisition.sources
     assert metered_provider_names(settings) == acquisition.metered_providers
+
+
+# ---------------------------------------------------------------------------
+# Mission and contradictions
+# ---------------------------------------------------------------------------
+
+
+def test_missions_are_decisions_with_history(client, worker_db, add_domain, llm, make_context):
+    from collegium.roles.strategist import StrategyPlan
+
+    domain_id = add_domain()
+    client.post("/mission", data={"statement": "Understand where AI is going."})
+    client.post("/mission", data={"statement": "Understand AI's economics.", "domain": ""})
+    response = client.post(
+        "/mission", data={"statement": "Know what agents cost to run.", "domain": "ai-agents"}
+    )
+    assert response.status_code == 200 and "Mission set" in response.text
+    same = client.post("/mission", data={"statement": "Understand AI's economics."})
+    assert same.status_code == 400 and "already the mission" in same.text
+
+    with worker_db.reading() as conn:
+        organization = memory.missions(conn, None)
+        domain = memory.missions(conn, domain_id)
+    assert [m["statement"] for m in organization] == [
+        "Understand AI's economics.",
+        "Understand where AI is going.",
+    ]
+    assert [m["status"] for m in organization] == ["approved", "superseded"]
+    assert organization[1]["superseded_by"] == organization[0]["id"]
+    assert [m["statement"] for m in domain] == ["Know what agents cost to run."]
+
+    page = client.get("/mission").text
+    assert "Earlier missions (1)" in page and "Understand where AI is going." in page
+    overview = client.get("/").text
+    assert "Understand AI&#39;s economics." in overview
+    assert "Know what agents cost to run." in overview
+
+    # The Strategist plans by both.
+    llm.add(StrategyPlan, StrategyPlan(assessment="a", goals=[]))
+    with worker_db.acting_as("scheduler") as conn:
+        from collegium import jobs
+
+        jobs.enqueue(conn, "strategize", {"domain_id": domain_id})
+    worker.drain(make_context(PAGES))
+    brief = llm.prompts_for(StrategyPlan)[-1]
+    assert "The organization's mission, set by the owner: Understand AI's economics." in brief
+    assert "This domain's mission, set by the owner: Know what agents cost to run." in brief
+
+
+def test_only_the_owner_decides(worker_db):
+    import psycopg
+
+    with (
+        pytest.raises(psycopg.errors.RaiseException, match="only the owner may decide"),
+        worker_db.acting_as("strategist") as conn,
+    ):
+        memory.set_mission(conn, "Whatever the Strategist likes.", None)
+    with worker_db.acting_as("strategist") as conn:
+        memory.add_decision(conn, statement="Proposed", rationale="r")  # proposing is fine
+
+
+def test_contradictions_are_found(client, researched, worker_db):
+    hid = _one(worker_db, "SELECT id FROM hypotheses LIMIT 1")
+    with worker_db.acting_as("skeptic") as conn:
+        evidence = conn.execute("SELECT id FROM evidence LIMIT 1").fetchone()["id"]
+        memory.link_evidence(
+            conn,
+            evidence_id=evidence,
+            target_id=hid,
+            target_kind="hypothesis",
+            stance="contradicts",
+            rationale="r",
+        )
+        critique = memory.add_critique(
+            conn,
+            target_id=hid,
+            argument="The measurements are from a single vendor.",
+            alternative_explanation=None,
+            severity=4,
+        )
+        memory.set_critique_status(conn, critique, "upheld", "No independent source was found.")
+        rejected = memory.add_hypothesis(conn, statement="Agents replace analysts.", rationale="")
+        memory.assess_confidence(
+            conn, target_id=rejected, target_kind="hypothesis", confidence=0.4, rationale="r"
+        )
+    with worker_db.acting_as("researcher") as conn:
+        memory.assess_confidence(
+            conn, target_id=rejected, target_kind="hypothesis", confidence=0.7, rationale="r"
+        )
+    with worker_db.acting_as("historian") as conn:
+        memory.set_hypothesis_status(conn, rejected, "rejected")
+
+    with worker_db.reading() as conn:
+        found = board.contradictions(conn)
+    assert [h["id"] for h in found["contested"]] == [hid]
+    assert [c["id"] for c in found["unsettled"]] == [critique]
+    assert [h["id"] for h in found["overruled"]] == [rejected]
+    assert found["overruled"][0]["researcher_confidence"] == Decimal("0.7")
+
+    page = client.get("/contradictions").text
+    assert "The measurements are from a single vendor." in page
+    assert "Agents replace analysts." in page
+    assert '<a href="/contradictions">3</a>' in client.get("/").text

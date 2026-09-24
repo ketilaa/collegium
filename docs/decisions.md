@@ -581,3 +581,31 @@ board, so the rules are the same in both. `collegium challenge` and
   taken from the address, so a crafted link cannot put words on the board.
   Refused actions say why and change nothing, since they fail inside the
   owner's transaction.
+
+## 2026-09-24 · Milestone 4, part 3: mission and contradictions
+
+**Missions.** The owner sets a mission for the organization and one for
+each domain, on the board's Mission page or with `collegium mission`. As
+decided, a mission is an approved decision and a new one supersedes the
+old, so every earlier mission stays on record. One detail changed from the
+plan: domains are not nodes, so a mission cannot be linked to its domain
+with a `governs` relationship. Instead migration 0008 adds
+`decisions.topic` ('mission'), and a domain's mission is tagged to the
+domain through `node_domains`, as other records are. The Strategist sees
+both missions in its brief, and its prompt asks it to choose goals that
+serve them (a new `role_version`). Missions are the owner's own words, so
+they are not fenced as outside text.
+
+**Only the owner decides.** Agents could not update decisions, but could
+insert one already approved. Migration 0008 adds a trigger: a decision
+that is not `proposed` may only be written by the `owner` actor, which the
+audit trigger already restricts to board logins.
+
+**Contradictions** (board page and overview count) shows, from what is
+already stored:
+
+- live hypotheses with both supporting and contradicting evidence;
+- critiques of severity 3 or more that are upheld, or still open after the
+  loop's last round (the same test the Strategist's gap check uses);
+- rejected hypotheses the Researcher had rated at 0.6 or more, with the
+  Researcher's peak and the final confidence.

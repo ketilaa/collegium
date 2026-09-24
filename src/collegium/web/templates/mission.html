@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Mission{% endblock %}
+{% macro mission_block(history, domain_slug, placeholder) %}
+  {% set current = history|selectattr("status", "equalto", "approved")|first %}
+  {% if current %}
+    <p class="mission-statement">{{ current.statement }}</p>
+    <div class="meta">Set {{ current.resolved_at|local("%Y-%m-%d") }}</div>
+  {% else %}
+    <p class="empty">Not set.</p>
+  {% endif %}
+  <details class="form">
+    <summary>{% if current %}Change{% else %}Set{% endif %} the mission</summary>
+    <form method="post" action="/mission">
+      <input type="hidden" name="domain" value="{{ domain_slug }}">
+      <label>Mission
+        <textarea name="statement" rows="3" required placeholder="{{ placeholder }}">{{ current.statement if current else "" }}</textarea></label>
+      <button type="submit">Save</button>
+    </form>
+  </details>
+  {% set earlier = history|rejectattr("status", "equalto", "approved")|list %}
+  {% if earlier %}
+    <details>
+      <summary class="meta">Earlier missions ({{ earlier|length }})</summary>
+      <ul class="plain">
+        {% for m in earlier %}<li>{{ m.statement }} <span class="meta">set {{ m.resolved_at|local("%Y-%m-%d") }}</span></li>{% endfor %}
+      </ul>
+    </details>
+  {% endif %}
+{% endmacro %}
+{% block content %}
+<h1>Mission</h1>
+<p class="lede">What the organization is for, in your words. The Strategist reads the organization's mission and the domain's own when it plans. A change is kept as a new decision, and every earlier mission stays on record.</p>
+
+<article class="card">
+  <h2>The organization</h2>
+  {{ mission_block(missions.organization, "", "What should the organization understand, and why?") }}
+</article>
+
+{% for d in missions.domains %}
+  <article class="card">
+    <h2>{{ d.domain.name }} <span class="meta"><code>{{ d.domain.slug }}</code></span></h2>
+    {{ mission_block(d.missions, d.domain.slug, "What should the organization understand about " ~ d.domain.name ~ ", and why?") }}
+  </article>
+{% endfor %}
+{% endblock %}

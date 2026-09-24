@@ -7,6 +7,8 @@ from uuid import UUID
 
 from collegium import memory
 from collegium.db import Connection
+from collegium.roles.historian import ACCEPT_AT, BLOCKING_SEVERITY
+from collegium.roles.resolver import MAX_ROUNDS
 
 LIVE = ("proposed", "under_review", "accepted")
 
@@ -228,6 +230,66 @@ def feeds(conn: Connection) -> list[dict]:
         "SELECT f.*, d.slug FROM approved_sources f JOIN domains d ON d.id = f.domain_id "
         "WHERE f.kind = 'feed' ORDER BY d.slug, f.status = 'retired', f.created_at"
     ).fetchall()
+
+
+def missions(conn: Connection) -> dict:
+    """The organization's mission and each domain's, each with its history
+    (newest first; the first is current unless it was superseded)."""
+    return {
+        "organization": memory.missions(conn, None),
+        "domains": [
+            {"domain": d, "missions": memory.missions(conn, d["id"])}
+            for d in domains(conn)
+            if d["status"] != "retired"
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Contradictions
+# ---------------------------------------------------------------------------
+
+
+def contradictions(conn: Connection) -> dict:
+    """Where the organization's knowledge disagrees with itself: evidence
+    pulling both ways, serious objections that stand or could not be
+    settled, and hypotheses the Researcher believed but the review rejected."""
+    return {
+        "contested": conn.execute(
+            "SELECT * FROM hypothesis_overview WHERE status = ANY(%s) "
+            "AND supporting_evidence > 0 AND contradicting_evidence > 0 "
+            "ORDER BY least(supporting_evidence, contradicting_evidence) DESC, "
+            "current_confidence DESC NULLS LAST",
+            (list(LIVE),),
+        ).fetchall(),
+        "unsettled": conn.execute(
+            "SELECT k.*, n.created_at, a.name AS raised_by, h.id AS hypothesis_id, "
+            "h.statement, h.status AS hypothesis_status FROM critiques k "
+            "JOIN nodes n ON n.id = k.id JOIN actors a ON a.id = n.created_by "
+            "JOIN hypotheses h ON h.id = k.target_id "
+            "WHERE h.status = ANY(%(live)s) AND k.severity >= %(blocking)s AND ("
+            " k.status = 'upheld' OR (k.status = 'open' AND EXISTS ("
+            "  SELECT 1 FROM jobs j WHERE j.kind = 'resolve' AND j.status = 'succeeded' "
+            "  AND j.payload->>'hypothesis_id' = h.id::text "
+            "  AND (j.payload->>'round')::int >= %(rounds)s))) "
+            "ORDER BY k.severity DESC, n.created_at DESC",
+            {"live": list(LIVE), "blocking": BLOCKING_SEVERITY, "rounds": MAX_ROUNDS},
+        ).fetchall(),
+        "overruled": conn.execute(
+            "SELECT h.id, h.statement, o.current_confidence, o.created_at, "
+            "max(c.confidence) AS researcher_confidence FROM hypotheses h "
+            "JOIN hypothesis_overview o ON o.id = h.id "
+            "JOIN confidence_assessments c ON c.target_id = h.id "
+            "JOIN actors a ON a.id = c.assessed_by AND a.name = 'researcher' "
+            "WHERE h.status = 'rejected' GROUP BY h.id, o.current_confidence, o.created_at "
+            "HAVING max(c.confidence) >= %s ORDER BY o.created_at DESC",
+            (ACCEPT_AT,),
+        ).fetchall(),
+    }
+
+
+def contradiction_count(found: dict) -> int:
+    return sum(len(v) for v in found.values())
 
 
 # ---------------------------------------------------------------------------

@@ -18,6 +18,7 @@ from collegium.db import Connection, Database
 
 # What the board says after an action. The redirect names one of these.
 NOTICES = {
+    "mission": "Mission set. The Strategist plans by it from its next run.",
     "approved": "Decision approved.",
     "rejected": "Decision rejected.",
     "challenged": (
@@ -65,6 +66,15 @@ def add_actions(
 
     def done(path: str, notice: str) -> RedirectResponse:
         return RedirectResponse(f"{path}?done={notice}", status_code=303)
+
+    @app.post("/mission")
+    def set_mission(
+        conn: Acting,
+        statement: Annotated[str, Form()] = "",
+        domain: Annotated[str, Form()] = "",
+    ):
+        owner.set_mission(conn, statement, domain or None)
+        return done("/mission", "mission")
 
     @app.post("/decisions/{decision_id}/approve")
     def approve(decision_id: UUID, conn: Acting):

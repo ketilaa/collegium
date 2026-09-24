@@ -66,6 +66,10 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("goals", help="the organization's goals")
     p.add_argument("--all", action="store_true", help="include achieved and abandoned")
 
+    p = sub.add_parser("mission", help="show the missions, or set one (owner)")
+    p.add_argument("statement", nargs="?", help="the new mission; omit to show")
+    p.add_argument("--domain", help="a domain's mission instead of the organization's")
+
     sub.add_parser("programs", help="research programs, proposed and open")
 
     sub.add_parser("decisions", help="decisions waiting for the owner")
@@ -290,6 +294,21 @@ def _goals(args, settings: Settings) -> None:
         )
 
 
+def _mission(args, settings: Settings) -> None:
+    if args.statement:
+        with _board(settings).acting_as("owner") as conn:
+            owner.set_mission(conn, args.statement, args.domain)
+        print("mission set")
+        return
+    with _reader(settings).reading() as conn:
+        missions = board.missions(conn)
+    current = [m for m in missions["organization"] if m["status"] == "approved"]
+    print(f"Organization: {current[0]['statement'] if current else '(not set)'}")
+    for d in missions["domains"]:
+        current = [m for m in d["missions"] if m["status"] == "approved"]
+        print(f"{d['domain']['slug']}: {current[0]['statement'] if current else '(not set)'}")
+
+
 def _programs(args, settings: Settings) -> None:
     with _reader(settings).reading() as conn:
         rows = board.programs(conn)
@@ -483,6 +502,7 @@ COMMANDS = {
     "strategize": _strategize,
     "goals": _goals,
     "programs": _programs,
+    "mission": _mission,
     "decisions": _decisions,
     "approve": lambda args, settings: _resolve_decision(args, settings, "approved"),
     "reject": lambda args, settings: _resolve_decision(args, settings, "rejected"),

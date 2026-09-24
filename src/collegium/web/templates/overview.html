@@ -3,6 +3,14 @@
 {% block title %}Overview{% endblock %}
 {% block content %}
 <h1>Overview</h1>
+{% set org = missions.organization|selectattr("status", "equalto", "approved")|first %}
+<section class="mission">
+  {% if org %}<p class="mission-statement">{{ org.statement }}</p>{% else %}<p class="empty">No mission set yet. <a href="/mission">Set one</a> to tell the Strategist what the organization is for.</p>{% endif %}
+  {% for d in missions.domains %}
+    {% set m = d.missions|selectattr("status", "equalto", "approved")|first %}
+    {% if m %}<p class="meta"><strong>{{ d.domain.name }}:</strong> {{ m.statement }}</p>{% endif %}
+  {% endfor %}
+</section>
 {{ ops_strip(ops) }}
 
 {% if decisions %}
@@ -26,6 +34,7 @@
       {% for s in ["accepted", "under_review", "proposed"] %}
         <div><dt>{{ s|label|capitalize }}</dt><dd><a href="/hypotheses">{{ counts[s] }}</a></dd></div>
       {% endfor %}
+      <div><dt>Contradictions</dt><dd><a href="/contradictions">{{ contradictions }}</a></dd></div>
     </dl>
     <h2>Active goals</h2>
     {% if goals %}
