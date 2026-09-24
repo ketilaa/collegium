@@ -15,14 +15,16 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from collegium import board, memory
-from collegium.acquisition import metered_provider_names
+from collegium.acquisition import discovery_source_names, metered_provider_names
 from collegium.config import Settings
 from collegium.db import Connection, Database
+from collegium.web.actions import NOTICES, add_actions
 from collegium.web.charts import confidence_chart
 
 HERE = Path(__file__).parent
@@ -42,9 +44,10 @@ SECURITY_HEADERS = {
 DISCOVERY_WINDOWS = {1: "Last day", 7: "Last week", 30: "Last month"}
 
 
-def create_app(settings: Settings, database: Callable[[], Database]) -> FastAPI:
+def create_app(settings: Settings, database: Callable[[], Database], crawler=None) -> FastAPI:
     """`database` opens a connection for one request; the board login in
-    production, a role-switched test connection in tests."""
+    production, a role-switched test connection in tests. `crawler` reads a
+    feed once when the owner approves it (a FeedReader unless given)."""
     app = FastAPI(title="Collegium", docs_url=None, redoc_url=None, openapi_url=None)
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     templates = _templates(ZoneInfo(settings.timezone))
@@ -53,9 +56,22 @@ def create_app(settings: Settings, database: Callable[[], Database]) -> FastAPI:
 
     @app.middleware("http")
     async def security_headers(request: Request, call_next):
-        response = await call_next(request)
+        # Any page the owner visits could post a form here. Without a login
+        # to tell the owner apart, a change is accepted only when the
+        # browser says it came from the board itself.
+        if request.method not in ("GET", "HEAD") and not _same_origin(request):
+            response = PlainTextResponse("Cross-site request refused.", status_code=403)
+        else:
+            response = await call_next(request)
         response.headers.update(SECURITY_HEADERS)
         return response
+
+    # Added last, so it runs first: a request for any other host name (a
+    # rebound DNS name, say) is refused before anything else.
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=[h.strip() for h in settings.web_allowed_hosts.split(",") if h.strip()],
+    )
 
     def reading() -> Iterator[Connection]:
         db = database()
@@ -66,6 +82,7 @@ def create_app(settings: Settings, database: Callable[[], Database]) -> FastAPI:
             db.close()
 
     Reading = Annotated[Connection, Depends(reading)]
+    add_actions(app, templates, settings, database, crawler)
 
     def page(request: Request, name: str, **context) -> HTMLResponse:
         return templates.TemplateResponse(request, name, context)
@@ -90,6 +107,7 @@ def create_app(settings: Settings, database: Callable[[], Database]) -> FastAPI:
             request,
             "overview.html",
             decisions=board.decisions_waiting(conn),
+            challenges=board.owner_challenges(conn, limit=5),
             goals=board.goals(conn)[:5],
             programs=[p for p in board.programs(conn) if p["status"] == "active"],
             counts={s: sum(1 for h in live if h["status"] == s) for s in board.LIVE},
@@ -106,7 +124,26 @@ def create_app(settings: Settings, database: Callable[[], Database]) -> FastAPI:
             "programs.html",
             programs=board.programs(conn),
             goals_by_program=_group(goals, "program_id"),
-            decisions=board.decisions_waiting(conn),
+        )
+
+    @app.get("/decisions", response_class=HTMLResponse)
+    def decisions(request: Request, conn: Reading):
+        return page(
+            request,
+            "decisions.html",
+            waiting=board.decisions_waiting(conn),
+            resolved=board.decisions_resolved(conn),
+            challenges=board.owner_challenges(conn, limit=30),
+        )
+
+    @app.get("/domains", response_class=HTMLResponse)
+    def domains(request: Request, conn: Reading):
+        return page(
+            request,
+            "domains.html",
+            domains=board.domains(conn),
+            feeds=_group(board.feeds(conn), "slug"),
+            sources=discovery_source_names(settings),
         )
 
     @app.get("/goals", response_class=HTMLResponse)
@@ -133,6 +170,7 @@ def create_app(settings: Settings, database: Callable[[], Database]) -> FastAPI:
             **detail,
             chart=confidence_chart(detail["confidence"]),
             evidence=_group(detail["citations"], "stance"),
+            live=detail["hypothesis"]["status"] in board.LIVE,
         )
 
     @app.get("/observations/{oid}", response_class=HTMLResponse)
@@ -178,6 +216,14 @@ def create_app(settings: Settings, database: Callable[[], Database]) -> FastAPI:
     return app
 
 
+def _same_origin(request: Request) -> bool:
+    fetch_site = request.headers.get("sec-fetch-site")
+    if fetch_site is not None:
+        return fetch_site == "same-origin"
+    origin = request.headers.get("origin")
+    return origin is not None and origin == f"{request.url.scheme}://{request.url.netloc}"
+
+
 def _group(rows: list[dict], key: str) -> dict:
     grouped: dict = {}
     for r in rows:
@@ -200,6 +246,9 @@ def _templates(tz: ZoneInfo) -> Jinja2Templates:
     env.filters["found_via"] = lambda e: board.found_via(e, lambda m: m.astimezone(tz))
     env.filters["request"] = board.acquisition_request
     env.globals["TIMEZONE"] = tz.key
+    # Messages after an action are named in the address, never written
+    # there, so a link cannot put words on the board.
+    env.globals["notice_for"] = lambda request: NOTICES.get(request.query_params.get("done", ""))
     return templates
 
 

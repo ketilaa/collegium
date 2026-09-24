@@ -1,8 +1,11 @@
 """The board: every page renders from real memory, and outside text stays inert."""
 
+from dataclasses import replace
+
 import pytest
 from fastapi.testclient import TestClient
 from markupsafe import escape
+from test_feeds import BROKEN, FEED, FakeCrawler
 from test_pipeline import PAGES, enqueue_scout, script_research, script_review, script_scout
 
 from collegium import memory, worker
@@ -10,11 +13,23 @@ from collegium.config import Settings
 from collegium.db import Database
 from collegium.web import create_app, http_url
 
+BOARD = "http://testserver"
+
 
 @pytest.fixture
-def client(db_url):
-    app = create_app(Settings(), lambda: Database(db_url, set_role="collegium_board"))
-    with TestClient(app) as c:
+def crawler():
+    return FakeCrawler({FEED: []}, broken={BROKEN})
+
+
+@pytest.fixture
+def client(db_url, crawler):
+    app = create_app(
+        replace(Settings(), web_allowed_hosts="testserver"),
+        lambda: Database(db_url, set_role="collegium_board"),
+        crawler,
+    )
+    # Browsers send Origin with every form post; the board requires it.
+    with TestClient(app, base_url=BOARD, headers={"Origin": BOARD}) as c:
         yield c
 
 
@@ -115,3 +130,188 @@ def test_only_web_addresses_are_linked():
     assert http_url("JaVaScRiPt:alert(1)") is None
     assert http_url("data:text/html,hi") is None
     assert http_url(None) is None
+
+
+# ---------------------------------------------------------------------------
+# The owner's actions
+# ---------------------------------------------------------------------------
+
+
+def test_other_host_names_are_refused(client):
+    assert client.get("/", headers={"Host": "rebound.example"}).status_code == 400
+
+
+def test_cross_site_posts_are_refused(client, add_domain, worker_db):
+    add_domain()
+    path = "/domains/ai-agents/status"
+    for headers in [
+        {"Origin": "https://evil.example"},
+        {"Origin": "", "Sec-Fetch-Site": "cross-site"},
+        {"Origin": BOARD, "Sec-Fetch-Site": "same-site"},
+    ]:
+        response = client.post(path, data={"status": "paused"}, headers=headers)
+        assert response.status_code == 403, headers
+    with worker_db.reading() as conn:
+        assert conn.execute("SELECT status FROM domains").fetchone()["status"] == "active"
+    # A post the browser marks as from the board itself is accepted.
+    response = client.post(
+        path, data={"status": "paused"}, headers={"Sec-Fetch-Site": "same-origin"}
+    )
+    assert response.status_code == 200  # followed the redirect
+
+
+def _proposed_program(worker_db, domain_id):
+    with worker_db.acting_as("strategist") as conn:
+        program = memory.add_program(conn, name="Inference economics", charter="Track costs.")
+        decision = memory.add_decision(
+            conn, statement="Open a program on inference economics", rationale="A gap."
+        )
+        memory.add_relationship(conn, subject_id=decision, predicate="concerns", object_id=program)
+        memory.tag_domains(conn, program, [domain_id])
+    return program, decision
+
+
+def test_approving_a_decision_opens_its_program(client, worker_db, add_domain):
+    program, decision = _proposed_program(worker_db, add_domain())
+    assert "Open a program on inference economics" in client.get("/decisions").text
+    response = client.post(f"/decisions/{decision}/approve")
+    assert response.status_code == 200 and "Decision approved." in response.text
+    with worker_db.reading() as conn:
+        assert conn.execute(
+            "SELECT p.status, d.status AS decided, a.name FROM programs p, decisions d "
+            "JOIN actors a ON a.id = d.resolved_by WHERE p.id = %s AND d.id = %s",
+            (program, decision),
+        ).fetchone() == {"status": "active", "decided": "approved", "name": "owner"}
+    # Deciding twice is refused, and says why.
+    again = client.post(f"/decisions/{decision}/reject")
+    assert again.status_code == 400 and "no longer waiting" in again.text
+
+
+def test_rejecting_keeps_the_reason(client, worker_db, add_domain):
+    program, decision = _proposed_program(worker_db, add_domain())
+    client.post(f"/decisions/{decision}/reject", data={"reason": "Too early for this."})
+    with worker_db.reading() as conn:
+        assert memory.programs(conn, []) == []  # closed programs are not listed
+        critique = conn.execute(
+            "SELECT argument, status FROM critiques WHERE target_id = %s", (decision,)
+        ).fetchone()
+    assert critique == {"argument": "Too early for this.", "status": "upheld"}
+    assert "Your reason: Too early for this." in client.get("/decisions").text
+
+
+def test_owner_challenge_goes_through_the_loop(client, researched, worker_db, llm, make_context):
+    from test_resolution import resolve, review
+
+    from collegium.roles.skeptic import CritiqueResolution, SkepticReview
+
+    hid = _one(worker_db, "SELECT id FROM hypotheses LIMIT 1")
+    response = client.post(
+        f"/hypotheses/{hid}/challenge",
+        data={"argument": "These are list prices, not what buyers pay.", "severity": "3"},
+    )
+    assert response.status_code == 200 and "Your critique is recorded" in response.text
+    with worker_db.reading() as conn:
+        critique = conn.execute(
+            "SELECT k.*, a.name FROM critiques k JOIN nodes n ON n.id = k.id "
+            "JOIN actors a ON a.id = n.created_by WHERE k.target_id = %s AND a.name = 'owner'",
+            (hid,),
+        ).fetchone()
+        job = conn.execute(
+            "SELECT payload FROM jobs WHERE kind = 'resolve' AND status = 'pending'"
+        ).fetchone()
+    assert critique["status"] == "open" and critique["severity"] == 3
+    assert job["payload"]["round"] == 1  # a fresh two rounds
+
+    # The Skeptic's own earlier critique is C1; the owner's is C2.
+    resolve(llm)
+    review(
+        llm,
+        resolutions=[
+            CritiqueResolution(critique="C1", status="addressed", resolution="Answered."),
+            CritiqueResolution(
+                critique="C2", status="dismissed", resolution="Buyers pay list prices here."
+            ),
+        ],
+    )
+    worker.drain(make_context(PAGES))
+    brief = llm.prompts_for(SkepticReview)[-1]
+    assert "[C2] (severity 3, raised by the owner) These are list prices" in brief
+    with worker_db.reading() as conn:
+        assert (
+            conn.execute(
+                "SELECT status FROM critiques WHERE id = %s", (critique["id"],)
+            ).fetchone()["status"]
+            == "dismissed"
+        )
+        # Settled, so the loop ends: no further round is queued.
+        assert (
+            conn.execute("SELECT count(*) AS n FROM jobs WHERE status = 'pending'").fetchone()["n"]
+            == 0
+        )
+
+    page = client.get(f"/hypotheses/{hid}").text
+    assert "your challenge" in page and "Buyers pay list prices here." in page
+    overview = client.get("/").text
+    assert "Your challenges" in overview and "Buyers pay list prices here." in overview
+
+
+def test_a_challenge_needs_an_argument_and_a_live_hypothesis(client, researched, worker_db):
+    hid = _one(worker_db, "SELECT id FROM hypotheses LIMIT 1")
+    response = client.post(f"/hypotheses/{hid}/challenge", data={"argument": "  "})
+    assert response.status_code == 400 and "Say what you object to" in response.text
+    with worker_db.acting_as("historian") as conn:
+        memory.set_hypothesis_status(conn, hid, "rejected")
+    response = client.post(f"/hypotheses/{hid}/challenge", data={"argument": "No."})
+    assert response.status_code == 400 and "rejected" in response.text
+    with worker_db.reading() as conn:
+        owner_critiques = conn.execute(
+            "SELECT count(*) AS n FROM critiques k JOIN nodes n ON n.id = k.id "
+            "JOIN actors a ON a.id = n.created_by WHERE a.name = 'owner'"
+        ).fetchone()["n"]
+    assert owner_critiques == 0
+
+
+def test_managing_domains_and_feeds(client, worker_db, crawler):
+    response = client.post("/domains", data={"slug": "energy", "name": "Energy"})
+    assert response.status_code == 200 and "Domain added" in response.text
+    duplicate = client.post("/domains", data={"slug": "energy", "name": "Energy again"})
+    assert duplicate.status_code == 400 and "already a domain" in duplicate.text
+    bad = client.post("/domains", data={"slug": "Not A Slug", "name": "x"})
+    assert bad.status_code == 400 and "lowercase" in bad.text
+
+    client.post("/domains/energy/sources", data={"source": ["hackernews"]})
+    client.post("/domains/energy/feeds", data={"url": FEED, "title": "Lab news"})
+    broken = client.post("/domains/energy/feeds", data={"url": BROKEN})
+    assert broken.status_code == 400 and "Could not read" in broken.text
+    client.post("/domains/energy/feeds/status", data={"url": FEED, "status": "paused"})
+    client.post("/domains/energy/scout")
+    unknown = client.post("/domains/energy/sources", data={"source": ["nowhere"]})
+    assert unknown.status_code == 400
+
+    with worker_db.reading() as conn:
+        domain = memory.domain_by_slug(conn, "energy")
+        feed = conn.execute("SELECT title, status FROM approved_sources").fetchone()
+        job = conn.execute("SELECT kind, payload FROM jobs").fetchone()
+    assert domain["discovery_sources"] == ["hackernews"]
+    assert feed == {"title": "Lab news", "status": "paused"}
+    assert job["kind"] == "scout" and job["payload"]["domain_id"] == str(domain["id"])
+    assert crawler.crawled == [FEED, BROKEN]
+
+    client.post("/domains/energy/status", data={"status": "paused"})
+    refused = client.post("/domains/energy/strategize")
+    assert refused.status_code == 400 and "resume it first" in refused.text
+    page = client.get("/domains").text
+    assert "Lab news" in page and "Resume" in page
+
+
+def test_the_board_knows_the_sources_without_keys():
+    from collegium.acquisition import (
+        acquisition_from_settings,
+        discovery_source_names,
+        metered_provider_names,
+    )
+
+    settings = replace(Settings(), tavily_api_key="key")
+    acquisition = acquisition_from_settings(settings)
+    assert discovery_source_names(settings) == acquisition.sources
+    assert metered_provider_names(settings) == acquisition.metered_providers

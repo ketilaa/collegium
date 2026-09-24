@@ -9,7 +9,7 @@
     <h2>{{ p.name }} {{ status(p.status) }}</h2>
     <p>{{ p.charter }}</p>
     <div class="meta">Priority {{ p.priority }} · proposed {{ p.created_at|local("%Y-%m-%d") }} · {{ p.goals }} goals
-      {% if p.status == "proposed" %} · <code>collegium approve</code> or <code>reject</code> the decision about it{% endif %}</div>
+      {% if p.status == "proposed" %} · <a href="/decisions">approve or reject it</a>{% endif %}</div>
     {% set goals = goals_by_program.get(p.id, []) %}
     {% if goals %}
       <ul class="plain">{% for g in goals %}<li>{{ status(g.status) }} {{ g.statement }}</li>{% endfor %}</ul>

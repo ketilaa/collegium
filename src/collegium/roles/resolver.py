@@ -20,6 +20,7 @@ from collegium.roles.base import (
     Persist,
     Role,
     SearchPlan,
+    critique_heading,
     flag_note,
     ground_evidence,
     render_documents,
@@ -98,5 +99,5 @@ def _brief(h: dict, critiques: list[dict]) -> str:
             if c["alternative_explanation"]
             else ""
         )
-        lines.append(f"[C{i}] (severity {c['severity']}) {c['argument']}{alt}")
+        lines.append(f"[C{i}] {critique_heading(c)} {c['argument']}{alt}")
     return "\n".join(lines)

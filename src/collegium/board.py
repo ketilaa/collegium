@@ -196,6 +196,40 @@ def decisions_waiting(conn: Connection) -> list[dict]:
     ).fetchall()
 
 
+def decisions_resolved(conn: Connection, limit: int = 20) -> list[dict]:
+    """Decisions already taken, newest first, with the owner's reason for
+    a rejection when one was given."""
+    return conn.execute(
+        "SELECT d.*, a.name AS proposed_by, n.created_at, "
+        "(SELECT k.argument FROM critiques k WHERE k.target_id = d.id "
+        " ORDER BY k.id LIMIT 1) AS reason "
+        "FROM decisions d JOIN nodes n ON n.id = d.id JOIN actors a ON a.id = n.created_by "
+        "WHERE d.status <> 'proposed' ORDER BY d.resolved_at DESC LIMIT %s",
+        (limit,),
+    ).fetchall()
+
+
+def owner_challenges(conn: Connection, limit: int = 10) -> list[dict]:
+    """The owner's critiques of hypotheses, open ones first, then the most
+    recently settled, with how the organization answered them."""
+    return conn.execute(
+        "SELECT k.*, n.created_at, h.statement, h.id AS hypothesis_id, "
+        "(SELECT l.at FROM audit_log l WHERE l.table_name = 'critiques' AND l.row_id = k.id "
+        " AND l.action = 'UPDATE' ORDER BY l.at DESC LIMIT 1) AS settled_at "
+        "FROM critiques k JOIN nodes n ON n.id = k.id JOIN hypotheses h ON h.id = k.target_id "
+        "WHERE n.created_by = (SELECT id FROM actors WHERE name = 'owner') "
+        "ORDER BY k.status = 'open' DESC, settled_at DESC NULLS LAST, n.created_at DESC LIMIT %s",
+        (limit,),
+    ).fetchall()
+
+
+def feeds(conn: Connection) -> list[dict]:
+    return conn.execute(
+        "SELECT f.*, d.slug FROM approved_sources f JOIN domains d ON d.id = f.domain_id "
+        "WHERE f.kind = 'feed' ORDER BY d.slug, f.status = 'retired', f.created_at"
+    ).fetchall()
+
+
 # ---------------------------------------------------------------------------
 # Recent discoveries
 # ---------------------------------------------------------------------------

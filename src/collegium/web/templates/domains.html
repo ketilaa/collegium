@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status %}
+{% block title %}Domains{% endblock %}
+{% block content %}
+<h1>Research domains</h1>
+<p class="lede">The areas the organization works in. The Strategist plans each active domain once per working day.</p>
+
+{% for d in domains %}
+  <article class="card">
+    <h2>{{ d.name }} {{ status(d.status) }}</h2>
+    <div class="meta"><code>{{ d.slug }}</code></div>
+    {% if d.description %}<p>{{ d.description }}</p>{% endif %}
+
+    <div class="actions">
+      {% if d.status == "active" %}
+        <form method="post" action="/domains/{{ d.slug }}/scout"><button type="submit">Scout now</button></form>
+        <form method="post" action="/domains/{{ d.slug }}/strategize"><button type="submit">Plan now</button></form>
+        <form method="post" action="/domains/{{ d.slug }}/status"><input type="hidden" name="status" value="paused"><button type="submit" class="secondary">Pause</button></form>
+      {% elif d.status == "paused" %}
+        <form method="post" action="/domains/{{ d.slug }}/status"><input type="hidden" name="status" value="active"><button type="submit">Resume</button></form>
+      {% endif %}
+    </div>
+
+    <h3>Discovery sources</h3>
+    <form method="post" action="/domains/{{ d.slug }}/sources" class="inline">
+      {% for s in sources %}
+        <label class="check"><input type="checkbox" name="source" value="{{ s }}"{% if s in d.discovery_sources %} checked{% endif %}> {{ s }}</label>
+      {% endfor %}
+      <button type="submit" class="secondary">Save</button>
+      <span class="meta">None ticked means the default search provider.</span>
+    </form>
+
+    <h3>Approved feeds</h3>
+    {% set domain_feeds = feeds.get(d.slug, []) %}
+    {% if domain_feeds %}
+      <ul class="plain">
+        {% for f in domain_feeds %}
+          <li class="row">
+            <span>{{ status(f.status) }} {{ f.title or f.url }}{% if f.title %} <span class="meta">{{ f.url }}</span>{% endif %}</span>
+            {% if f.status != "retired" %}
+              <form method="post" action="/domains/{{ d.slug }}/feeds/status" class="inline">
+                <input type="hidden" name="url" value="{{ f.url }}">
+                {% if f.status == "active" %}
+                  <button type="submit" name="status" value="paused" class="secondary">Pause</button>
+                {% else %}
+                  <button type="submit" name="status" value="active" class="secondary">Resume</button>
+                {% endif %}
+                <button type="submit" name="status" value="retired" class="secondary">Retire</button>
+              </form>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}<p class="empty">No feeds.</p>{% endif %}
+    <form method="post" action="/domains/{{ d.slug }}/feeds" class="inline">
+      <input type="url" name="url" placeholder="https://example.com/feed.xml" required aria-label="Feed address">
+      <input type="text" name="title" placeholder="Title (optional)" aria-label="Feed title">
+      <button type="submit" class="secondary">Approve feed</button>
+    </form>
+  </article>
+{% else %}
+  <p class="empty">No domains yet.</p>
+{% endfor %}
+
+<details class="card form">
+  <summary>Add a domain</summary>
+  <form method="post" action="/domains">
+    <label>Slug <input type="text" name="slug" placeholder="energy" pattern="[a-z0-9]+(-[a-z0-9]+)*" required></label>
+    <label>Name <input type="text" name="name" placeholder="Energy" required></label>
+    <label>Description <textarea name="description" rows="2"></textarea></label>
+    <button type="submit">Add domain</button>
+  </form>
+</details>
+{% endblock %}

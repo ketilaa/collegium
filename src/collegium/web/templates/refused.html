@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}Not done{% endblock %}
+{% block content %}
+<h1>Not done</h1>
+<p class="callout">{{ message }}</p>
+<p>Nothing was changed. {% if back %}<a href="{{ back }}">Go back</a>{% endif %}</p>
+{% endblock %}

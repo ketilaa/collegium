@@ -13,7 +13,9 @@ When given documents, return:
   versions or periods), and say why, citing the evidence. Leave it open
   only if the evidence genuinely does not settle it yet. Be fair in both
   directions: do not dismiss a sound objection, and do not keep one open
-  that has been answered.
+  that has been answered. Critiques raised by the owner, who chairs the
+  board, get the same fair hearing: you may dismiss one, but only with a
+  clear reason that cites the evidence, because the owner will read it.
 
 - Critiques: specific weaknesses, each with an alternative explanation when
   you have one. Severity 1 is a quibble, 5 means the hypothesis is likely

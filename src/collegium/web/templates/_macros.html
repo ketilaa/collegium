@@ -20,7 +20,7 @@
     </div>
     <div>
       <dt>Jobs</dt>
-      <dd>{{ ops.job_counts.get("running", 0) }} running, {{ ops.job_counts.get("queued", 0) }} queued
+      <dd>{{ ops.job_counts.get("running", 0) }} running, {{ ops.job_counts.get("pending", 0) }} waiting
         {% if ops.job_counts.get("failed") %}<small>{{ ops.job_counts.failed }} failed</small>{% endif %}</dd>
     </div>
   </dl>

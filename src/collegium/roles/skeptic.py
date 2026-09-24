@@ -22,6 +22,7 @@ from collegium.roles.base import (
     Persist,
     Role,
     SearchPlan,
+    critique_heading,
     ground_evidence,
     render_documents,
     store_evidence,
@@ -169,8 +170,7 @@ def _brief(
     if settled:
         lines.append("\nSettled critiques:")
         lines += [
-            f"- ({c['status']}, severity {c['severity']}) {c['argument']} Resolution: "
-            f"{c['resolution']}"
+            f"- ({c['status']}) {critique_heading(c)} {c['argument']} Resolution: {c['resolution']}"
             for c in settled
         ]
     lines.append("\nOpen critiques, to settle in your resolutions:")
@@ -180,7 +180,7 @@ def _brief(
         alt = (
             f" Alternative: {c['alternative_explanation']}" if c["alternative_explanation"] else ""
         )
-        lines.append(f"[C{i}] (severity {c['severity']}) {c['argument']}{alt}")
+        lines.append(f"[C{i}] {critique_heading(c)} {c['argument']}{alt}")
         for j, e in enumerate(about.get(c["id"], []), 1):
             lines.append(
                 f"    Evidence {e['stance']} C{i}: {e['summary']} [{e['uri']}]\n"

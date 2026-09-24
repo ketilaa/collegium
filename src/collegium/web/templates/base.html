@@ -15,12 +15,15 @@
       {% set here = request.url.path %}
       {% for href, name in [("/", "Overview"), ("/programs", "Programs"), ("/goals", "Goals"),
                             ("/hypotheses", "Hypotheses"), ("/discoveries", "Discoveries"),
+                            ("/decisions", "Decisions"), ("/domains", "Domains"),
                             ("/operations", "Operations")] %}
         <a href="{{ href }}"{% if here == href or (href != "/" and here.startswith(href)) %} aria-current="page"{% endif %}>{{ name }}</a>
       {% endfor %}
     </nav>
   </header>
   <main>
+    {% set notice = notice_for(request) %}
+    {% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
     {% block content %}{% endblock %}
   </main>
   <footer>Times are {{ TIMEZONE }}.</footer>

@@ -551,3 +551,33 @@ board show the same things.
 - **The web service holds no provider keys.** It shows the budget by
   counting calls to the paid providers (`metered_provider_names`), without
   building the providers.
+
+## 2026-09-24 · Milestone 4, part 2: the owner's actions
+
+The board can now do what the owner's CLI commands do: approve or reject
+decisions (a rejection's reason is kept as an upheld critique), challenge
+a hypothesis, add, pause and resume domains, choose their discovery
+sources, approve, pause and retire feeds, and ask for a scout or planning
+run now. The actions live in `owner.py`, used by both the CLI and the
+board, so the rules are the same in both. `collegium challenge` and
+`collegium domain pause|resume|retire` are new on the CLI.
+
+- **The owner's challenge** is a critique by the owner actor. It queues a
+  `resolve` job at round 1, so it gets a fresh two rounds whatever happened
+  before. Both the Researcher and the Skeptic see "raised by the owner" on
+  it, and the Skeptic's prompt says it may dismiss one only with a reason
+  citing the evidence. The board lists the owner's challenges on the
+  overview and the decisions page, with dismissed ones marked. A severity
+  of 3 or more blocks acceptance while open, so challenging an accepted
+  hypothesis sends it back under review until the challenge is settled.
+  Changing the two prompts changes the Researcher's and Skeptic's
+  `role_version`.
+- **Forms without a login.** Any page the owner visits could post a form to
+  localhost. Posts are accepted only when the browser marks them as coming
+  from the board itself (`Sec-Fetch-Site: same-origin`, or a matching
+  `Origin`), and the board answers only to host names in
+  `COLLEGIUM_WEB_ALLOWED_HOSTS`, so a rebound DNS name cannot reach it.
+- **Messages after an action** are chosen from a fixed list by name, never
+  taken from the address, so a crafted link cannot put words on the board.
+  Refused actions say why and change nothing, since they fail inside the
+  owner's transaction.

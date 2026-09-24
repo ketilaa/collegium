@@ -136,7 +136,7 @@ blockquote {
   vertical-align: 0.1em;
 }
 .status-accepted, .status-achieved, .status-active, .status-approved, .status-succeeded, .status-addressed { background: var(--good-bg); color: var(--good); }
-.status-under_review, .status-open, .status-proposed, .status-running, .status-investigating { background: var(--warn-bg); color: var(--warn); }
+.status-under_review, .status-open, .status-proposed, .status-running, .status-pending, .status-investigating { background: var(--warn-bg); color: var(--warn); }
 .status-rejected, .status-failed, .status-upheld, .status-abandoned { background: var(--bad-bg); color: var(--bad); }
 
 .strip, .tiles { display: flex; flex-wrap: wrap; gap: 0.75rem; margin: 0 0 1.5rem; }
@@ -169,3 +169,53 @@ th, td { padding: 0.5rem 0.6rem 0.5rem 0; border-bottom: 1px solid var(--border)
 .chart .dot { fill: var(--series); stroke: var(--surface); stroke-width: 2; }
 .chart .hit { fill: transparent; }
 .chart .point:hover .dot { r: 6; }
+
+.notice { background: var(--good-bg); color: var(--text); border-radius: 8px; padding: 0.6rem 1rem; margin: 0 0 1rem; }
+.critique-owner { background: var(--quote); }
+.critique-owner.critique-dismissed { border-left: 3px solid var(--bad); }
+h3.decision { color: var(--text); font-size: 1rem; margin-top: 0; }
+
+button {
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 500;
+  padding: 0.35rem 0.9rem;
+  border-radius: 6px;
+  border: 1px solid var(--series);
+  background: var(--series);
+  color: #fff;
+  cursor: pointer;
+}
+button.secondary { background: transparent; color: var(--text); border-color: var(--border); }
+button:hover { filter: brightness(1.08); }
+button.secondary:hover { border-color: var(--text-muted); }
+input[type="text"], input[type="url"], textarea, select {
+  font: inherit;
+  font-size: 0.95rem;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.35rem 0.55rem;
+  max-width: 100%;
+}
+textarea { width: 100%; }
+input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-visible {
+  outline: 2px solid var(--series);
+  outline-offset: 1px;
+}
+
+.form summary { cursor: pointer; font-weight: 500; }
+.form form { display: grid; gap: 0.75rem; margin-top: 0.75rem; }
+.form label { display: grid; gap: 0.25rem; font-size: 0.9rem; color: var(--text-secondary); }
+.form button { justify-self: start; }
+
+.actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.75rem; }
+.actions form, form.inline { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin: 0; }
+.actions form.grow { flex: 1 1 280px; }
+.actions form.grow input { flex: 1 1 160px; }
+form.inline { margin: 0.5rem 0; }
+form.inline input[type="url"] { flex: 1 1 240px; }
+label.check { display: inline-flex; gap: 0.3rem; align-items: center; margin-right: 0.5rem; }
+li.row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem; align-items: center; }
+li.row form.inline { margin: 0; }

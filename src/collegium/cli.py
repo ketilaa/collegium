@@ -6,8 +6,8 @@ from datetime import datetime
 
 import truststore
 
-from collegium import board, jobs, memory, scheduler, worker
-from collegium.acquisition import acquisition_from_settings
+from collegium import board, jobs, memory, owner, scheduler, worker
+from collegium.acquisition import acquisition_from_settings, discovery_source_names
 from collegium.acquisition.feeds import FeedReader
 from collegium.config import Settings, require
 from collegium.db import Database
@@ -37,6 +37,9 @@ def main(argv: list[str] | None = None) -> None:
     a.add_argument("name")
     a.add_argument("--description")
     dsub.add_parser("list")
+    for action in ("pause", "resume", "retire"):
+        d = dsub.add_parser(action)
+        d.add_argument("slug")
     s = dsub.add_parser("sources", help="show or set the Scout's discovery sources")
     s.add_argument("slug")
     s.add_argument("names", nargs="*", help="e.g. tavily hackernews; 'default' to reset")
@@ -73,6 +76,12 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("decision", help="decision id or unique prefix")
     p.add_argument("--reason", help="kept as your upheld objection to the proposal")
 
+    p = sub.add_parser("challenge", help="critique a hypothesis; it goes through the loop (owner)")
+    p.add_argument("hypothesis", help="id or unique prefix")
+    p.add_argument("argument", help="what you object to")
+    p.add_argument("--alternative", help="an alternative explanation")
+    p.add_argument("--severity", type=int, default=3, choices=range(1, 6))
+
     p = sub.add_parser("resolve", help="send hypotheses with open critiques to be resolved (owner)")
     p.add_argument("hypothesis", nargs="?", help="id or prefix; omit with --all")
     p.add_argument(
@@ -102,7 +111,10 @@ def main(argv: list[str] | None = None) -> None:
     truststore.inject_into_ssl()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     settings = Settings()
-    COMMANDS[args.command](args, settings)
+    try:
+        COMMANDS[args.command](args, settings)
+    except owner.OwnerError as e:
+        raise SystemExit(str(e)) from e
 
 
 # ---------------------------------------------------------------------------
@@ -171,16 +183,20 @@ def _reader(settings: Settings) -> Database:
     return Database(require(url, "COLLEGIUM_BOARD_DATABASE_URL"))
 
 
+DOMAIN_STATUS = {"pause": "paused", "resume": "active", "retire": "retired"}
+
+
 def _domain(args, settings: Settings) -> None:
     if args.action == "add":
         with _board(settings).acting_as("owner") as conn:
-            conn.execute(
-                "INSERT INTO domains (slug, name, description) VALUES (%s, %s, %s)",
-                (args.slug, args.name, args.description),
-            )
+            owner.add_domain(conn, args.slug, args.name, args.description)
         print(f"added domain {args.slug}")
     elif args.action == "sources":
         _domain_sources(args, settings)
+    elif args.action in DOMAIN_STATUS:
+        with _board(settings).acting_as("owner") as conn:
+            owner.set_domain_status(conn, args.slug, DOMAIN_STATUS[args.action])
+        print(f"{args.slug}: {DOMAIN_STATUS[args.action]}")
     else:
         with _reader(settings).reading() as conn:
             for d in board.domains(conn):
@@ -191,16 +207,8 @@ def _domain(args, settings: Settings) -> None:
 def _domain_sources(args, settings: Settings) -> None:
     if args.names:
         names = [] if args.names == ["default"] else args.names
-        known = acquisition_from_settings(settings).sources
-        unknown = sorted(set(names) - set(known))
-        if unknown:
-            raise SystemExit(f"unknown sources {unknown}; available: {known}")
         with _board(settings).acting_as("owner") as conn:
-            updated = conn.execute(
-                "UPDATE domains SET discovery_sources = %s WHERE slug = %s", (names, args.slug)
-            ).rowcount
-        if not updated:
-            raise SystemExit(f"no domain {args.slug!r}")
+            owner.set_discovery_sources(conn, args.slug, names, discovery_source_names(settings))
     with _reader(settings).reading() as conn:
         domain = memory.domain_by_slug(conn, args.slug)
     if domain is None:
@@ -252,45 +260,23 @@ def _feed(args, settings: Settings) -> None:
         return
 
     with _board(settings).acting_as("owner") as conn:
-        domain = memory.domain_by_slug(conn, args.slug)
-        if domain is None:
-            raise SystemExit(f"no domain {args.slug!r}")
         if args.action == "add":
-            try:
-                items = FeedReader().crawl(args.url, max_items=100)
-            except Exception as e:
-                raise SystemExit(f"could not read {args.url} as a feed: {e}") from e
-            conn.execute(
-                "INSERT INTO approved_sources (domain_id, kind, url, title) "
-                "VALUES (%s, 'feed', %s, %s)",
-                (domain["id"], args.url, args.title),
-            )
-            print(f"approved feed for {args.slug} ({len(items)} items now)")
+            count = owner.approve_feed(conn, args.slug, args.url, args.title, FeedReader())
+            print(f"approved feed for {args.slug} ({count} items now)")
         else:
-            updated = conn.execute(
-                "UPDATE approved_sources SET status = %s WHERE domain_id = %s AND url = %s",
-                (FEED_STATUS[args.action], domain["id"], args.url),
-            ).rowcount
-            if not updated:
-                raise SystemExit(f"no feed {args.url} for {args.slug}")
+            owner.set_feed_status(conn, args.slug, args.url, FEED_STATUS[args.action])
             print(f"{args.url}: {FEED_STATUS[args.action]}")
 
 
 def _scout(args, settings: Settings) -> None:
     with _board(settings).acting_as("owner") as conn:
-        domain = memory.domain_by_slug(conn, args.slug)
-        if domain is None:
-            raise SystemExit(f"no domain {args.slug!r}")
-        job_id = jobs.enqueue(conn, "scout", {"domain_id": domain["id"]}, priority=2)
+        job_id = owner.request_work(conn, "scout", args.slug)
     print(f"queued scout job {job_id}")
 
 
 def _strategize(args, settings: Settings) -> None:
     with _board(settings).acting_as("owner") as conn:
-        domain = memory.domain_by_slug(conn, args.slug)
-        if domain is None:
-            raise SystemExit(f"no domain {args.slug!r}")
-        job_id = jobs.enqueue(conn, "strategize", {"domain_id": domain["id"]}, priority=2)
+        job_id = owner.request_work(conn, "strategize", args.slug)
     print(f"queued planning job {job_id}")
 
 
@@ -332,32 +318,25 @@ def _resolve_decision(args, settings: Settings, status: str) -> None:
         if len(rows) != 1:
             raise SystemExit(f"{len(rows)} proposed decisions match {args.decision!r}")
         decision_id = rows[0]["id"]
-        conn.execute(
-            "UPDATE decisions SET status = %s, resolved_by = current_actor(), "
-            "resolved_at = now() WHERE id = %s",
-            (status, decision_id),
-        )
-        if status == "rejected" and args.reason:
-            # The owner's objection, kept as an upheld critique of the proposal.
-            critique_id = memory.add_critique(
-                conn,
-                target_id=decision_id,
-                argument=args.reason,
-                alternative_explanation=None,
-                severity=3,
-            )
-            memory.set_critique_status(
-                conn, critique_id, "upheld", "The owner's reason for rejecting the proposal."
-            )
-        # A decision about a program opens or closes it.
-        program_status = "active" if status == "approved" else "closed"
-        opened = conn.execute(
-            "UPDATE programs SET status = %s WHERE id IN (SELECT object_id FROM relationships "
-            "WHERE subject_id = %s AND predicate = 'concerns') RETURNING name",
-            (program_status, decision_id),
-        ).fetchall()
-    what = f"; program {opened[0]['name']} is now {program_status}" if opened else ""
+        program = owner.resolve_decision(conn, decision_id, status, getattr(args, "reason", None))
+    program_status = "active" if status == "approved" else "closed"
+    what = f"; program {program} is now {program_status}" if program else ""
     print(f"decision {str(decision_id)[:8]} {status}{what}")
+
+
+def _challenge(args, settings: Settings) -> None:
+    with _board(settings).acting_as("owner") as conn:
+        matches = board.match_nodes(conn, args.hypothesis, ["hypothesis"])
+        if len(matches) != 1:
+            raise SystemExit(f"{len(matches)} hypotheses match {args.hypothesis!r}")
+        owner.challenge(
+            conn,
+            matches[0]["id"],
+            args.argument,
+            alternative=args.alternative,
+            severity=args.severity,
+        )
+    print("critique recorded; the Researcher will investigate it and the Skeptic settle it")
 
 
 def _resolve(args, settings: Settings) -> None:
@@ -500,6 +479,7 @@ COMMANDS = {
     "scout": _scout,
     "hypotheses": _hypotheses,
     "resolve": _resolve,
+    "challenge": _challenge,
     "strategize": _strategize,
     "goals": _goals,
     "programs": _programs,

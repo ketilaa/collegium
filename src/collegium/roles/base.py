@@ -146,6 +146,13 @@ def render_documents(documents: list[Document]) -> str:
 FLAGGED_RELIABILITY = 0.3
 
 
+def critique_heading(c: dict) -> str:
+    """How a critique is introduced to the model: its severity, and whether
+    the owner raised it, since the owner's challenges get a fresh hearing."""
+    who = ", raised by the owner" if c.get("raised_by") == "owner" else ""
+    return f"(severity {c['severity']}{who})"
+
+
 def flag_note(items: list) -> str:
     """Run-note text counting documents or leads flagged for injection."""
     n = sum(1 for i in items if injection_signals(i))

@@ -489,7 +489,8 @@ def citations(conn: Connection, target_id: UUID) -> list[dict]:
 
 def open_critiques(conn: Connection, target_id: UUID) -> list[dict]:
     return conn.execute(
-        "SELECT k.* FROM critiques k JOIN nodes n ON n.id = k.id "
+        "SELECT k.*, a.name AS raised_by FROM critiques k JOIN nodes n ON n.id = k.id "
+        "JOIN actors a ON a.id = n.created_by "
         "WHERE k.target_id = %s AND k.status = 'open' ORDER BY n.created_at",
         (target_id,),
     ).fetchall()
@@ -506,7 +507,8 @@ def set_critique_status(
 
 def critiques_of(conn: Connection, target_id: UUID) -> list[dict]:
     return conn.execute(
-        "SELECT k.*, n.created_at FROM critiques k JOIN nodes n ON n.id = k.id "
+        "SELECT k.*, n.created_at, a.name AS raised_by FROM critiques k "
+        "JOIN nodes n ON n.id = k.id JOIN actors a ON a.id = n.created_by "
         "WHERE k.target_id = %s ORDER BY n.created_at",
         (target_id,),
     ).fetchall()

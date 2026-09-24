@@ -51,13 +51,34 @@
 <section>
   <h2>Critiques</h2>
   {% for c in critiques %}
-    <article class="critique critique-{{ c.status }}">
-      <div class="meta">{{ status(c.status) }} · severity {{ c.severity }} · raised by the {{ c.raised_by }} on {{ c.created_at|local("%Y-%m-%d") }}</div>
+    <article class="critique critique-{{ c.status }}{% if c.raised_by == 'owner' %} critique-owner{% endif %}">
+      <div class="meta">{{ status(c.status) }} · severity {{ c.severity }} · {% if c.raised_by == 'owner' %}<strong>your challenge</strong>{% else %}raised by the {{ c.raised_by }}{% endif %} on {{ c.created_at|local("%Y-%m-%d") }}</div>
       <p>{{ c.argument }}</p>
       {% if c.alternative_explanation %}<p><strong>Alternative:</strong> {{ c.alternative_explanation }}</p>{% endif %}
       {% if c.resolution %}<p class="resolution"><strong>{{ c.status|capitalize }}{% if c.settled_by %} by the {{ c.settled_by }}{% endif %}:</strong> {{ c.resolution }}</p>{% endif %}
     </article>
   {% else %}<p class="empty">No critiques.</p>{% endfor %}
+  {% if live %}
+  <details class="card form"{% if not critiques %} open{% endif %}>
+    <summary>Challenge this hypothesis</summary>
+    <form method="post" action="/hypotheses/{{ h.id }}/challenge">
+      <label>What do you object to?
+        <textarea name="argument" rows="3" required></textarea></label>
+      <label>Another explanation, if you have one
+        <textarea name="alternative" rows="2"></textarea></label>
+      <label>Severity
+        <select name="severity">
+          <option value="1">1 · a quibble</option>
+          <option value="2">2 · minor</option>
+          <option value="3" selected>3 · serious: blocks acceptance until settled</option>
+          <option value="4">4 · very serious</option>
+          <option value="5">5 · the hypothesis is likely wrong</option>
+        </select></label>
+      <p class="meta">The Researcher looks for evidence either way, and the Skeptic decides whether your critique stands, is answered, or is mistaken, giving its reason. This uses paid searches.</p>
+      <button type="submit">Record the challenge</button>
+    </form>
+  </details>
+  {% endif %}
 </section>
 
 {% include "_citations.html" %}

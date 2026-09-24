@@ -43,6 +43,8 @@ uv run collegium resolve --all           # send hypotheses with open critiques t
 uv run collegium strategize ai-agents    # plan now (otherwise daily)
 uv run collegium goals | programs | decisions
 uv run collegium approve <id> | reject <id> --reason "..."   # the owner's decisions
+uv run collegium challenge <id> "objection" --severity 3      # the owner's critique; goes through the loop
+uv run collegium domain pause|resume|retire ai-agents
 uv run collegium feed add ai-agents <url> # approve a feed for a domain (also list/pause/resume/retire)
 ```
 
@@ -88,7 +90,7 @@ Core workflow: Scout → Researcher → Skeptic → Historian. The Strategist si
 - **Untrusted text** (`untrusted.py`): all outside text is sanitized in the acquisition layer (control tokens and hidden characters removed; injection signals stored in item metadata as `injection_signals`). Any outside text put into a prompt, including excerpts read back from memory, must be wrapped with `fence()`. Evidence from flagged documents is capped at reliability 0.3.
 - **Labels in prompts:** existing hypotheses are shown to the model as `E1..En`, new ones are `H1..Hn`, and the Skeptic's target is `H`. Code maps labels to ids; the model never sees UUIDs.
 - **Acquisition** (`acquisition/`): roles use the `Acquisition` facade (`discover`, `extract`, `gather`), never a provider. `Discovery` and `Extractor` are the provider protocols; vendor code lives only in adapters (`tavily.py`, `hackernews.py`). The worker gives each run a recording `Acquisition`, so every external call lands in `acquisitions` with its run, and sources carry the `acquisition_id` that found them. Providers with `thin_leads = True` get their top leads enriched from the page. `memory.py` is the only module that writes knowledge rows.
-- **Board** (`web/`): one FastAPI app, server-rendered with Jinja and htmx, connecting as the board login. Read queries live in `board.py`, shared with the CLI. Outside text is shown only through Jinja autoescaping, source links only when `http_url` allows them, and a strict CSP forbids anything not served by the app. There is no login yet, so it listens on localhost only.
+- **Board** (`web/`): one FastAPI app, server-rendered with Jinja and htmx, connecting as the board login. Read queries live in `board.py` and the owner's actions in `owner.py`, both shared with the CLI. Forms post to `web/actions.py`; posts are accepted only from the board's own origin, and only for host names in `COLLEGIUM_WEB_ALLOWED_HOSTS`. Outside text is shown only through Jinja autoescaping, source links only when `http_url` allows them, and a strict CSP forbids anything not served by the app. There is no login yet, so it listens on localhost only.
 - **Prompts** live in `src/collegium/roles/prompts/`: `organization.md` is shared and each role has its own file. Changing a prompt changes that role's `role_version`.
 
 ## Memory model

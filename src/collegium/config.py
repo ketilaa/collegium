@@ -65,6 +65,12 @@ class Settings:
     work_days: str = field(default_factory=lambda: _env("COLLEGIUM_WORK_DAYS", "mon-fri"))
     timezone: str = field(default_factory=lambda: _env("COLLEGIUM_TIMEZONE", "Europe/Oslo"))
 
+    # Host names the board answers to. Anything else is refused, so a web
+    # page elsewhere cannot reach the board through a rebound DNS name.
+    web_allowed_hosts: str = field(
+        default_factory=lambda: _env("COLLEGIUM_WEB_ALLOWED_HOSTS", "localhost,127.0.0.1")
+    )
+
     def working_hours(self):
         from collegium.hours import WorkingHours
 

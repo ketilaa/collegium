@@ -341,6 +341,12 @@ def acquisition_from_settings(settings: Settings) -> Acquisition:
     return Acquisition(discovery, extractor, default=settings.search_provider, crawler=FeedReader())
 
 
+def discovery_source_names(settings: Settings) -> list[str]:
+    """The discovery sources `acquisition_from_settings` registers, known
+    without their keys, so the board can offer them without holding keys."""
+    return sorted({"hackernews", settings.search_provider})
+
+
 def metered_provider_names(settings: Settings) -> list[str]:
     """The paid providers `acquisition_from_settings` would use, known without
     their keys, so the board can show the budget without holding them."""

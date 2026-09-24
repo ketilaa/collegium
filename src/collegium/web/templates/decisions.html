@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status %}
+{% block title %}Decisions{% endblock %}
+{% block content %}
+<h1>Decisions</h1>
+<p class="lede">What the organization asks of you. Approving a program opens it; rejecting closes it, and your reason is kept on record.</p>
+
+<h2>Waiting for you <span class="count">{{ waiting|length }}</span></h2>
+{% for d in waiting %}
+  <article class="card">
+    <h3 class="decision">{{ d.statement }}</h3>
+    <p>{{ d.rationale }}</p>
+    <div class="meta">Proposed by the {{ d.proposed_by }} on {{ d.created_at|local("%Y-%m-%d") }}</div>
+    <div class="actions">
+      <form method="post" action="/decisions/{{ d.id }}/approve">
+        <button type="submit">Approve</button>
+      </form>
+      <form method="post" action="/decisions/{{ d.id }}/reject" class="grow">
+        <input type="text" name="reason" placeholder="Why not? (kept on record)" aria-label="Reason for rejecting">
+        <button type="submit" class="secondary">Reject</button>
+      </form>
+    </div>
+  </article>
+{% else %}
+  <p class="empty">Nothing is waiting for you.</p>
+{% endfor %}
+
+<h2 id="challenges">Your challenges <span class="count">{{ challenges|length }}</span></h2>
+{% for c in challenges %}
+  <article class="critique critique-{{ c.status }} critique-owner">
+    <div class="meta">{{ status(c.status) }} · severity {{ c.severity }} · {{ c.created_at|local("%Y-%m-%d") }}{% if c.settled_at %} · settled {{ c.settled_at|local }}{% endif %}</div>
+    <p>{{ c.argument }}</p>
+    <div class="meta">On <a href="/hypotheses/{{ c.hypothesis_id }}">{{ c.statement }}</a></div>
+    {% if c.resolution %}<p class="resolution"><strong>{{ c.status|capitalize }}:</strong> {{ c.resolution }}</p>{% endif %}
+  </article>
+{% else %}
+  <p class="empty">You have not challenged anything yet. Open a hypothesis to do so.</p>
+{% endfor %}
+
+{% if resolved %}
+<h2>Decided</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Decision</th><th>Outcome</th><th>When</th></tr></thead>
+  <tbody>
+    {% for d in resolved %}
+      <tr><td>{{ d.statement }}{% if d.reason %}<div class="meta">Your reason: {{ d.reason }}</div>{% endif %}</td>
+        <td>{{ status(d.status) }}</td><td class="nowrap">{{ d.resolved_at|local("%Y-%m-%d") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+{% endblock %}

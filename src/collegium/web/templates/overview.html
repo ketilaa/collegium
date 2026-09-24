@@ -11,10 +11,11 @@
   <ul class="plain">
     {% for d in decisions %}
       <li><strong>{{ d.statement }}</strong>
-        <div class="meta">Proposed by the {{ d.proposed_by }} on {{ d.created_at|local("%Y-%m-%d") }} · <code>collegium approve {{ d.id|short }}</code></div>
+        <div class="meta">Proposed by the {{ d.proposed_by }} on {{ d.created_at|local("%Y-%m-%d") }}</div>
         <p>{{ d.rationale }}</p></li>
     {% endfor %}
   </ul>
+  <p><a href="/decisions">Decide</a></p>
 </section>
 {% endif %}
 
@@ -33,6 +34,17 @@
       </ol>
       <p><a href="/goals">All goals</a></p>
     {% else %}<p class="empty">No active goals. The Strategist sets them when it plans each working day.</p>{% endif %}
+    {% if challenges %}
+      <h2>Your challenges</h2>
+      <ul class="plain">
+        {% for c in challenges %}
+          <li>{{ status(c.status) }} <a href="/hypotheses/{{ c.hypothesis_id }}">{{ c.argument }}</a>
+            <div class="meta">on: {{ c.statement }}</div>
+            {% if c.resolution %}<div class="{% if c.status == 'dismissed' %}flag{% else %}meta{% endif %}">{{ c.resolution }}</div>{% endif %}</li>
+        {% endfor %}
+      </ul>
+      <p><a href="/decisions#challenges">All your challenges</a></p>
+    {% endif %}
     {% if programs %}
       <h2>Open programs</h2>
       <ul class="plain">{% for p in programs %}<li>{{ p.name }}</li>{% endfor %}</ul>
