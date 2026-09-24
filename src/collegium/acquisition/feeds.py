@@ -47,10 +47,18 @@ class FeedReader:
         return parse_feed(response.content)[:max_items]
 
 
+# An & that does not start an entity or character reference. Feeds are
+# often written by hand or by templates that forget to escape it, and
+# browsers and feed readers read them anyway.
+_BARE_AMPERSAND = re.compile(rb"&(?!(?:[A-Za-z][A-Za-z0-9]*|#[0-9]+|#x[0-9A-Fa-f]+);)")
+
+
 def parse_feed(content: bytes) -> list[SearchResult]:
-    """Items of an RSS 2.0 or Atom feed, in feed order (usually newest first)."""
+    """Items of an RSS 2.0 or Atom feed, in feed order (usually newest first).
+    Bare ampersands are escaped first; defusedxml still refuses entity
+    declarations, so this adds no way in."""
     try:
-        root = ElementTree.fromstring(content)
+        root = ElementTree.fromstring(_BARE_AMPERSAND.sub(b"&amp;", content))
     except ElementTree.ParseError as e:
         raise FeedError(f"not a feed: {e}") from e
     if root.tag == f"{ATOM}feed":

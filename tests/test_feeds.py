@@ -97,6 +97,19 @@ def test_feeds_with_full_text_need_no_paid_extraction():
     assert lead.snippet.startswith("We measured")
 
 
+def test_bare_ampersands_do_not_break_a_feed():
+    feed = b"""<?xml version="1.0"?>
+<rss version="2.0"><channel><title>Blog</title>
+  <item><title>Agents &amp; tools</title><link>https://blog.example/a?x=1&y=2</link>
+    <category>AI Agents & the Agentic Web</category>
+    <description>Caf&#233; &lt;3 &#x2014; R&D</description></item>
+</channel></rss>"""
+    [item] = parse_feed(feed)
+    assert item.title == "Agents & tools"
+    assert item.url == "https://blog.example/a?x=1&y=2"
+    assert item.snippet == "Caf\u00e9 <3 \u2014 R&D"
+
+
 def test_non_feeds_are_refused():
     with pytest.raises(FeedError):
         parse_feed(b"<html><body>Not a feed</body></html>")

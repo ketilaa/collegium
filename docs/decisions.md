@@ -700,3 +700,17 @@ one and keep Tavily as the fallback.
   fallbacks. The Strategist plans within the paid budget when search is
   paid, and up to 6 actions a plan when it is free, since the local model's
   time is then the limit.
+
+## 2026-09-24 · Lenient feeds, and wiki.totto.org
+
+Feeds written by templates sometimes contain a bare `&` (wiki.totto.org's
+MkDocs feed has the category "AI Agents & the Agentic Web"), which made the
+whole feed unreadable. Bare ampersands are now escaped before parsing, as
+browsers and feed readers do; defusedxml still refuses entity declarations.
+
+The owner approved a practitioner's site for developers-ai, about
+experienced developers working with AI. Its
+robots.txt declares `ai-input=yes, ai-train=no`. Its author
+sells the method the site writes about, so its claims about it (such as
+"25-66x productivity gains") are claims to be challenged, and reliability
+ceilings do not yet recognise a claimant's own site.
