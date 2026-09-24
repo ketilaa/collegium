@@ -481,3 +481,15 @@ proposal. The code then decides:
 
 A `corroborate` job has the Researcher look for independent evidence either
 way, excluding sites already cited, then sends the hypothesis for review.
+
+## 2026-09-24 · Working hours
+
+The owner wants to watch the organization work, so it works on its own only
+within working hours (`COLLEGIUM_WORK_HOURS`, `COLLEGIUM_WORK_DAYS`,
+`COLLEGIUM_TIMEZONE`; default Monday to Friday 08:00-16:00, Europe/Oslo;
+`always` restores round-the-clock running). The worker starts jobs only
+within them, and a job still running at closing time finishes. The
+scheduler plans each domain once per working day, at the first check after
+opening, replacing `COLLEGIUM_STRATEGY_INTERVAL_HOURS`. Work queued outside
+hours, by the owner, the scheduler or the budget, waits for the next
+opening. A manual `collegium worker --drain` ignores working hours.

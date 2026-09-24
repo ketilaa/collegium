@@ -16,6 +16,7 @@ from uuid import UUID
 from collegium import jobs, memory
 from collegium.acquisition import Budget, BudgetExhausted, Recorder
 from collegium.db import Database
+from collegium.hours import WorkingHours
 from collegium.roles import ROLES
 from collegium.roles.base import Context
 
@@ -76,8 +77,15 @@ def run_once(ctx: Context) -> bool:
     return True
 
 
-def run_forever(ctx: Context, idle_seconds: float = 5) -> None:
+def run_forever(ctx: Context, hours: WorkingHours | None = None, idle_seconds: float = 5) -> None:
+    """Process jobs, but start new ones only within working hours."""
+    if hours is not None:
+        log.info("working hours: %s", hours.describe())
     while True:
+        if hours is not None and not hours.is_open():
+            wait = (hours.next_opening() - hours.local()).total_seconds()
+            time.sleep(min(max(wait, 1), 300))
+            continue
         if not run_once(ctx):
             time.sleep(idle_seconds)
 

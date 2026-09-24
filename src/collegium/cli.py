@@ -2,7 +2,7 @@
 
 import argparse
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import truststore
 
@@ -121,18 +121,22 @@ def _worker(args, settings: Settings) -> None:
         settings=settings,
     )
     if args.drain:
+        # A manual run: the owner is watching, whatever the hour.
         print(f"ran {worker.drain(ctx)} jobs")
     else:
-        worker.run_forever(ctx)
+        worker.run_forever(ctx, settings.working_hours())
 
 
 def _scheduler(args, settings: Settings) -> None:
     db = Database(require(settings.worker_database_url, "COLLEGIUM_WORKER_DATABASE_URL"))
-    interval = timedelta(hours=settings.strategy_interval_hours)
+    hours = settings.working_hours()
     if args.once:
-        print(f"enqueued {scheduler.tick(db, interval)} jobs")
+        if not hours.is_open():
+            print(f"outside working hours ({hours.describe()}); nothing queued")
+        else:
+            print(f"enqueued {scheduler.tick(db, hours)} jobs")
     else:
-        scheduler.run_forever(db, interval)
+        scheduler.run_forever(db, hours)
 
 
 # ---------------------------------------------------------------------------

@@ -60,10 +60,15 @@ class Settings:
         default_factory=lambda: int(_env("COLLEGIUM_DAILY_CALL_BUDGET", "50"))
     )
 
-    # How often the Strategist plans each domain.
-    strategy_interval_hours: float = field(
-        default_factory=lambda: float(_env("COLLEGIUM_STRATEGY_INTERVAL_HOURS", "24"))
-    )
+    # When the organization works on its own (the owner watches it work).
+    work_hours: str = field(default_factory=lambda: _env("COLLEGIUM_WORK_HOURS", "08:00-16:00"))
+    work_days: str = field(default_factory=lambda: _env("COLLEGIUM_WORK_DAYS", "mon-fri"))
+    timezone: str = field(default_factory=lambda: _env("COLLEGIUM_TIMEZONE", "Europe/Oslo"))
+
+    def working_hours(self):
+        from collegium.hours import WorkingHours
+
+        return WorkingHours.parse(self.work_hours, self.work_days, self.timezone)
 
 
 def require(value: str | None, name: str) -> str:

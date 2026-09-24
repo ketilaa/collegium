@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime
 from uuid import uuid4
 
 import pytest
@@ -13,6 +13,7 @@ from collegium.acquisition import (
 )
 from collegium.acquisition.hackernews import keywords
 from collegium.grounding import locate_excerpt, unsupported_terms
+from collegium.hours import WorkingHours
 from collegium.llm import extract_json
 from collegium.reliability import classify
 from collegium.roles.base import EvidenceItem, SearchPlan, Stance, ground_evidence
@@ -95,16 +96,54 @@ def test_pages_on_one_site_count_as_one_source():
     assert site("https://news.example/a") != site("https://research.example/b")
 
 
-def test_scheduler_plans_each_active_domain_once_per_interval(worker_db, add_domain):
+def test_scheduler_plans_each_domain_once_per_working_day(worker_db, add_domain):
+    hours = WorkingHours.parse("08:00-16:00", "mon-fri", "Europe/Oslo")
+    oslo = hours.tz
     add_domain("ai-agents", "AI and agents")
     add_domain("energy", "Energy")
-    assert scheduler.tick(worker_db, timedelta(hours=24)) == 2
-    assert scheduler.tick(worker_db, timedelta(hours=24)) == 0
+    monday_7 = datetime(2026, 9, 28, 7, 0, tzinfo=oslo)
+    monday_9 = datetime(2026, 9, 28, 9, 0, tzinfo=oslo)
+    monday_15 = datetime(2026, 9, 28, 15, 0, tzinfo=oslo)
+    saturday = datetime(2026, 10, 3, 10, 0, tzinfo=oslo)
+
+    assert scheduler.tick(worker_db, hours, monday_7) == 0  # before opening
+    assert scheduler.tick(worker_db, hours, monday_9) == 2
+    assert scheduler.tick(worker_db, hours, monday_15) == 0  # already planned today
+    assert scheduler.tick(worker_db, hours, saturday) == 0  # not a working day
     with worker_db.reading() as conn:
         rows = conn.execute(
             "SELECT DISTINCT j.kind, a.name FROM jobs j JOIN actors a ON a.id = j.requested_by"
         ).fetchall()
     assert [(r["kind"], r["name"]) for r in rows] == [("strategize", "scheduler")]
+
+
+@pytest.mark.parametrize(
+    ("moment", "is_open"),
+    [
+        ("2026-09-28T07:59", False),  # Monday before opening
+        ("2026-09-28T08:00", True),
+        ("2026-09-28T15:59", True),
+        ("2026-09-28T16:00", False),  # closing time
+        ("2026-10-03T10:00", False),  # Saturday
+    ],
+)
+def test_working_hours(moment, is_open):
+    hours = WorkingHours.parse("08:00-16:00", "mon-fri", "Europe/Oslo")
+    assert hours.is_open(datetime.fromisoformat(moment).replace(tzinfo=hours.tz)) is is_open
+
+
+def test_next_opening_skips_the_weekend():
+    hours = WorkingHours.parse("08:00-16:00", "mon-fri", "Europe/Oslo")
+    friday_evening = datetime(2026, 10, 2, 18, 0, tzinfo=hours.tz)
+    assert hours.next_opening(friday_evening) == datetime(2026, 10, 5, 8, 0, tzinfo=hours.tz)
+
+
+def test_working_hours_can_be_always_or_custom():
+    always = WorkingHours.parse("always", "mon-fri", "UTC")
+    assert always.is_open(datetime(2026, 10, 4, 3, 0, tzinfo=always.tz))
+    assert always.describe() == "always"
+    custom = WorkingHours.parse("09:30-17:00", "mon,wed,fri", "Europe/Oslo")
+    assert custom.describe() == "mon,wed,fri 09:30-17:00 Europe/Oslo"
 
 
 def test_clean_text_keeps_link_text_and_drops_targets_and_images():

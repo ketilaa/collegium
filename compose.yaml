@@ -86,6 +86,10 @@ services:
       COLLEGIUM_DAILY_CALL_BUDGET: ${COLLEGIUM_DAILY_CALL_BUDGET:-50}
       COLLEGIUM_SCOUT_RECENT_DAYS: ${COLLEGIUM_SCOUT_RECENT_DAYS:-30}
       COLLEGIUM_MAX_FEED_ITEMS: ${COLLEGIUM_MAX_FEED_ITEMS:-5}
+      # Jobs start only within working hours; see the scheduler for the same.
+      COLLEGIUM_WORK_HOURS: ${COLLEGIUM_WORK_HOURS:-08:00-16:00}
+      COLLEGIUM_WORK_DAYS: ${COLLEGIUM_WORK_DAYS:-mon-fri}
+      COLLEGIUM_TIMEZONE: ${COLLEGIUM_TIMEZONE:-Europe/Oslo}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
@@ -98,7 +102,9 @@ services:
     command: ["collegium", "scheduler"]
     environment:
       COLLEGIUM_WORKER_DATABASE_URL: postgresql://collegium_worker_app:${COLLEGIUM_WORKER_PASSWORD:-worker}@db:5432/collegium
-      COLLEGIUM_STRATEGY_INTERVAL_HOURS: ${COLLEGIUM_STRATEGY_INTERVAL_HOURS:-24}
+      COLLEGIUM_WORK_HOURS: ${COLLEGIUM_WORK_HOURS:-08:00-16:00}
+      COLLEGIUM_WORK_DAYS: ${COLLEGIUM_WORK_DAYS:-mon-fri}
+      COLLEGIUM_TIMEZONE: ${COLLEGIUM_TIMEZONE:-Europe/Oslo}
     restart: unless-stopped
     depends_on:
       logins:
