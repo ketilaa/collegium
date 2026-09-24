@@ -12,7 +12,7 @@ from collegium.acquisition import (
     clean_text,
 )
 from collegium.acquisition.hackernews import keywords
-from collegium.grounding import locate_excerpt, unsupported_terms
+from collegium.grounding import is_english, locate_excerpt, unsupported_terms
 from collegium.hours import WorkingHours
 from collegium.llm import extract_json
 from collegium.reliability import classify
@@ -313,6 +313,36 @@ QUOTE = (
 )
 def test_unsupported_terms(statement, missing):
     assert unsupported_terms(statement, QUOTE) == missing
+
+
+NORWEGIAN_QUOTE = (
+    "568 søkte på to stillinger som juniorutvikler i Oslo, og ifølge NAV falt "
+    "antallet utlyste IT-stillinger med 12,5 prosent til 1 200 i fjor."
+)
+
+
+@pytest.mark.parametrize(
+    ("statement", "missing"),
+    [
+        # Norwegian number formats match their English spelling.
+        ("Norwegian IT job postings fell 12.5% to 1,200, according to NAV.", []),
+        ("568 people applied for two junior developer jobs in Oslo.", []),
+        # Figures are still checked, and so are unmistakable names.
+        ("IT job postings fell 15% to 1,200.", ["15"]),
+        ("OpenAI reports that NAV saw 1200 postings.", ["OpenAI"]),
+        ("SSB says postings fell.", ["SSB"]),
+    ],
+)
+def test_unsupported_terms_in_a_norwegian_quote(statement, missing):
+    assert unsupported_terms(statement, NORWEGIAN_QUOTE) == missing
+
+
+def test_language_guess():
+    assert not is_english(NORWEGIAN_QUOTE)
+    assert not is_english("Utviklere får nye oppgaver")
+    assert is_english(QUOTE)
+    assert is_english("Acme AI cut prices on Tuesday.")
+    assert is_english("GPT-6")  # nothing to go on: treated as English
 
 
 @pytest.mark.parametrize(

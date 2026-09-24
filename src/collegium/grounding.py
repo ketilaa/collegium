@@ -146,16 +146,113 @@ def unsupported_terms(statement: str, support: str) -> list[str]:
     It cannot tell whether names are correctly associated ("Anthropic CEO
     Sam Altman" passes if both names occur), so it complements, not
     replaces, a check by the model.
+
+    Statements are written in English, but the support may not be. Numbers
+    are compared by their digits, so "12,5" matches "12.5" and "1 200"
+    matches "1,200". In a quote that is not English, only unmistakable names
+    (acronyms, mixed case) are checked: an English statement capitalises
+    words such as "Norwegian" that the quote's own language does not.
     """
-    text, _ = _normalize(_POSSESSIVE.sub("", support).replace(",", ""))
+    support = _POSSESSIVE.sub("", support)
+    text, _ = _normalize(support.replace(",", ""))
+    numbers = {_digits(n) for n in _NUMBER.findall(support)}
+    english = is_english(support)
     missing = []
     for term in _NAME_OR_NUMBER.findall(_POSSESSIVE.sub("", statement)):
-        key, _ = _normalize(term.replace(",", "").rstrip("."))
-        if key in _COMMON:
+        term = term.rstrip(".")
+        if term[0].isdigit():
+            if _digits(term) not in numbers:
+                missing.append(term)
+            continue
+        key, _ = _normalize(term)
+        if key in _COMMON or (not english and not _UNMISTAKABLE_NAME.fullmatch(term)):
             continue
         if key and not re.search(rf"(?<!\w){re.escape(key)}(?!\w)", text):
-            missing.append(term.rstrip("."))
+            missing.append(term)
     return missing
+
+
+# A number as written in English or Norwegian: 1,200 / 1 200 / 12.5 / 12,5.
+_NUMBER = re.compile(r"\d{1,3}(?:[ \u00a0\u202f]\d{3})+(?!\d)|\d[\d.,]*")
+# Acronyms (NAV, SSB) and mixed case (OpenAI, GitHub): names in any language.
+_UNMISTAKABLE_NAME = re.compile(r"[A-Z][\w&.-]*[A-Z][\w&.-]*")
+
+
+def _digits(number: str) -> str:
+    return re.sub(r"\D", "", number)
+
+
+_ENGLISH = frozenset(
+    [
+        "the",
+        "and",
+        "of",
+        "to",
+        "in",
+        "is",
+        "that",
+        "with",
+        "on",
+        "are",
+        "was",
+        "were",
+        "has",
+        "have",
+        "by",
+        "from",
+        "it",
+        "this",
+        "be",
+        "as",
+        "will",
+        "not",
+        "an",
+        "or",
+        "their",
+        "its",
+        "which",
+        "who",
+    ]
+)
+_NORWEGIAN = frozenset(
+    [
+        "og",
+        "i",
+        "på",
+        "er",
+        "det",
+        "som",
+        "til",
+        "med",
+        "av",
+        "ikke",
+        "å",
+        "en",
+        "et",
+        "har",
+        "ble",
+        "fra",
+        "om",
+        "kan",
+        "vil",
+        "etter",
+        "ved",
+        "også",
+        "seg",
+        "hun",
+        "han",
+        "de",
+    ]
+)
+
+
+def is_english(text: str) -> bool:
+    """A rough guess: more common English words than Norwegian ones. Words
+    with æ, ø or å count as Norwegian. Text with neither counts as English."""
+    words = re.findall(r"[^\W\d_]+", text.lower())
+    english = sum(w in _ENGLISH for w in words)
+    norwegian = sum(w in _NORWEGIAN or bool(set(w) & set("æøå")) for w in words)
+    return english >= norwegian
 
 
 def mentions(text: str, name: str) -> bool:

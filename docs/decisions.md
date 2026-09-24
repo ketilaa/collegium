@@ -609,3 +609,33 @@ already stored:
   loop's last round (the same test the Strategist's gap check uses);
 - rejected hypotheses the Researcher had rated at 0.6 or more, with the
   Researcher's peak and the final confidence.
+
+## 2026-09-24 · Norwegian sources, and free search tried
+
+The owner wants Norwegian as well as international sources, preferably
+free ones.
+
+- **One working language.** Statements, summaries, rationales and
+  critiques are written in English (a rule in `organization.md`, so every
+  role's `role_version` changes); excerpts and quotes stay in the source's
+  own language. Memory stays comparable (duplicate detection compares
+  statement text) and every claim still traces to its original wording.
+- **Grounding tolerates Norwegian.** `unsupported_terms` compares numbers
+  by their digits, so "12,5" matches "12.5" and "1 200" matches "1,200".
+  For a quote that is not English (a rough guess by common words and
+  æ/ø/å), only acronyms and mixed-case names are checked, since an English
+  statement capitalises words such as "Norwegian" that Norwegian does not.
+  The model's check of each statement against its quote still applies.
+- **Free search: not yet.** Google News RSS searches in Norwegian, but its
+  links are Google redirects that end at an EU consent page, and storing
+  them would make every source the same site, defeating the Historian's
+  independent-sites rule. GDELT's free API refused requests from this
+  network even at one per 7 seconds, rejects words shorter than three
+  letters ("AI", "KI"), and found nothing for a plain English query. Neither
+  is built. Norwegian material comes from approved feeds for now (digi.no
+  and NRK Teknologi; kode24, Computerworld Norge and Shifter publish none),
+  and from Tavily at its usual cost. A self-hosted SearXNG would be the
+  free option, but it adds a service, which needs the owner's decision.
+- **Feeds approved.** developers-ai: digi.no, NRK Teknologi, Indeed Hiring
+  Lab, GitHub Blog, The Pragmatic Engineer, Stack Overflow Blog, Martin
+  Fowler, Addy Osmani. ai-agents: METR (Simon Willison was already there).

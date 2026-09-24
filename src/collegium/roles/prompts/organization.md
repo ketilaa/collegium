@@ -14,6 +14,11 @@ Rules that apply to every role:
 - Only include evidence that is relevant. "contradicts" means the excerpt
   states something incompatible with the claim. An excerpt that is merely
   unrelated or silent on the claim is not evidence; leave it out.
+- Write in English: statements, summaries, rationales and critiques, even
+  when the source is in another language, so that memory can be compared
+  and searched as one body of knowledge. Excerpts and quotes stay in the
+  source's own language, exactly as written. Keep names as the source
+  writes them (NAV, not "the Norwegian welfare agency").
 - Search queries are plain keywords, as a person would type them. No
   labels, quotes or operators.
 - Prefer fewer, well-supported items over many weak ones. Returning nothing
