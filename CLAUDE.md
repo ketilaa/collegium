@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-Milestones 1 (institutional memory), 2 (research workflow), 2.5 (acquisition layer), 3 (strategy layer) and 4 (the board, including Mission, Contradictions and Ask the Organization) are done. Since then: free-first acquisition (own SearXNG and web reader, Tavily only as a paid fallback), source proposals, and the community agent on Moltbook (reads; drafts posts and replies that the owner approves; a separate publisher sends them). The organization runs live on the owner's laptop; see `docs/operations.md`. Nothing has been pushed to GitHub yet (see Pushing).
+Milestones 1 (institutional memory), 2 (research workflow), 2.5 (acquisition layer), 3 (strategy layer) and 4 (the board, including Mission, Contradictions and Ask the Organization) are done. Since then: free-first acquisition (own SearXNG and web reader, Tavily only as a paid fallback), source proposals, and the community agent on Moltbook (reads; drafts posts and replies that the owner approves; a separate publisher sends them). The organization runs live on the owner's laptop; see `docs/operations.md`. The code is public at https://github.com/ketilaa/collegium under the Apache License 2.0 (first pushed 2026-09-25); every push needs a PASS review first (see Pushing).
 
 Where to look, and how much to read:
 - `VISION.md` is the source of truth for intent; read the relevant section before design decisions.
@@ -14,7 +14,7 @@ Where to look, and how much to read:
 - The owner's secrets live in `~/.collegium/.env`: never read or print that file, only pass it to commands (`docker compose --env-file ...`, or `set -a; . file; set +a` in a command).
 
 Open threads (update this list as they close):
-- **After the first push:** the low findings of review 2026-09-25-68e0860-001 (SEC-8 to SEC-12: DNS rebinding in the web reader, feed redirects without address checks, image digests, non-root containers, push-guard gaps) and of 002 (SEC-14: the bundle should list every path and binary file in the range) are to be proposed as follow-up work.
+- **To propose, from the first push's reviews** (`docs/reviews/2026-09-25-*`): SEC-8 to SEC-12 (DNS rebinding in the web reader, feed redirects without address checks, image digests, non-root containers, push-guard gaps), SEC-14 (the bundle should list every path and binary file ever in the range) and SEC-16 (a history scan for sensitive terms, the terms kept in an untracked local file, never committed).
 - **Offered, not yet approved:** an adapter for NAV/SSB (Norwegian statistics); Milestone 5.
 
 ## Working with the owner
@@ -40,13 +40,13 @@ Nothing is pushed without a PASS from the `security-reviewer` subagent: run `scr
 # The live instance: always --env-file ~/.collegium/.env, and see docs/operations.md.
 docker compose up -d db                  # Postgres on 127.0.0.1:5432; passwords from .env
 docker compose run --rm migrate          # apply pending migrations (only with the owner's approval)
-docker compose run --rm logins           # create/update the worker, board and publisher logins
+docker compose run --rm --no-deps logins # create/update the logins (without --no-deps it runs migrate first)
 docker compose up -d                     # a fresh setup only: this also runs migrate
 docker compose up -d --no-deps <service> # a running setup: recreate without migrating
 
-docker compose up -d backup              # daily pg_dump into COLLEGIUM_BACKUP_DIR (see README)
+docker compose up -d backup              # daily pg_dump into COLLEGIUM_BACKUP_DIR (live: ~/.collegium/backups)
 
-uv run pytest                            # all tests (needs the db service running)
+uv run pytest                            # all tests (needs the db; live: load the env first, for POSTGRES_PASSWORD)
 uv run pytest tests/test_pipeline.py::test_skeptic_rejection_is_recorded   # one test
 uv run ruff check . && uv run ruff format .
 

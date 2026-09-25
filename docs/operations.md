@@ -37,14 +37,15 @@ changed. For what the code does, see CLAUDE.md; for why, docs/decisions.md.
 | SearXNG | http://localhost:8888 (`/search?q=...&format=json`) |
 | Postgres | localhost:5432; as superuser: `docker compose $E exec -T db psql -U collegium` |
 | The model | http://localhost:8080/v1 |
+| Backups | `~/.collegium/backups` (`COLLEGIUM_BACKUP_DIR`), daily |
 
 ## Deploying a change
 
-1. Tests and lint pass: `uv run pytest -q`, `uv run ruff check . && uv run ruff format .`
+1. Tests and lint pass: `set -a; . ~/.collegium/.env; set +a; uv run pytest -q` (the tests need `POSTGRES_PASSWORD`), `uv run ruff check . && uv run ruff format .`
 2. Commit (when the owner has asked for it).
 3. **A migration only with the owner's explicit approval:**
    `docker compose $E run --rm migrate`. Then, if logins changed:
-   `docker compose $E run --rm logins`.
+   `docker compose $E run --rm --no-deps logins`.
 4. Build: `docker compose $E build worker web scheduler publisher`.
 5. Recreate everything except the worker, **always with `--no-deps`**
    (otherwise Compose runs `migrate` as a dependency and applies any
