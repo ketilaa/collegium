@@ -1,6 +1,8 @@
+# Images are pinned by digest: a rebuild never pulls an unreviewed version.
+# To update one, pull the new tag, test it, and replace the tag and digest.
 services:
   db:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:dc17045ccfd343b49600570ea734b9c4991cf1c3f3302e67df51e3b402dd55c4
     environment:
       POSTGRES_DB: collegium
       POSTGRES_USER: collegium
@@ -16,7 +18,7 @@ services:
 
   # One-shot: applies pending migrations, then exits.
   migrate:
-    image: ghcr.io/amacneil/dbmate:2
+    image: ghcr.io/amacneil/dbmate:2@sha256:520c740c6e0ad73fde2cd1ea7e2b779aaf789d22aca8858f87a478e7094535fb
     environment:
       DATABASE_URL: postgres://collegium:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/collegium?sslmode=disable
       DBMATE_MIGRATIONS_DIR: /db/migrations
@@ -30,7 +32,7 @@ services:
 
   # One-shot: creates or updates the worker and board login users.
   logins:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:dc17045ccfd343b49600570ea734b9c4991cf1c3f3302e67df51e3b402dd55c4
     environment:
       PGHOST: db
       PGUSER: collegium
@@ -57,7 +59,7 @@ services:
   # Backs up the database every BACKUP_INTERVAL_HOURS into COLLEGIUM_BACKUP_DIR.
   # One-off: docker compose run --rm --no-deps backup sh /db/backup.sh
   backup:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:dc17045ccfd343b49600570ea734b9c4991cf1c3f3302e67df51e3b402dd55c4
     environment:
       PGHOST: db
       PGUSER: collegium
@@ -169,7 +171,7 @@ services:
   # The organization's own metasearch engine: free search without a quota.
   # Published on localhost only, for the CLI on the host.
   searxng:
-    image: docker.io/searxng/searxng:latest
+    image: docker.io/searxng/searxng:2026.9.23-3cd69d30e@sha256:bcfaed4091d59f7ce85670bd701a2d0295872196dc19908a3965a8353b149f83
     environment:
       SEARXNG_SECRET: ${SEARXNG_SECRET:-collegium-local-only}
     volumes:

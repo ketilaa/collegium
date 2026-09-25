@@ -4,19 +4,12 @@ The first extractor tried; pages it cannot read (blocked, built by
 JavaScript, PDFs, too little text) are left to a fallback extractor such as
 Tavily.
 
-Addresses come from outside (search results, feeds), and this runs inside
-the organization's network. A page must never be able to point the
-organization at itself: only http(s) on the usual ports, and only hosts
-that resolve to public addresses, checked again at every redirect. Pages
-disallowed by the site's robots.txt are not fetched.
+Pages are fetched through `fetching.SafeFetcher`: never inside the
+organization, checked at every redirect, and only where robots.txt allows.
 """
 
-import ipaddress
 import logging
 import re
-import socket
-from collections.abc import Callable
-from urllib import robotparser
 from urllib.parse import urljoin, urlsplit
 
 import httpx
@@ -24,12 +17,10 @@ import trafilatura
 
 from collegium.acquisition import Document, SearchResult
 from collegium.acquisition.feeds import parse_feed
-from collegium.identity import USER_AGENT
+from collegium.acquisition.fetching import Resolver, SafeFetcher, resolve
 
 log = logging.getLogger(__name__)
 
-MAX_BYTES = 3_000_000
-MAX_REDIRECTS = 5
 # Less article text than this and the page probably needs a browser, or is
 # a cookie wall; better read by the fallback.
 MIN_TEXT_CHARS = 400
@@ -50,16 +41,6 @@ _HREF = re.compile(r"\bhref=[\"']([^\"']+)[\"']", re.IGNORECASE)
 # A feed worth proposing has at least this many items.
 MIN_FEED_ITEMS = 3
 
-Resolver = Callable[[str], list[str]]  # host -> IP addresses
-
-
-def resolve(host: str) -> list[str]:
-    return sorted({info[4][0] for info in socket.getaddrinfo(host, None)})
-
-
-class Refused(ValueError):
-    """An address the organization will not fetch."""
-
 
 class WebExtractor:
     name = "web"
@@ -72,14 +53,7 @@ class WebExtractor:
         transport: httpx.BaseTransport | None = None,
         resolver: Resolver = resolve,
     ):
-        self._client = httpx.Client(
-            timeout=timeout,
-            transport=transport,
-            follow_redirects=False,  # each hop is checked
-            headers={"User-Agent": USER_AGENT, "Accept": ", ".join(TEXT_TYPES)},
-        )
-        self._resolve = resolver
-        self._robots: dict[str, robotparser.RobotFileParser | None] = {}
+        self._fetcher = SafeFetcher(timeout=timeout, transport=transport, resolver=resolver)
 
     def extract(self, urls: list[str]) -> list[Document]:
         """Documents for the pages that could be read; the rest are left out."""
@@ -148,59 +122,7 @@ class WebExtractor:
         return []
 
     def _fetch(self, url: str, types: tuple[str, ...] = TEXT_TYPES) -> tuple[str, str, bytes]:
-        """The final address, content type and (decompressed) body."""
-        for _ in range(MAX_REDIRECTS + 1):
-            self._check(url)
-            if not self._allowed(url):
-                raise Refused(f"robots.txt disallows {url}")
-            with self._client.stream("GET", url) as response:
-                if response.is_redirect:
-                    url = urljoin(url, response.headers.get("location", ""))
-                    continue
-                response.raise_for_status()
-                kind = response.headers.get("content-type", "").split(";")[0].strip().lower()
-                if kind not in types:
-                    return url, kind, b""  # not read at all
-                body = b""
-                for chunk in response.iter_bytes():
-                    body += chunk
-                    if len(body) > MAX_BYTES:
-                        raise Refused(f"{url} is larger than {MAX_BYTES} bytes")
-                return url, kind, body
-        raise Refused(f"more than {MAX_REDIRECTS} redirects from {url}")
-
-    def _check(self, url: str) -> None:
-        parts = urlsplit(url)
-        if parts.scheme not in ("http", "https") or not parts.hostname:
-            raise Refused(f"not a web address: {url}")
-        if parts.port not in (None, 80, 443):
-            raise Refused(f"unusual port in {url}")
-        for address in self._resolve(parts.hostname):
-            ip = ipaddress.ip_address(address)
-            if not ip.is_global or ip.is_multicast:
-                raise Refused(f"{parts.hostname} resolves to a non-public address")
-
-    def _allowed(self, url: str) -> bool:
-        """Whether robots.txt lets us read this page. A site without a
-        readable robots.txt allows everything, as browsers assume."""
-        parts = urlsplit(url)
-        site = f"{parts.scheme}://{parts.netloc}"
-        if site not in self._robots:
-            self._robots[site] = self._load_robots(site)
-        rules = self._robots[site]
-        return rules is None or rules.can_fetch(USER_AGENT, url)
-
-    def _load_robots(self, site: str) -> robotparser.RobotFileParser | None:
-        try:
-            self._check(site)
-            response = self._client.get(f"{site}/robots.txt")
-        except Exception:
-            return None
-        if response.status_code != 200:
-            return None
-        rules = robotparser.RobotFileParser()
-        rules.parse(response.text.splitlines())
-        return rules
+        return self._fetcher.fetch(url, types)
 
 
 def _feed_title(body: bytes) -> str | None:
