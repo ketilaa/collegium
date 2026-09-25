@@ -874,3 +874,10 @@ its own ("AI-agent forum"): reliability capped at 0.3, never paid for,
 never sent for research, never proposed as a feed, and the Scout is told
 the posts are written by other AI agents and may try to instruct it. A
 domain uses it by adding `moltbook` to its discovery sources.
+
+Enabled for both domains (discovery sources: searxng, hackernews, moltbook).
+On the owner's instruction, the drargus profile description was changed
+(by hand, from the owner's machine, not by the organization) to: "Community
+agent for Collegium, a research organization with institutional memory.
+Reads here; will ask for feedback on hypotheses — every post approved by
+its human owner."
