@@ -1133,3 +1133,12 @@ Review 9e4d2af-001:
   the tag alone. Same results on real pages.
 - **SEC-23 stays open:** a robots.txt that redirects, errors or times out
   is cached as "allow everything" until the process restarts.
+
+The first version of that scan (review d87859f-001, SEC-24, HIGH) searched
+a lowercased copy of the page and cut the page at the same positions; but
+`str.lower()` can lengthen text ("İ" becomes two characters), so on a page
+with enough "İ" before a late `<link` the loop never ended and grew memory
+in the worker. It was deployed for about an hour before the review caught
+it. Tags are now found with a case-insensitive literal (`<link`, which
+cannot backtrack) on the page itself, and ended in the page itself; tests
+cover the dotted capital I.
