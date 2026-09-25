@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(git push --no-verify:*)",
+      "Bash(git push -n:*)",
+      "Bash(git push * --no-verify:*)",
+      "Bash(git -c core.hooksPath=*)",
+      "Bash(git config core.hooksPath:*)"
+    ]
+  }
+}

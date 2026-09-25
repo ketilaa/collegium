@@ -8,6 +8,10 @@ Milestones 1 (institutional memory), 2 (research workflow), 2.5 (acquisition lay
 
 `VISION.md` is the source of truth for intent. `docs/decisions.md` records the technical decisions made so far and why. Read both before making design decisions, and add an entry to `docs/decisions.md` when you make a new one.
 
+## Pushing
+
+Nothing is pushed without a PASS from the `security-reviewer` subagent: run `scripts/security-review-bundle.sh`, give the subagent the bundle directory it prints, save its report under `docs/reviews/` with the file name from the bundle's `meta.txt`, and commit it. On FAIL, fix and repeat (the next iteration). The pre-push hook in `.githooks/` enforces it (`git config core.hooksPath .githooks` in each clone); never bypass it. Process, finding IDs (`SEC-n-i`), severities and dispositions: `docs/reviews/README.md`.
+
 ## Stack
 
 - **Python 3.12+** for API, worker and scheduler, managed with `uv`. FastAPI for the API, psycopg 3 with plain SQL (no ORM), Pydantic for validating LLM output. Web UI server-rendered (Jinja + htmx).

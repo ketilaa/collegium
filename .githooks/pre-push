@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Refuses a push unless a security review reported PASS for what is pushed
+# (docs/reviews/README.md). The review must be of a commit the pushed one
+# descends from, with only review reports committed since, and it must
+# cover everything the remote does not have yet.
+#
+# Enabled per clone with:  git config core.hooksPath .githooks
+
+set -uo pipefail
+ZERO=0000000000000000000000000000000000000000
+status=0
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+    [ "$local_sha" = "$ZERO" ] && continue # deleting a remote branch
+
+    # The range the remote lacks starts here ("none": it has nothing of ours).
+    base=none
+    if [ "$remote_sha" != "$ZERO" ] && git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+        base="$(git merge-base "$local_sha" "$remote_sha" 2>/dev/null || echo none)"
+    fi
+
+    passed=""
+    for report in $(git ls-tree --name-only "$local_sha" docs/reviews/ | grep -E '/[0-9]{4}-[0-9]{2}-[0-9]{2}-.*\.md$'); do
+        text="$(git show "$local_sha:$report")"
+        grep -qE '^- Verdict: PASS$' <<<"$text" || continue
+        reviewed="$(sed -nE 's/^- Reviewed commit: ([0-9a-f]{40})$/\1/p' <<<"$text")"
+        covered="$(sed -nE 's/^- Base: (.*)$/\1/p' <<<"$text")"
+        [ -n "$reviewed" ] || continue
+        git merge-base --is-ancestor "$reviewed" "$local_sha" 2>/dev/null || continue
+        # Everything since the review may only be review reports.
+        if git diff --name-only "$reviewed" "$local_sha" | grep -qv '^docs/reviews/'; then
+            continue
+        fi
+        # The review must reach back at least to what the remote has.
+        if [ "$covered" != none ] && [ "$covered" != "$base" ] &&
+            ! { [ "$base" != none ] && git merge-base --is-ancestor "$covered" "$base"; }; then
+            continue
+        fi
+        passed="$report"
+    done
+
+    if [ -z "$passed" ]; then
+        echo "pre-push: no PASS security review covers $local_ref (${local_sha:0:7})." >&2
+        echo "pre-push: run scripts/security-review-bundle.sh and the security-reviewer subagent;" >&2
+        echo "pre-push: see docs/reviews/README.md." >&2
+        status=1
+    else
+        echo "pre-push: $local_ref covered by $passed" >&2
+    fi
+done
+
+exit $status

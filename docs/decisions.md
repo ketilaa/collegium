@@ -990,3 +990,20 @@ would have named the owner as its contact. The link now only names the
 software; who runs a copy is added as "operated by ..." from
 `COLLEGIUM_CONTACT`, and nothing is claimed when it is unset (the worker
 and publisher warn). The owner's copy uses https://github.com/ketilaa.
+
+## 2026-09-25 · A security review before every push
+
+Decided by the owner, before anything is pushed to the public repository:
+a `security-reviewer` subagent must review the commits not yet pushed and
+report PASS. It only reads (Read, Grep, Glob); a script gathers what needs
+commands or the network into a bundle (diff, secret scan of every commit
+in the range, `pip-audit`, the direct dependencies on PyPI, container
+images). Reports are kept in `docs/reviews/`, findings numbered `SEC-n-i`
+(n across all reviews, i the iteration of the push loop), each with a
+severity and a disposition; see `docs/reviews/README.md`. A versioned
+pre-push hook checks that a committed PASS report covers what is pushed,
+and the Claude Code settings deny bypassing it. Categories added to the
+owner's list (SQL injection, prompt injection, fabricated and vulnerable
+dependencies): secrets in history, privacy of what becomes public,
+excessive agency, SSRF and egress, the board's web security, container
+images, insecure defaults and resource abuse.

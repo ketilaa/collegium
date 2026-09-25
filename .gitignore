@@ -6,3 +6,4 @@ __pycache__/
 .env
 backups/
 compose.override.yaml
+.review/
