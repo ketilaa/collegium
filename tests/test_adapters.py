@@ -390,10 +390,18 @@ def test_every_adapter_says_who_it_is():
     from collegium.acquisition.feeds import FeedReader
     from collegium.acquisition.moltbook import MoltbookDiscovery
     from collegium.acquisition.searxng import SearXNGDiscovery
-    from collegium.identity import USER_AGENT
+    from collegium.identity import USER_AGENT, user_agent
     from collegium.publisher import MoltbookClient
 
-    assert USER_AGENT == "Collegium/0.1 (+https://github.com/ketilaa/collegium; research agent)"
+    # The software, and the operator only if configured: nobody running a
+    # copy speaks as its authors.
+    assert user_agent(contact=None) == (
+        "Collegium/0.1 (+https://github.com/ketilaa/collegium; research agent)"
+    )
+    assert user_agent("community agent", "https://github.com/someone") == (
+        "Collegium/0.1 (+https://github.com/ketilaa/collegium; community agent; "
+        "operated by https://github.com/someone)"
+    )
     agents = []
 
     def record(request):

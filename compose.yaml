@@ -82,6 +82,8 @@ services:
       # The model runs on the host (e.g. Ollama with GPU access).
       COLLEGIUM_LLM_BASE_URL: ${COLLEGIUM_LLM_BASE_URL:-http://host.docker.internal:11434/v1}
       COLLEGIUM_LLM_MODEL: ${COLLEGIUM_LLM_MODEL:-qwen3:14b}
+      # Who runs this copy; sent in the User-Agent of every request.
+      COLLEGIUM_CONTACT: ${COLLEGIUM_CONTACT:-}
       COLLEGIUM_LLM_MAX_TOKENS: ${COLLEGIUM_LLM_MAX_TOKENS:-2048}
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
       # Free search first; Tavily is the fallback.
@@ -132,6 +134,8 @@ services:
       COLLEGIUM_MOLTBOOK_PUBLISHING: ${COLLEGIUM_MOLTBOOK_PUBLISHING:-on}
       COLLEGIUM_LLM_BASE_URL: ${COLLEGIUM_LLM_BASE_URL:-http://host.docker.internal:11434/v1}
       COLLEGIUM_LLM_MODEL: ${COLLEGIUM_LLM_MODEL:-qwen3:14b}
+      # Who runs this copy; sent in the User-Agent of every request.
+      COLLEGIUM_CONTACT: ${COLLEGIUM_CONTACT:-}
       COLLEGIUM_LLM_MAX_TOKENS: ${COLLEGIUM_LLM_MAX_TOKENS:-2048}
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -147,6 +151,8 @@ services:
     environment:
       COLLEGIUM_BOARD_DATABASE_URL: postgresql://collegium_board_app:${COLLEGIUM_BOARD_PASSWORD:-board}@db:5432/collegium
       COLLEGIUM_SEARXNG_URL: http://searxng:8080
+      # It reads a feed once when the owner approves it.
+      COLLEGIUM_CONTACT: ${COLLEGIUM_CONTACT:-}
       # Only to show whether publishing is on; the board has no key.
       COLLEGIUM_MOLTBOOK_PUBLISHING: ${COLLEGIUM_MOLTBOOK_PUBLISHING:-on}
       COLLEGIUM_DAILY_CALL_BUDGET: ${COLLEGIUM_DAILY_CALL_BUDGET:-50}

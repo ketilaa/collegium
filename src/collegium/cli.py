@@ -6,7 +6,7 @@ from datetime import datetime
 
 import truststore
 
-from collegium import board, jobs, memory, owner, publisher, scheduler, worker
+from collegium import board, identity, jobs, memory, owner, publisher, scheduler, worker
 from collegium.acquisition import acquisition_from_settings, discovery_source_names
 from collegium.acquisition.feeds import FeedReader
 from collegium.config import Settings, require
@@ -154,7 +154,13 @@ def _llm(settings: Settings) -> OpenAICompatibleLLM:
     )
 
 
+def _warn_without_contact() -> None:
+    if identity.CONTACT is None:
+        logging.getLogger("collegium").warning(identity.MISSING_CONTACT)
+
+
 def _worker(args, settings: Settings) -> None:
+    _warn_without_contact()
     db = Database(require(settings.worker_database_url, "COLLEGIUM_WORKER_DATABASE_URL"))
     ctx = Context(
         db=db,
@@ -182,6 +188,7 @@ def _scheduler(args, settings: Settings) -> None:
 
 
 def _publisher(args, settings: Settings) -> None:
+    _warn_without_contact()
     db = Database(require(settings.publisher_database_url, "COLLEGIUM_PUBLISHER_DATABASE_URL"))
     client = publisher.MoltbookClient(
         require(settings.moltbook_api_key, "COLLEGIUM_MOLTBOOK_API_KEY")

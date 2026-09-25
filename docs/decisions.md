@@ -984,3 +984,9 @@ httpx's default. The contact is the public GitHub repository, created for
 this on the owner's instruction (no code pushed yet); `COLLEGIUM_CONTACT`
 overrides it. Requests SearXNG makes to search engines on the
 organization's behalf keep SearXNG's own headers.
+
+Refined the same day: the repository is public, so anyone running a copy
+would have named the owner as its contact. The link now only names the
+software; who runs a copy is added as "operated by ..." from
+`COLLEGIUM_CONTACT`, and nothing is claimed when it is unset (the worker
+and publisher warn). The owner's copy uses https://github.com/ketilaa.
