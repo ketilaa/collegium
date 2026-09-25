@@ -75,3 +75,7 @@ switch by renaming databases.
 
 Technical decisions and their reasons are in
 [docs/decisions.md](docs/decisions.md).
+
+## License
+
+[Apache License 2.0](LICENSE).

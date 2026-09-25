@@ -1007,3 +1007,15 @@ owner's list (SQL injection, prompt injection, fabricated and vulnerable
 dependencies): secrets in history, privacy of what becomes public,
 excessive agency, SSRF and egress, the board's web security, container
 images, insecure defaults and resource abuse.
+
+## 2026-09-25 · Apache License 2.0
+
+Decided by the owner for the first push. Permissive, so the software can
+be reused and run by anyone, with an explicit patent grant; its trademark
+clause grants no right to the name "Collegium", and its disclaimer fits
+the README's point that the authors do not run or answer for other
+people's copies. Every dependency allows it: all are permissive except
+psycopg (LGPL-3.0, used unmodified as a library); htmx is 0BSD; SearXNG
+(AGPL-3.0) runs as its own container and is not part of this code.
+Considered: AGPL-3.0 (would oblige anyone hosting a modified copy to
+publish it, but puts off reuse) and MIT (no patent grant).

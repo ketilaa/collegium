@@ -3,6 +3,8 @@ name = "collegium"
 version = "0.1.0"
 description = "A persistent digital research organization with institutional memory."
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
     "defusedxml>=0.7.1",
