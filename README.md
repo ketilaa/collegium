@@ -43,6 +43,15 @@ listens on localhost only.
 
 Run the tests with `uv run pytest` (needs `docker compose up -d db`).
 
+## Behind a TLS-inspecting proxy (Zscaler and the like)
+
+If outside calls fail with `CERTIFICATE_VERIFY_FAILED`, the network is
+re-signing HTTPS with its own root certificate. Copy
+`compose.override.example.yaml` to `compose.override.yaml` and build the
+certificate bundle it describes; Compose then mounts it into the containers.
+With Colima, image pulls also need the root in the VM (a `provision` step
+in `~/.colima/default/colima.yaml`).
+
 ## Backups
 
 The `backup` service dumps the database every 24 hours into

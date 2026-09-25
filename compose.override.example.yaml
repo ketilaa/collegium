@@ -1,0 +1,27 @@
+# Trusting a TLS-inspecting proxy (such as Zscaler) inside the containers.
+#
+# On a network that decrypts HTTPS and re-signs it with its own root
+# certificate, every outside call from the containers fails with
+# CERTIFICATE_VERIFY_FAILED. Copy this file to compose.override.yaml (which
+# Compose loads automatically and git ignores), and build the bundle it
+# mounts: the standard certificates plus the proxy's root, e.g. on macOS
+#
+#   { cat "$(uv run python -c 'import certifi; print(certifi.where())')"; echo;
+#     security find-certificate -c "Zscaler Root CA" -p /Library/Keychains/System.keychain
+#   } > ~/.collegium/ca-bundle.pem
+#
+# Without a proxy, don't use this file at all.
+
+x-trust: &trust
+  volumes:
+    - ${COLLEGIUM_CA_BUNDLE:-${HOME}/.collegium/ca-bundle.pem}:/etc/collegium/ca-bundle.pem:ro
+  environment:
+    SSL_CERT_FILE: /etc/collegium/ca-bundle.pem
+    REQUESTS_CA_BUNDLE: /etc/collegium/ca-bundle.pem
+    CURL_CA_BUNDLE: /etc/collegium/ca-bundle.pem
+
+services:
+  worker: *trust
+  scheduler: *trust
+  web: *trust
+  searxng: *trust

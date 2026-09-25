@@ -765,3 +765,22 @@ source reports that" (or the Norwegian equivalents), and is otherwise
 flagged on the board as worded too firmly. The answer language is now named
 ("Norwegian" or "English"): asked for "the language of the question", the
 model answered a Norwegian question in English.
+
+## 2026-09-25 · Working behind a TLS-inspecting proxy
+
+The owner's network re-signs all HTTPS with the proxy's own root
+certificate. The Mac trusts it; nothing else did. Image pulls failed in the Colima VM, and
+from inside the containers every outside call failed
+(`CERTIFICATE_VERIFY_FAILED`): Tavily, page reading, Hacker News, feeds and
+SearXNG's engines. Both of that morning's scouts and two resolves used up
+their attempts; they were re-queued with their original payloads.
+
+- **Colima VM:** a provisioning step in the owner's Colima configuration
+  installs the proxy's root (idempotent; restarts Docker only on change).
+- **Containers:** a machine-specific `compose.override.yaml` (git-ignored;
+  `compose.override.example.yaml` is the template) mounts a bundle of the
+  standard certificates plus the proxy's root, kept outside the repository
+  in `~/.collegium/ca-bundle.pem`, and points `SSL_CERT_FILE`,
+  `REQUESTS_CA_BUNDLE` and `CURL_CA_BUNDLE` at it for the worker, scheduler,
+  web and SearXNG. Nothing company-specific goes into the image or the
+  repository, and without a proxy the override is simply not used.
