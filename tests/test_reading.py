@@ -444,3 +444,16 @@ def test_only_a_few_announced_feeds_are_tried():
     assert extractor(handler).find_feed("https://news.example") == []
     announced = [p for p in requested if re.fullmatch(r"/feed\d+\.xml", p)]
     assert announced == ["/feed0.xml", "/feed1.xml", "/feed2.xml"]
+
+
+def test_a_malformed_page_cannot_make_finding_its_feed_take_long():
+    head = "<link type='application/rss+xml' " * 1000  # no > anywhere
+
+    def handler(request):
+        if request.url.path == "/":
+            return html(head)
+        return httpx.Response(404)
+
+    started = time.monotonic()
+    assert extractor(handler).find_feed("https://news.example") == []
+    assert time.monotonic() - started < 0.5

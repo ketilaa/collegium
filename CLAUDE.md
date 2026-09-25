@@ -14,7 +14,7 @@ Where to look, and how much to read:
 - The owner's secrets live in `~/.collegium/.env`: never read or print that file, only pass it to commands (`docker compose --env-file ...`, or `set -a; . file; set +a` in a command).
 
 Open threads (update this list as they close):
-- **To propose, from the first push's reviews** (`docs/reviews/2026-09-25-*`): SEC-8 (DNS rebinding in the web reader), SEC-12 (push-guard gaps), SEC-14 (the bundle should list every path and binary file ever in the range) and SEC-16 (a history scan for sensitive terms, the terms kept in an untracked local file, never committed).
+- **To propose, from the first push's reviews** (`docs/reviews/2026-09-25-*`): SEC-8 and SEC-21 together (DNS rebinding, and httpx's second name lookup outside the deadline: connect to the address that was checked), SEC-12 (push-guard gaps), SEC-23 (robots.txt that redirects, errors or times out is cached as allow-all), SEC-14 (the bundle should list every path and binary file ever in the range) and SEC-16 (a history scan for sensitive terms, the terms kept in an untracked local file, never committed).
 - **Offered, not yet approved:** an adapter for NAV/SSB (Norwegian statistics); Milestone 5.
 
 ## Working with the owner
