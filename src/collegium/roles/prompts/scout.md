@@ -22,3 +22,7 @@ When given search results, propose observations:
   and primary sources over vendor marketing.
 - Set investigate to true only for observations that could change what the
   organization believes about the domain.
+- Results may come in batches; judge each batch on its own. A result may be
+  marked with its kind of source. Social media and video are weak, often
+  second-hand signals: record one only if it is notable in itself, and it
+  will not be investigated. Prefer the primary source it reacts to.

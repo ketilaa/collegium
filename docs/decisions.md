@@ -784,3 +784,33 @@ their attempts; they were re-queued with their original payloads.
   `REQUESTS_CA_BUNDLE` and `CURL_CA_BUNDLE` at it for the worker, scheduler,
   web and SearXNG. Nothing company-specific goes into the image or the
   repository, and without a proxy the override is simply not used.
+
+## 2026-09-25 · Scout yield and wasted paid calls
+
+The first developers-ai scout read 47 feed items and 30 search results but
+recorded one observation (from a tweet, sent for research), and paid for
+four page reads. Four fixes:
+
+- **The budget counts only successful paid calls.** 18 Tavily calls that
+  failed on the proxy's certificate, never reaching Tavily, had counted
+  against the day's budget.
+- **Each page is read at most once per run** (a cache in the per-run
+  `Acquisition`, including pages found unreadable): Hacker News returned the
+  same tweet for three queries, and it was paid for three times. **Social
+  and video pages never go to paid reading** (`NOT_WORTH_PAYING` in
+  `reliability.py`): they need a browser, and evidence from them is capped
+  at 0.3.
+- **The Scout reads leads in batches of 15**, each allowed up to 5
+  observations. With one report of at most 5 for ~77 leads (~45,000
+  characters), the cap limited yield and the long prompt hurt the 14B
+  model's quoting. The run notes now keep the rejected statements with
+  their reason (for example `[unsupported 70] ...`), not only counts.
+- **Leads are labelled with their kind of source** when weaker than
+  ordinary reporting (social media or video, forum, press release, blog
+  platform), and observations from social media or video are recorded but
+  never sent for research: a weak signal, not a basis for an investigation.
+
+Applied retroactively: the one affected observation (the tweet about a
+Sanders AI bill) had already been researched; its hypothesis goes through
+the Skeptic's review like any other and cannot be accepted on a single
+site.

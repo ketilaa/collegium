@@ -82,5 +82,10 @@ def classify(uri: str) -> tuple[str, float]:
     return "other", 1.0
 
 
+# Pages of these kinds are not worth a paid read: they need a browser to
+# render, and evidence from them is capped low anyway.
+NOT_WORTH_PAYING = frozenset(["social or video"])
+
+
 def ceiling_for(uri: str) -> float:
     return classify(uri)[1]

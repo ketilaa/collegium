@@ -123,6 +123,9 @@ class Acquisition:
         self._fallback_search = fallback_search if fallback_search != default else None
         self._recorder = recorder
         self._budget = budget
+        # Pages read (or found unreadable) during this run, so the same page
+        # is never fetched, or paid for, twice. `for_run` starts afresh.
+        self._pages: dict[str, Document | None] = {}
 
     @property
     def sources(self) -> list[str]:
@@ -258,18 +261,31 @@ class Acquisition:
 
     def extract(self, urls: list[str]) -> list[Document]:
         """Read these pages: first with the extractor, then whatever it could
-        not read with the fallback. With free reading first, a spent budget
-        leaves the rest unread instead of stopping the work."""
-        documents = self._extract_with(self._extractor, urls)
-        read = {d.url for d in documents if d.content.strip()}
-        rest = [u for u in urls if u not in read]
-        if rest and self._fallback_extractor is not None:
-            try:
-                documents += self._extract_with(self._fallback_extractor, rest)
-            except BudgetExhausted:
-                if self.paid_first:
-                    raise
-        return [_clean_document(d) for d in documents]
+        not read with the fallback, except pages not worth paying for. Each
+        page is read at most once per run. With free reading first, a spent
+        budget leaves the rest unread instead of stopping the work."""
+        from collegium.reliability import NOT_WORTH_PAYING, classify
+
+        urls = list(dict.fromkeys(urls))
+        todo = [u for u in urls if u not in self._pages]
+        if todo:
+            documents = self._extract_with(self._extractor, todo)
+            read = {d.url for d in documents if d.content.strip()}
+            rest = [u for u in todo if u not in read]
+            if self._fallback_extractor is not None:
+                rest = [u for u in rest if classify(u)[0] not in NOT_WORTH_PAYING]
+            if rest and self._fallback_extractor is not None:
+                try:
+                    documents += self._extract_with(self._fallback_extractor, rest)
+                except BudgetExhausted:
+                    if self.paid_first:
+                        raise
+            for d in documents:
+                if d.content.strip():
+                    self._pages[d.url] = _clean_document(d)
+            for u in todo:
+                self._pages.setdefault(u, None)
+        return [page for u in urls if (page := self._pages.get(u)) is not None]
 
     def _extract_with(self, extractor: Extractor, urls: list[str]) -> list[Document]:
         if not urls:

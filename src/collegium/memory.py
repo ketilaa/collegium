@@ -220,11 +220,14 @@ def record_acquisition(
 def paid_calls_in_window(
     conn: Connection, providers: list[str], hours: int = 24
 ) -> tuple[int, datetime | None]:
-    """How many calls to these providers were made in the last `hours`, and
-    when the oldest of them was made (the window frees up 24 hours after)."""
+    """How many calls to these providers succeeded in the last `hours`, and
+    when the oldest of them was made (the window frees up 24 hours after).
+    Failed calls are not counted: one that never reached the provider (a
+    network or certificate error) cost nothing."""
     row = conn.execute(
         "SELECT count(*) AS n, min(requested_at) AS oldest FROM acquisitions "
-        "WHERE provider = ANY(%s) AND requested_at > now() - make_interval(hours => %s)",
+        "WHERE provider = ANY(%s) AND error IS NULL "
+        "AND requested_at > now() - make_interval(hours => %s)",
         (providers, hours),
     ).fetchone()
     return row["n"], row["oldest"]

@@ -1,5 +1,6 @@
 """The Scout: breadth-first exploration of a domain, producing observations."""
 
+from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
@@ -12,6 +13,7 @@ from collegium.dates import parse_date
 from collegium.db import Connection
 from collegium.grounding import locate_excerpt, unsupported_terms
 from collegium.jobs import Job
+from collegium.reliability import NOT_WORTH_PAYING, classify
 from collegium.roles.base import (
     Context,
     NothingToWorkWith,
@@ -21,6 +23,16 @@ from collegium.roles.base import (
     flag_note,
 )
 from collegium.untrusted import fence, warning
+
+# Leads per request to the model, and at most 5 observations from each.
+LEADS_PER_BATCH = 15
+# What the model is told about leads from weaker kinds of source.
+SOURCE_TYPES = {
+    "social or video": "social media or video: often second-hand, a weak signal",
+    "forum": "forum or community site: opinions, rarely checkable",
+    "press release": "press release: the claimant's own word",
+    "blog platform": "blog platform: anyone can publish",
+}
 
 
 class ProposedObservation(BaseModel):
@@ -62,24 +74,25 @@ class Grounded:
 
 def ground_observations(
     proposals: list[ProposedObservation], results: list[SearchResult]
-) -> tuple[list[Grounded], dict[str, int]]:
+) -> tuple[list[Grounded], list[tuple[str, str]]]:
     """Keep proposals whose quote is in the cited lead and whose statement
-    introduces no name or number the quote and title lack."""
+    introduces no name or number the quote and title lack. Also returns the
+    rejected ones, as (reason, statement)."""
     kept: list[Grounded] = []
-    dropped = {"no such result": 0, "quote not in result": 0, "unsupported names": 0}
+    rejected: list[tuple[str, str]] = []
     for p in proposals:
         if not 1 <= p.source <= len(results):
-            dropped["no such result"] += 1
+            rejected.append(("no such result", p.statement))
             continue
         result = results[p.source - 1]
         quote = locate_excerpt(p.quote, f"{result.title}\n{result.snippet}")
         if quote is None:
-            dropped["quote not in result"] += 1
-        elif unsupported_terms(p.statement, f"{result.title}\n{quote}"):
-            dropped["unsupported names"] += 1
+            rejected.append(("quote not in result", p.statement))
+        elif missing := unsupported_terms(p.statement, f"{result.title}\n{quote}"):
+            rejected.append((f"unsupported {', '.join(missing)}", p.statement))
         else:
             kept.append(Grounded(p, result, quote))
-    return kept, dropped
+    return kept, rejected
 
 
 class Scout(Role):
@@ -117,20 +130,31 @@ class Scout(Role):
         if not results:
             raise NothingToWorkWith(f"no leads for {plan.queries} or from {len(feeds)} feeds")
 
-        report = ctx.llm.generate(
-            system,
-            brief
-            + "\n\nSearch results:\n\n"
-            + _render_results(results)
-            + "\n\nWhich observations should the organization record?",
-            ScoutReport,
-        )
-        grounded, dropped = ground_observations(report.observations, results)
-        grounded, dropped["failed check"] = _verify(ctx, system, grounded)
+        # In batches: a small model reads 15 leads far better than 80, and
+        # each batch may yield its own observations.
+        grounded: list[Grounded] = []
+        rejected: list[tuple[str, str]] = []
+        batches = [
+            results[i : i + LEADS_PER_BATCH] for i in range(0, len(results), LEADS_PER_BATCH)
+        ]
+        for n, batch in enumerate(batches, 1):
+            report = ctx.llm.generate(
+                system,
+                brief
+                + f"\n\nSearch results, batch {n} of {len(batches)}:\n\n"
+                + _render_results(batch)
+                + "\n\nWhich observations should the organization record from this batch?",
+                ScoutReport,
+            )
+            kept, lost = ground_observations(report.observations, batch)
+            grounded += kept
+            rejected += lost
+        grounded, failed = _verify(ctx, system, grounded)
+        rejected += [("failed check", g.proposal.statement) for g in failed]
         known = {_key(o["statement"]) for o in recent}
 
         def persist(conn: Connection) -> str:
-            recorded = investigating = skipped = 0
+            recorded = investigating = skipped = social = 0
             for g in grounded:
                 obs, result = g.proposal, g.result
                 if _key(obs.statement) in known:
@@ -156,7 +180,7 @@ class Scout(Role):
                     source_id=source_id,
                     recommendation=obs.why_it_matters,
                     occurred_at=obs.occurred_at or result.published_at,
-                    status="investigating" if obs.investigate else "proposed",
+                    status="investigating" if _worth_research(g) else "proposed",
                 )
                 memory.tag_domains(conn, observation_id, [domain_id])
                 # The lead's own words, kept as evidence for the observation.
@@ -177,30 +201,48 @@ class Scout(Role):
                     rationale="Quoted by the Scout when recording the observation.",
                 )
                 recorded += 1
-                if obs.investigate:
+                social += obs.investigate and not _worth_research(g)
+                if _worth_research(g):
                     jobs.enqueue(
                         conn, "research", {"observation_id": observation_id}, parent_job_id=job.id
                     )
                     investigating += 1
-            rejected = ", ".join(f"{n} {why}" for why, n in dropped.items() if n) or "none"
+            reasons = Counter(
+                "unsupported names" if why.startswith("unsupported") else why for why, _ in rejected
+            )
+            summary = ", ".join(f"{n} {why}" for why, n in reasons.items()) or "none"
+            examples = "".join(f" [{why}] {statement[:90]}" for why, statement in rejected[:6])
             feed_note = f"; {len(crawled)} new feed items from {len(feeds)} feeds" if feeds else ""
             if feed_errors:
                 feed_note += f" ({feed_errors} feeds failed)"
             return (
-                f"queries={plan.queries}{feed_note}; recorded {recorded} observations, "
-                f"{investigating} sent for research, {skipped} already known; "
-                f"rejected: {rejected}." + flag_note(results)
+                f"queries={plan.queries}{feed_note}; {len(results)} leads in {len(batches)} "
+                f"batches; recorded {recorded} observations, "
+                f"{investigating} sent for research"
+                + (f" ({social} from social media kept from research)" if social else "")
+                + f", {skipped} already known; rejected: {summary}.{examples}"
+                + flag_note(results)
             )
 
         return persist
 
 
-def _verify(ctx: Context, system: str, grounded: list[Grounded]) -> tuple[list[Grounded], int]:
+def _worth_research(g: Grounded) -> bool:
+    """Only observations from sources that can carry evidence are sent for
+    research. Social media and video are weak signals: worth recording, not
+    worth a full investigation built on them."""
+    return g.proposal.investigate and classify(g.result.url)[0] not in NOT_WORTH_PAYING
+
+
+def _verify(
+    ctx: Context, system: str, grounded: list[Grounded]
+) -> tuple[list[Grounded], list[Grounded]]:
     """Ask the model whether each quote really states its statement. The
     cheap checks cannot tell a wrong association of names ("Anthropic CEO
-    Sam Altman") from a right one. A statement without a verdict fails."""
+    Sam Altman") from a right one. A statement without a verdict fails.
+    Returns the kept and the failed."""
     if not grounded:
-        return [], 0
+        return [], []
     listing = "\n\n".join(
         f"[{i}] Statement: {g.proposal.statement}\nQuote:\n{fence(f'Q{i}', g.quote)}"
         for i, g in enumerate(grounded, 1)
@@ -214,7 +256,7 @@ def _verify(ctx: Context, system: str, grounded: list[Grounded]) -> tuple[list[G
     )
     supported = {c.number for c in checks.checks if c.supported}
     kept = [g for i, g in enumerate(grounded, 1) if i in supported]
-    return kept, len(grounded) - len(kept)
+    return kept, [g for i, g in enumerate(grounded, 1) if i not in supported]
 
 
 def _brief(domain: dict, recent: list[dict], entities: list[dict]) -> str:
@@ -291,7 +333,9 @@ def _render_results(results: list[SearchResult]) -> str:
         date = f" ({r.published_at})" if r.published_at else ""
         block = fence(f"R{i}", f"{r.title}{date}\n{r.url}\n{r.snippet}")
         note = warning(injection_signals(r))
-        parts.append(f"[R{i}]\n{block}" + (f"\n{note}" if note else ""))
+        kind = classify(r.url)[0]
+        label = f"[R{i}] ({SOURCE_TYPES[kind]})" if kind in SOURCE_TYPES else f"[R{i}]"
+        parts.append(f"{label}\n{block}" + (f"\n{note}" if note else ""))
     return "\n\n".join(parts)
 
 

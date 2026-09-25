@@ -210,3 +210,47 @@ def test_a_paid_source_with_no_budget_is_skipped_among_free_ones():
     assert [r.url for r in results] == ["https://a.example"]
     with pytest.raises(BudgetExhausted):
         acq.discover("agents", max_results=5, sources=["paid"])
+
+
+def test_a_page_is_read_at_most_once_per_run():
+    free = Reader("web", {"https://a.example": "free text"})
+    paid = Reader("tavily", {"https://b.example": "paid text"}, metered=True)
+    acq, calls = acquisition(free, paid)
+    for _ in range(3):  # e.g. the same lead found by three queries
+        acq.extract(["https://a.example", "https://b.example"])
+    assert free.asked == [["https://a.example", "https://b.example"]]
+    assert paid.asked == [["https://b.example"]]
+    assert len(calls) == 2
+
+
+def test_social_and_video_pages_are_not_worth_a_paid_read():
+    free = Reader("web", {})
+    paid = Reader(
+        "tavily",
+        {"https://twitter.com/x/status/1": "a tweet", "https://news.example/a": "news"},
+        metered=True,
+    )
+    acq, _ = acquisition(free, paid)
+    docs = acq.extract(
+        ["https://twitter.com/x/status/1", "https://youtu.be/abc", "https://news.example/a"]
+    )
+    assert [d.url for d in docs] == ["https://news.example/a"]
+    assert paid.asked == [["https://news.example/a"]]
+
+
+def test_failed_paid_calls_do_not_count_against_the_budget(worker_db):
+    from collegium import memory
+
+    with worker_db.acting_as("scout") as conn:
+        for error in (None, None, "ConnectError: certificate verify failed"):
+            memory.record_acquisition(
+                conn,
+                capability="discover",
+                provider="tavily",
+                request={},
+                result_count=0,
+                error=error,
+            )
+    with worker_db.reading() as conn:
+        used, _ = memory.paid_calls_in_window(conn, ["tavily"])
+    assert used == 2

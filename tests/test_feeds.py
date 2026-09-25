@@ -1,6 +1,7 @@
 """Feeds approved by the owner: parsing, fetching and use by the Scout."""
 
 import re
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import httpx
@@ -248,3 +249,57 @@ def test_only_the_board_approves_sources(worker_db, add_domain):
             "INSERT INTO approved_sources (domain_id, kind, url) VALUES (%s, 'feed', 'x')",
             (domain_id,),
         )
+
+
+def test_the_scout_reads_many_leads_in_batches_and_keeps_social_media_from_research(
+    make_context, llm, board_db, worker_db, add_domain
+):
+    from collegium.roles.scout import LEADS_PER_BATCH
+
+    domain_id = add_domain()
+    _approve(board_db, domain_id, FEED)
+    tweet = _item(
+        "https://twitter.com/someone/status/1",
+        "Someone says every junior developer job was cut this year at their company.",
+    )
+    posts = [
+        _item(f"https://lab.example/{i}", f"Post {i}: we measured agent run {i} costs.")
+        for i in range(LEADS_PER_BATCH + 4)
+    ]
+    ctx = make_context(PAGES_FOR_FEEDS, crawler=FakeCrawler({FEED: [tweet, *posts]}))
+    ctx = replace(ctx, settings=replace(ctx.settings, max_feed_items=50))
+
+    def report(system, user):
+        if "https://twitter.com/someone/status/1" not in user:
+            return ScoutReport(observations=[])
+        return ScoutReport(
+            observations=[
+                ProposedObservation(
+                    source=_number_of("https://twitter.com/someone/status/1", user),
+                    quote="every junior developer job was cut this year",
+                    statement="Someone says every junior developer job was cut this year.",
+                    why_it_matters="w",
+                    investigate=True,
+                )
+            ]
+        )
+
+    llm.add(SearchPlan, SearchPlan(queries=["agent costs"]))
+    llm.add(ScoutReport, report)
+    llm.add(ScoutReport, report)
+    with board_db.acting_as("owner") as conn:
+        jobs.enqueue(conn, "scout", {"domain_id": domain_id})
+    worker.run_once(ctx)
+
+    prompts = llm.prompts_for(ScoutReport)
+    assert len(prompts) == 2  # 21 leads: two batches
+    assert "batch 1 of 2" in prompts[0] and "batch 2 of 2" in prompts[1]
+    tweet_prompt = next(p for p in prompts if "twitter.com/someone" in p)
+    assert "(social media or video: often second-hand, a weak signal)" in tweet_prompt
+    with worker_db.reading() as conn:
+        status = conn.execute("SELECT status FROM observations").fetchone()["status"]
+        research = conn.execute("SELECT count(*) AS n FROM jobs WHERE kind = 'research'")
+        notes = conn.execute("SELECT notes FROM runs WHERE notes LIKE 'queries=%%'").fetchone()
+    assert status == "proposed"  # recorded, but not investigated
+    assert research.fetchone()["n"] == 0
+    assert "(1 from social media kept from research)" in notes["notes"]

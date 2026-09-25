@@ -738,6 +738,9 @@ def test_scout_observations_must_be_grounded_and_checked(
         ]
         notes = conn.execute("SELECT notes FROM runs").fetchone()["notes"]
         assert "rejected: 1 quote not in result, 1 unsupported names, 1 failed check" in notes
+        # The rejected statements are kept in the notes, with what was wrong.
+        assert "[unsupported 70] Acme AI says Frontier inference costs fell by 70%." in notes
+        assert "[failed check] Acme AI says Frontier training costs fell by 50%." in notes
 
 
 def test_why_traces_beliefs_to_sources_and_how_they_were_found(
