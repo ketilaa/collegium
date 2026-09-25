@@ -7,3 +7,5 @@ __pycache__/
 backups/
 compose.override.yaml
 .review/
+*.swp
+.*.sw?

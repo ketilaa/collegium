@@ -1019,3 +1019,22 @@ psycopg (LGPL-3.0, used unmodified as a library); htmx is 0BSD; SearXNG
 (AGPL-3.0) runs as its own container and is not part of this code.
 Considered: AGPL-3.0 (would oblige anyone hosting a modified copy to
 publish it, but puts off reuse) and MIT (no patent grant).
+
+## 2026-09-25 · Before the first push: review 68e0860-001
+
+The first review (`docs/reviews/2026-09-25-68e0860-001.md`) failed. The
+owner decided:
+
+- **The vim swap file is removed from the whole history** (`git
+  filter-repo`), not just from the tree: it held the user name, the host
+  name and the file's path. `*.swp` is ignored.
+- **The database listens on 127.0.0.1 only, and its passwords are
+  required.** Compose refuses to start without `POSTGRES_PASSWORD` and the
+  three login passwords; `.env.example` no longer carries known values. The
+  tests take the superuser password from `POSTGRES_PASSWORD` when set.
+- **Privacy:** the docs speak of a TLS-inspecting proxy rather than the
+  owner's network and its vendor (generic setup advice still names
+  Zscaler as an example), use `~` for the owner's home, and no longer name
+  the retired earlier project or the author of an approved site. The
+  author email is the owner's personal address, by choice.
+- **Low findings (SEC-8 to SEC-12) follow the push** as proposals.

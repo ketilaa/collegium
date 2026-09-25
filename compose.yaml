@@ -4,9 +4,9 @@ services:
     environment:
       POSTGRES_DB: collegium
       POSTGRES_USER: collegium
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-collegium}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - db-data:/var/lib/postgresql/data
     healthcheck:
@@ -18,7 +18,7 @@ services:
   migrate:
     image: ghcr.io/amacneil/dbmate:2
     environment:
-      DATABASE_URL: postgres://collegium:${POSTGRES_PASSWORD:-collegium}@db:5432/collegium?sslmode=disable
+      DATABASE_URL: postgres://collegium:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/collegium?sslmode=disable
       DBMATE_MIGRATIONS_DIR: /db/migrations
       DBMATE_NO_DUMP_SCHEMA: "true"
     volumes:
@@ -35,7 +35,7 @@ services:
       PGHOST: db
       PGUSER: collegium
       PGDATABASE: collegium
-      PGPASSWORD: ${POSTGRES_PASSWORD:-collegium}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     volumes:
       - ./db:/db:ro
     command:
@@ -43,11 +43,11 @@ services:
       - -v
       - ON_ERROR_STOP=1
       - -v
-      - worker_password=${COLLEGIUM_WORKER_PASSWORD:-worker}
+      - worker_password=${COLLEGIUM_WORKER_PASSWORD:?set COLLEGIUM_WORKER_PASSWORD in .env}
       - -v
-      - board_password=${COLLEGIUM_BOARD_PASSWORD:-board}
+      - board_password=${COLLEGIUM_BOARD_PASSWORD:?set COLLEGIUM_BOARD_PASSWORD in .env}
       - -v
-      - publisher_password=${COLLEGIUM_PUBLISHER_PASSWORD:-publisher}
+      - publisher_password=${COLLEGIUM_PUBLISHER_PASSWORD:?set COLLEGIUM_PUBLISHER_PASSWORD in .env}
       - -f
       - /db/logins.sql
     depends_on:
@@ -62,7 +62,7 @@ services:
       PGHOST: db
       PGUSER: collegium
       PGDATABASE: collegium
-      PGPASSWORD: ${POSTGRES_PASSWORD:-collegium}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       BACKUP_INTERVAL_HOURS: ${COLLEGIUM_BACKUP_INTERVAL_HOURS:-24}
       BACKUP_KEEP_DAYS: ${COLLEGIUM_BACKUP_KEEP_DAYS:-30}
     volumes:
@@ -78,7 +78,7 @@ services:
     build: .
     command: ["collegium", "worker"]
     environment:
-      COLLEGIUM_WORKER_DATABASE_URL: postgresql://collegium_worker_app:${COLLEGIUM_WORKER_PASSWORD:-worker}@db:5432/collegium
+      COLLEGIUM_WORKER_DATABASE_URL: postgresql://collegium_worker_app:${COLLEGIUM_WORKER_PASSWORD:?set COLLEGIUM_WORKER_PASSWORD in .env}@db:5432/collegium
       # The model runs on the host (e.g. Ollama with GPU access).
       COLLEGIUM_LLM_BASE_URL: ${COLLEGIUM_LLM_BASE_URL:-http://host.docker.internal:11434/v1}
       COLLEGIUM_LLM_MODEL: ${COLLEGIUM_LLM_MODEL:-qwen3:14b}
@@ -112,7 +112,7 @@ services:
     build: .
     command: ["collegium", "scheduler"]
     environment:
-      COLLEGIUM_WORKER_DATABASE_URL: postgresql://collegium_worker_app:${COLLEGIUM_WORKER_PASSWORD:-worker}@db:5432/collegium
+      COLLEGIUM_WORKER_DATABASE_URL: postgresql://collegium_worker_app:${COLLEGIUM_WORKER_PASSWORD:?set COLLEGIUM_WORKER_PASSWORD in .env}@db:5432/collegium
       COLLEGIUM_WORK_HOURS: ${COLLEGIUM_WORK_HOURS:-08:00-16:00}
       COLLEGIUM_WORK_DAYS: ${COLLEGIUM_WORK_DAYS:-mon-fri}
       COLLEGIUM_TIMEZONE: ${COLLEGIUM_TIMEZONE:-Europe/Oslo}
@@ -128,7 +128,7 @@ services:
     build: .
     command: ["collegium", "publisher"]
     environment:
-      COLLEGIUM_PUBLISHER_DATABASE_URL: postgresql://collegium_publisher_app:${COLLEGIUM_PUBLISHER_PASSWORD:-publisher}@db:5432/collegium
+      COLLEGIUM_PUBLISHER_DATABASE_URL: postgresql://collegium_publisher_app:${COLLEGIUM_PUBLISHER_PASSWORD:?set COLLEGIUM_PUBLISHER_PASSWORD in .env}@db:5432/collegium
       COLLEGIUM_MOLTBOOK_API_KEY: ${COLLEGIUM_MOLTBOOK_API_KEY:-}
       # The stop switch: "off" stops all posting.
       COLLEGIUM_MOLTBOOK_PUBLISHING: ${COLLEGIUM_MOLTBOOK_PUBLISHING:-on}
@@ -149,7 +149,7 @@ services:
     build: .
     command: ["collegium", "web", "--host", "0.0.0.0"]
     environment:
-      COLLEGIUM_BOARD_DATABASE_URL: postgresql://collegium_board_app:${COLLEGIUM_BOARD_PASSWORD:-board}@db:5432/collegium
+      COLLEGIUM_BOARD_DATABASE_URL: postgresql://collegium_board_app:${COLLEGIUM_BOARD_PASSWORD:?set COLLEGIUM_BOARD_PASSWORD in .env}@db:5432/collegium
       COLLEGIUM_SEARXNG_URL: http://searxng:8080
       # It reads a feed once when the owner approves it.
       COLLEGIUM_CONTACT: ${COLLEGIUM_CONTACT:-}

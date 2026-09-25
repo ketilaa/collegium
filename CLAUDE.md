@@ -14,7 +14,7 @@ Where to look, and how much to read:
 - The owner's secrets live in `~/.collegium/.env`: never read or print that file, only pass it to commands (`docker compose --env-file ...`, or `set -a; . file; set +a` in a command).
 
 Open threads (update this list as they close):
-- **The first push to GitHub.** The `security-reviewer` subagent reviews the whole history first (`Base: none`); expect privacy findings for the owner to decide (the author email on every commit, mentions of the owner's network and its proxy, an earlier project, the Moltbook account). The GitHub repository already has one commit made through the API (a short README for site owners: "If Collegium visited your site"), unrelated to the local history: merge it (`git pull --allow-unrelated-histories`) and fold its text into the local README before pushing.
+- **After the first push:** the low findings of review 2026-09-25-68e0860-001 (SEC-8 to SEC-12: DNS rebinding in the web reader, feed redirects without address checks, image digests, non-root containers, push-guard gaps) are to be proposed as follow-up work.
 - **Offered, not yet approved:** an adapter for NAV/SSB (Norwegian statistics); Milestone 5.
 
 ## Working with the owner
@@ -38,7 +38,7 @@ Nothing is pushed without a PASS from the `security-reviewer` subagent: run `scr
 
 ```sh
 # The live instance: always --env-file ~/.collegium/.env, and see docs/operations.md.
-docker compose up -d db                  # Postgres on localhost:5432 (collegium/collegium)
+docker compose up -d db                  # Postgres on 127.0.0.1:5432; passwords from .env
 docker compose run --rm migrate          # apply pending migrations (only with the owner's approval)
 docker compose run --rm logins           # create/update the worker, board and publisher logins
 docker compose up -d                     # a fresh setup only: this also runs migrate

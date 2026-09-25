@@ -58,7 +58,7 @@ llama.cpp's `llama-server` with a 14B model). Search runs on the bundled
 SearXNG; a [Tavily](https://tavily.com) API key is an optional paid fallback.
 
 ```sh
-cp .env.example .env                # set COLLEGIUM_CONTACT; optionally TAVILY_API_KEY
+cp .env.example .env                # set the passwords and COLLEGIUM_CONTACT; optionally TAVILY_API_KEY
 docker compose up -d                # database, migrations, worker, scheduler, board, search
 set -a; . ./.env; set +a            # for the CLI on the host
 

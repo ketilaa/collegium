@@ -23,7 +23,9 @@ from collegium.db import Database
 from collegium.roles.base import Context
 
 ADMIN_URL = os.environ.get(
-    "COLLEGIUM_TEST_ADMIN_URL", "postgresql://collegium:collegium@localhost:5432/postgres"
+    "COLLEGIUM_TEST_ADMIN_URL",
+    f"postgresql://collegium:{os.environ.get('POSTGRES_PASSWORD', 'collegium')}"
+    "@localhost:5432/postgres",
 )
 MIGRATIONS = Path(__file__).parent.parent / "db" / "migrations"
 

@@ -21,7 +21,7 @@ changed. For what the code does, see CLAUDE.md; for why, docs/decisions.md.
   it; only pass it to commands. Every Compose command uses it:
 
   ```sh
-  E="--env-file ~/.collegium/.env"
+  E="--env-file $HOME/.collegium/.env"
   docker compose $E ps
   ```
 
