@@ -34,7 +34,7 @@ rm -rf "$OUT"
 mkdir -p "$OUT"
 
 # The next finding number and this push's review iteration.
-LAST_N="$(grep -ohE 'SEC-[0-9]+-[0-9]{3}' docs/reviews/*.md 2>/dev/null |
+LAST_N="$(grep -ohE 'SEC-[0-9]+-[0-9]{3}' docs/reviews/[0-9]*.md 2>/dev/null |
     sed -E 's/SEC-([0-9]+)-.*/\1/' | sort -n | tail -1 || true)"
 NEXT_N=$(( ${LAST_N:-0} + 1 ))
 ITERATION=$(( $( (grep -lE "^- Base: $BASE\$" docs/reviews/[0-9]*.md 2>/dev/null || true) | wc -l) + 1 ))
