@@ -1038,3 +1038,6 @@ owner decided:
   the retired earlier project or the author of an approved site. The
   author email is the owner's personal address, by choice.
 - **Low findings (SEC-8 to SEC-12) follow the push** as proposals.
+- **The old wording is rewritten in the whole history too** (review
+  002 passed, but earlier commits and the 001 report still carried it):
+  one `git filter-repo --replace-text` pass before the push.

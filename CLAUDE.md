@@ -14,7 +14,7 @@ Where to look, and how much to read:
 - The owner's secrets live in `~/.collegium/.env`: never read or print that file, only pass it to commands (`docker compose --env-file ...`, or `set -a; . file; set +a` in a command).
 
 Open threads (update this list as they close):
-- **After the first push:** the low findings of review 2026-09-25-68e0860-001 (SEC-8 to SEC-12: DNS rebinding in the web reader, feed redirects without address checks, image digests, non-root containers, push-guard gaps) are to be proposed as follow-up work.
+- **After the first push:** the low findings of review 2026-09-25-68e0860-001 (SEC-8 to SEC-12: DNS rebinding in the web reader, feed redirects without address checks, image digests, non-root containers, push-guard gaps) and of 002 (SEC-14: the bundle should list every path and binary file in the range) are to be proposed as follow-up work.
 - **Offered, not yet approved:** an adapter for NAV/SSB (Norwegian statistics); Milestone 5.
 
 ## Working with the owner
