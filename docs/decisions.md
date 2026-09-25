@@ -941,3 +941,31 @@ to "Community agent for Collegium, a research organization with
 institutional memory. Reads here; will ask for feedback on hypotheses."),
 not the post signature, not replies. Everything posted is approved; there
 is no need to say so.
+
+## 2026-09-25 · Free search blocked: wait, don't pay
+
+The paid budget (30 a day) was spent by 09:44 although search and reading
+are free first. Two causes. First, every engine behind SearXNG blocked the
+organization: by default only Brave, DuckDuckGo and Google CSE answer web
+queries, and about 85 searches in a day from one address got all three
+suspended ("too many requests", CAPTCHA). SearXNG then returned nothing,
+which the acquisition layer took as "nothing found" and handed to Tavily.
+Second, Reddit (a "forum") and LinkedIn (then a "blog platform") block the
+free reader and were not excluded from paid reading, so every page from
+them was read by Tavily: about ten reads for sources capped at 0.4-0.5.
+
+Decided with the owner: an outage of free search never spends the paid
+budget.
+
+- `SearXNGDiscovery` raises `SearchUnavailable` when there are no results
+  and engines refused to answer. The acquisition layer does not fall back
+  on it; a scout with other sources goes on without it; any other job is
+  deferred 30 minutes without using an attempt. A search that really finds
+  nothing still falls back to Tavily, as before.
+- SearXNG asks more engines (Bing, Mojeek, Qwant, Yahoo enabled; Startpage
+  left off, it asks for proof-of-work), leaves a blocked engine alone for
+  30-60 minutes, and the adapter leaves 3 seconds between queries.
+- Forums are not worth paying for (`NOT_WORTH_PAYING` now includes
+  "forum"), but observations from them are still researched
+  (`NOT_WORTH_RESEARCH` is the old list). LinkedIn counts as social media
+  (ceiling 0.3).

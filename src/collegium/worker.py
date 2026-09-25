@@ -15,7 +15,7 @@ from typing import Any
 from uuid import UUID
 
 from collegium import jobs, memory
-from collegium.acquisition import Budget, BudgetExhausted, Recorder
+from collegium.acquisition import Budget, BudgetExhausted, Recorder, SearchUnavailable
 from collegium.db import Database
 from collegium.hours import WorkingHours
 from collegium.roles import ROLES
@@ -77,6 +77,14 @@ def run_once(ctx: Context, kinds: tuple[str, ...] | None = None) -> bool:
         with ctx.db.acting_as(role.name, run_id) as conn:
             jobs.finish_run(conn, run_id, "failed", f"{e}; deferred to {reopens:%Y-%m-%d %H:%M}")
             jobs.defer(conn, job, reopens, str(e))
+    except SearchUnavailable as e:
+        # Blocked engines lift their block after a while; wait for that
+        # rather than use an attempt, or pay for a search elsewhere.
+        reopens = datetime.now(UTC) + SEARCH_RETRY
+        log.info("%s job %s: %s; deferred to %s", job.kind, job.id, e, reopens)
+        with ctx.db.acting_as(role.name, run_id) as conn:
+            jobs.finish_run(conn, run_id, "failed", f"{e}; deferred to {reopens:%Y-%m-%d %H:%M}")
+            jobs.defer(conn, job, reopens, str(e))
     except Exception as e:
         error = f"{type(e).__name__}: {e}"
         log.warning("%s job %s failed: %s", job.kind, job.id, error)
@@ -123,6 +131,9 @@ def drain(ctx: Context, limit: int = 1000) -> int:
         count += 1
     return count
 
+
+# How long a job waits when the free search is blocked.
+SEARCH_RETRY = timedelta(minutes=30)
 
 # A job that searches is not started with fewer paid calls left than this:
 # it would most likely be cut off halfway, wasting what it had spent.

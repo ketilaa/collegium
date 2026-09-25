@@ -107,6 +107,12 @@ class BudgetExhausted(RuntimeError):
     """The daily budget for paid calls is spent; try again later."""
 
 
+class SearchUnavailable(RuntimeError):
+    """The free search is blocked or down (its engines refuse it for a
+    while). Not the same as finding nothing: the work waits for it rather
+    than paying for another search."""
+
+
 class Acquisition:
     def __init__(
         self,
@@ -184,14 +190,16 @@ class Acquisition:
     ) -> list[SearchResult]:
         """Leads from each source, interleaved so no source crowds out the
         others. With no sources given, the default one is used, and the
-        fallback search if the default fails or finds nothing. A paid source
-        whose budget is spent is skipped when other sources remain."""
+        fallback search if the default fails or finds nothing, but not when
+        it is unavailable (blocked): that waits. A source whose budget is
+        spent, or which is unavailable, is skipped when other sources
+        remain."""
         names = list(sources or [self.default])
         per_source = []
         for name in names:
             try:
                 results = self._discover_from(name, query, max_results, recent_days)
-            except BudgetExhausted:
+            except (BudgetExhausted, SearchUnavailable):
                 if len(names) == 1:
                     raise
                 continue

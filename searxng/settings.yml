@@ -17,3 +17,23 @@ search:
   formats:
     - html
     - json
+  # A blocked engine is left alone for a while rather than asked again.
+  suspended_times:
+    SearxEngineAccessDenied: 3600
+    SearxEngineCaptcha: 3600
+    SearxEngineTooManyRequests: 1800
+
+# More engines, so that no single site sees every query and blocks it (by
+# default only Brave, DuckDuckGo and Google CSE answer web queries here, and
+# all three blocked the organization on 2026-09-25). Startpage stays off: it
+# asks for a proof-of-work captcha.
+engines:
+  - name: bing
+    disabled: false
+  - name: mojeek
+    inactive: false
+    disabled: false
+  - name: qwant
+    disabled: false
+  - name: yahoo
+    disabled: false

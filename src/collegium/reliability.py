@@ -27,6 +27,7 @@ _BY_HOST: list[tuple[tuple[str, ...], str, float]] = [
             "instagram.com",
             "threads.net",
             "bsky.app",
+            "linkedin.com",
         ),
         "social or video",
         0.3,
@@ -65,7 +66,6 @@ _BY_HOST: list[tuple[tuple[str, ...], str, float]] = [
             "wordpress.com",
             "blogspot.com",
             "tumblr.com",
-            "linkedin.com",
         ),
         "blog platform",
         0.5,
@@ -87,9 +87,13 @@ def classify(uri: str) -> tuple[str, float]:
     return "other", 1.0
 
 
-# Pages of these kinds are not worth a paid read: they need a browser to
-# render, and evidence from them is capped low anyway.
-NOT_WORTH_PAYING = frozenset(["social or video", "AI-agent forum"])
+# Observations from these kinds of source are recorded but not researched:
+# weak signals, not worth a full investigation built on them.
+NOT_WORTH_RESEARCH = frozenset(["social or video", "AI-agent forum"])
+# Pages of these kinds are not worth a paid read: they need a browser or
+# block direct reading (Reddit, LinkedIn), and evidence from them is capped
+# low anyway. What the free reader cannot read stays unread.
+NOT_WORTH_PAYING = NOT_WORTH_RESEARCH | {"forum"}
 
 
 def ceiling_for(uri: str) -> float:

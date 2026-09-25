@@ -13,7 +13,7 @@ from collegium.dates import parse_date
 from collegium.db import Connection
 from collegium.grounding import locate_excerpt, unsupported_terms
 from collegium.jobs import Job
-from collegium.reliability import NOT_WORTH_PAYING, classify
+from collegium.reliability import NOT_WORTH_RESEARCH, classify
 from collegium.roles.base import (
     Context,
     NothingToWorkWith,
@@ -267,7 +267,7 @@ def _worth_research(g: Grounded) -> bool:
     """Only observations from sources that can carry evidence are sent for
     research. Social media and video are weak signals: worth recording, not
     worth a full investigation built on them."""
-    return g.proposal.investigate and classify(g.result.url)[0] not in NOT_WORTH_PAYING
+    return g.proposal.investigate and classify(g.result.url)[0] not in NOT_WORTH_RESEARCH
 
 
 def _verify(

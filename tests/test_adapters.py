@@ -4,6 +4,7 @@ import json
 
 import httpx
 import pytest
+from conftest import FakeProvider
 
 from collegium.acquisition.hackernews import HackerNewsDiscovery
 from collegium.acquisition.tavily import TavilyProvider
@@ -241,7 +242,9 @@ def test_searxng_returns_web_leads_within_the_time_window():
             },
         )
 
-    searxng = SearXNGDiscovery("http://searxng:8080/", transport=httpx.MockTransport(handler))
+    searxng = SearXNGDiscovery(
+        "http://searxng:8080/", transport=httpx.MockTransport(handler), pause=0
+    )
     results = searxng.discover("juniorutviklere KI", 5, recent_days=30)
     assert [r.url for r in results] == ["https://news.example/juniors", "https://blog.example/b"]
     assert results[0].metadata == {"engines": ["bing", "duckduckgo"]}
@@ -254,6 +257,62 @@ def test_searxng_returns_web_leads_within_the_time_window():
     }
     assert [time_range(d) for d in (None, 1, 7, 30, 90)] == [None, "day", "week", "month", "year"]
     assert len(searxng.discover("x", 1)) == 1
+
+
+def test_blocked_search_engines_are_an_outage_not_an_empty_result():
+    from collegium.acquisition import Acquisition, SearchUnavailable
+    from collegium.acquisition.searxng import SearXNGDiscovery
+
+    def blocked(request):
+        return httpx.Response(
+            200,
+            json={
+                "results": [],
+                "unresponsive_engines": [["brave", "too many requests"], ["duckduckgo", "CAPTCHA"]],
+            },
+        )
+
+    def empty(request):
+        return httpx.Response(200, json={"results": [], "unresponsive_engines": []})
+
+    searxng = SearXNGDiscovery("http://s", transport=httpx.MockTransport(blocked), pause=0)
+    with pytest.raises(SearchUnavailable, match="duckduckgo"):
+        searxng.discover("q", 5)
+    assert SearXNGDiscovery("http://s", transport=httpx.MockTransport(empty)).discover("q", 5) == []
+
+    # No paid search stands in for an outage, but it does for finding nothing.
+    paid = FakeProvider({"https://p.example": ("P", "paid result")})
+    acquisition = Acquisition(
+        {"searxng": searxng, "tavily": paid}, paid, default="searxng", fallback_search="tavily"
+    )
+    with pytest.raises(SearchUnavailable):
+        acquisition.discover("q", max_results=5)
+    assert paid.searches == []
+    # A scout with other sources goes on without it.
+    other = FakeProvider({"https://hn.example": ("HN", "a lead")})
+    acquisition = Acquisition({"searxng": searxng, "hackernews": other}, other, default="searxng")
+    leads = acquisition.discover("q", max_results=5, sources=["searxng", "hackernews"])
+    assert [lead.url for lead in leads] == ["https://hn.example"]
+
+
+def test_searxng_is_asked_at_a_measured_pace(monkeypatch):
+    from collegium.acquisition import searxng as module
+
+    slept = []
+    monkeypatch.setattr(module.time, "sleep", slept.append)
+    ok = httpx.MockTransport(lambda r: httpx.Response(200, json={"results": []}))
+    searxng = module.SearXNGDiscovery("http://s", transport=ok, pause=3)
+    searxng.discover("a", 5)
+    searxng.discover("b", 5)
+    assert len(slept) == 1 and 2.5 < slept[0] <= 3
+
+
+def test_forums_and_linkedin_are_not_paid_for_but_forums_are_researched():
+    from collegium.reliability import NOT_WORTH_PAYING, NOT_WORTH_RESEARCH, classify
+
+    assert classify("https://www.linkedin.com/posts/someone-activity-1")[0] == "social or video"
+    assert classify("https://www.reddit.com/r/x/comments/1")[0] == "forum"
+    assert "forum" in NOT_WORTH_PAYING and "forum" not in NOT_WORTH_RESEARCH
 
 
 def test_moltbook_reads_posts_in_full_without_a_key():
