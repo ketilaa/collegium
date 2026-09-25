@@ -629,11 +629,18 @@ def answer_question(
     answered: bool,
     missing: str | None,
     cites: list[UUID],
+    points: list[dict] | None = None,
 ) -> None:
     conn.execute(
-        "UPDATE questions SET status = %s, answer = %s, missing = %s, answered_at = now() "
-        "WHERE id = %s",
-        ("answered" if answered else "unanswered", answer, missing, question_id),
+        "UPDATE questions SET status = %s, answer = %s, missing = %s, points = %s, "
+        "answered_at = now() WHERE id = %s",
+        (
+            "answered" if answered else "unanswered",
+            answer,
+            missing,
+            Jsonb(points) if points else None,
+            question_id,
+        ),
     )
     # The answer refers to its sources as [1], [2], ... in this order.
     for n, node_id in enumerate(dict.fromkeys(cites), 1):

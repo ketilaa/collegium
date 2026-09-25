@@ -232,3 +232,11 @@ details > summary.meta { cursor: pointer; margin-top: 0.5rem; }
 .answer-answered { border-left: 3px solid var(--good); }
 .status-unanswered { background: var(--warn-bg); color: var(--warn); }
 .status-answered { background: var(--good-bg); color: var(--good); }
+.firmness {
+  display: inline-block; font-size: 0.72rem; font-weight: 500; line-height: 1.5;
+  padding: 0 0.5em; border-radius: 4px; margin-right: 0.35rem; white-space: nowrap;
+  background: var(--neutral-bg); color: var(--text-secondary); vertical-align: 0.1em;
+}
+.firmness-concluded { background: var(--good-bg); color: var(--good); }
+.firmness-investigating { background: var(--warn-bg); color: var(--warn); }
+.firmness-judged-false { background: var(--bad-bg); color: var(--bad); }

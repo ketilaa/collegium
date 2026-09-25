@@ -5,6 +5,7 @@
 
 from uuid import uuid4
 
+import pytest
 from markupsafe import escape
 from test_pipeline import HYPOTHESIS, PAGES
 from test_web import client, crawler, researched  # noqa: F401 (fixtures)
@@ -52,7 +53,7 @@ def test_an_answer_cites_memory(client, researched, worker_db, llm, make_context
     brief = llm.prompts_for(Answer)[-1]
     assert f") {HYPOTHESIS}" in brief and "[H1]" in brief
     assert "Hvor raskt faller prisene" in brief
-    assert "Write it in the language of the question." in brief
+    assert "Write it in Norwegian." in brief
     q = only_question(worker_db)
     assert q["status"] == "answered"
     # Labels become numbered sources; an unknown label (H9) is left as written.
@@ -65,6 +66,8 @@ def test_an_answer_cites_memory(client, researched, worker_db, llm, make_context
     page = client.get(f"/questions/{q['id']}").text
     assert str(escape(HYPOTHESIS)) in page and "Sources in memory" in page
     assert page.count('class="prio">[') == 2
+    # The fixture's hypothesis was accepted by the Historian.
+    assert page.count('class="firmness firmness-concluded">concluded · 0.70') == 2
     assert "Hvor raskt faller prisene" in client.get("/ask").text
 
 
@@ -144,9 +147,14 @@ def test_recall_finds_norwegian_quotes_and_respects_the_domain(worker_db, add_do
         assert [o["id"] for o in found["observations"]] == [obs]
 
 
+def record(kind, status=None, confidence=None):
+    return {"kind": kind, "status": status, "confidence": confidence}
+
+
 def test_citations_are_numbered_in_order_of_use():
     h, x = uuid4(), uuid4()
     labels = {"H1": h, "X2": x}
+    records = {"H1": record("hypothesis", "accepted", 0.8), "X2": record("evidence")}
     reply = Answer(
         points=[
             AnswerPoint(statement="Both (H1, X2) agree.", sources=["H1"]),
@@ -154,4 +162,93 @@ def test_citations_are_numbered_in_order_of_use():
             AnswerPoint(statement="Invented.", sources=["H3"]),
         ]
     )
-    assert compose(reply, labels) == ("Both [1][2] agree.\nMeasured, too. [2]", [h, x], 1)
+    composed = compose(reply, labels, records)
+    assert composed.text == "Both [1][2] agree.\nMeasured, too. [2]"
+    assert (composed.cited, composed.dropped) == ([h, x], 1)
+
+
+@pytest.mark.parametrize(
+    ("statement", "source", "firmness", "text", "wording"),
+    [
+        # Accepted: may be stated as a conclusion.
+        (
+            "We have concluded that prices halve.",
+            record("hypothesis", "accepted", 0.8),
+            "concluded",
+            "We have concluded that prices halve. [1]",
+            None,
+        ),
+        # Under review: a claimed conclusion becomes an investigation.
+        (
+            "We have concluded that prices halve.",
+            record("hypothesis", "under_review", 0.55),
+            "investigating",
+            "We are investigating whether prices halve. [1]",
+            "corrected",
+        ),
+        # Only a source says so.
+        (
+            "We know that agents fail often.",
+            record("evidence"),
+            "reported",
+            "A source reports that agents fail often. [1]",
+            "corrected",
+        ),
+        (
+            "Vi har konkludert med at juniorer ansettes sjeldnere.",
+            record("observation", "proposed"),
+            "reported",
+            "En kilde melder at juniorer ansettes sjeldnere. [1]",
+            "corrected",
+        ),
+        # A claim that cannot be rewritten is flagged.
+        (
+            "Prices halve, as we have concluded.",
+            record("evidence"),
+            "reported",
+            "Prices halve, as we have concluded. [1]",
+            "overstated",
+        ),
+        (
+            "We have concluded that prices halve.",
+            record("hypothesis", "rejected", 0.1),
+            "judged false",
+            "We have concluded that prices halve. [1]",
+            "overstated",
+        ),
+        # Honest wording is left alone.
+        (
+            "A report says prices halve.",
+            record("evidence"),
+            "reported",
+            "A report says prices halve. [1]",
+            None,
+        ),
+    ],
+)
+def test_the_code_decides_how_firmly_a_point_is_held(statement, source, firmness, text, wording):
+    composed = compose(
+        Answer(points=[AnswerPoint(statement=statement, sources=["A1"])]),
+        {"A1": uuid4()},
+        {"A1": source},
+    )
+    [point] = composed.points
+    assert (point["firmness"], point["text"] + " [1]", point["wording"]) == (
+        firmness,
+        text,
+        wording,
+    )
+    assert composed.text == text
+
+
+def test_firmness_takes_the_strongest_source():
+    points = compose(
+        Answer(points=[AnswerPoint(statement="Prices halve.", sources=["H1", "H2", "X1"])]),
+        {"H1": uuid4(), "H2": uuid4(), "X1": uuid4()},
+        {
+            "H1": record("hypothesis", "under_review", 0.55),
+            "H2": record("hypothesis", "proposed", 0.4),
+            "X1": record("evidence"),
+        },
+    ).points
+    assert (points[0]["firmness"], points[0]["confidence"]) == ("investigating", 0.55)

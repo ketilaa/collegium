@@ -315,7 +315,13 @@ def _questions(args, settings: Settings) -> None:
     for q in rows:
         asked = f"{_local(q['created_at']):%m-%d %H:%M}"
         print(f"{str(q['id'])[:8]}  {q['status']:10} {asked}  {q['text']}")
-        if q["answer"]:
+        if q["points"]:
+            for p in q["points"]:
+                confidence = f" {p['confidence']:.2f}" if p["confidence"] is not None else ""
+                flag = " (worded too firmly)" if p["wording"] == "overstated" else ""
+                sources = "".join(f"[{n}]" for n in p["sources"])
+                print(f"    [{p['firmness']}{confidence}] {p['text']} {sources}{flag}")
+        elif q["answer"]:
             print(f"    {q['answer']}")
         for c in details[q["id"]]["cites"]:
             print(f"    {c['number']} {c['kind']}: {c['text']}")

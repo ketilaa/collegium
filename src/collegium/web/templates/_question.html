@@ -5,7 +5,20 @@
 {% else %}
   <section class="card answer-{{ question.status }}">
     <div class="meta">{{ status(question.status) }} · {{ question.answered_at|local }}{% if question.model %} · {{ question.model }}{% endif %}</div>
-    <p class="prose answer">{{ question.answer }}</p>
+    {% if question.points %}
+      <ul class="plain points">
+        {% for p in question.points %}
+          <li>
+            <span class="firmness firmness-{{ p.firmness|replace(" ", "-") }}">{{ p.firmness }}{% if p.confidence is not none %} · {{ "%.2f"|format(p.confidence) }}{% endif %}</span>
+            <span class="answer">{{ p.text }}</span> <span class="meta">{% for n in p.sources %}[{{ n }}]{% endfor %}</span>
+            {% if p.wording == "overstated" %}<div class="flag">Worded more firmly than memory supports: memory only has this as {{ p.firmness }}.</div>
+            {% elif p.wording == "corrected" %}<div class="meta">Wording corrected: the model claimed a conclusion memory does not hold.</div>{% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="prose answer">{{ question.answer }}</p>
+    {% endif %}
     {% if question.missing and question.missing != question.text %}<p class="resolution"><strong>Memory lacks:</strong> {{ question.missing }}</p>{% endif %}
     {% if question.status == "unanswered" %}<p class="meta">This is now a gap the Strategist sees when it next plans.</p>{% endif %}
   </section>

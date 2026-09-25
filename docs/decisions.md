@@ -746,3 +746,22 @@ hour, and questions memory cannot answer become gaps for the Strategist.
   (`jobs.claim` with kinds) and queues them at priority 1.
 - **Gaps.** Unanswered questions from the last 14 days, about the domain
   or about no domain, are gaps the Strategist sees ("unanswered question").
+
+## 2026-09-25 · Firmness of answer points is decided by code
+
+The 14B model sometimes wrote "we have concluded that ..." about a point
+resting only on weak evidence. Each point's firmness is now set by code
+from its sources, not by the model's wording: *concluded* if an accepted
+hypothesis supports it, *investigating* (with the highest confidence) if a
+proposed or under-review one does, *judged false* if it rests on rejected
+hypotheses, otherwise *reported* (observations, evidence, entities).
+Migration 0011 stores the points (`questions.points`), and the board and
+`collegium questions` show each point with its firmness.
+
+A point worded more firmly than its firmness allows is corrected when it
+opens with a known claim ("We have concluded that", "We know that", "Vi har
+konkludert med at", ...), becoming "We are investigating whether" / "A
+source reports that" (or the Norwegian equivalents), and is otherwise
+flagged on the board as worded too firmly. The answer language is now named
+("Norwegian" or "English"): asked for "the language of the question", the
+model answered a Norwegian question in English.
