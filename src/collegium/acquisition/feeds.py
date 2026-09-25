@@ -43,7 +43,7 @@ class FeedReader:
         self,
         *,
         timeout: float = 30,
-        transport: httpx.BaseTransport | None = None,
+        transport: httpx.AsyncBaseTransport | None = None,
         resolver: Resolver = resolve,
     ):
         self._fetcher = SafeFetcher(timeout=timeout, transport=transport, resolver=resolver)
