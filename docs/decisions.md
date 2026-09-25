@@ -1041,3 +1041,18 @@ owner decided:
 - **The old wording is rewritten in the whole history too** (review
   002 passed, but earlier commits and the 001 report still carried it):
   one `git filter-repo --replace-text` pass before the push.
+
+## 2026-09-25 · Backups: zstd, and a failed backup is a failure
+
+A backup at 06:00Z left a 0-byte dump that looked finished: the loop calls
+`backup_once || echo ...`, and in that position the shell ignores `set -e`
+inside the function, so after a failed `pg_dump` the script still renamed
+the empty file and pruned older backups. Every step now checks its own
+result (`|| return 1`). Dumps are compressed inside the custom format with
+`--compress=zstd:19` (on the live database 526 KB with the default gzip,
+430 KB with zstd; a tar.gz of the default dump was 415 KB but would need
+unpacking before `pg_restore`, so the owner chose zstd). `restore.sh` is
+unchanged; `pg_restore` reads either. On the live instance backups go to
+`~/.collegium/backups` (`COLLEGIUM_BACKUP_DIR`), outside the repository.
+One-off `run` commands for `backup` and `logins` need `--no-deps`, or they
+run `migrate` first.

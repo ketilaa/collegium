@@ -55,7 +55,7 @@ services:
         condition: service_completed_successfully
 
   # Backs up the database every BACKUP_INTERVAL_HOURS into COLLEGIUM_BACKUP_DIR.
-  # One-off: docker compose run --rm backup sh /db/backup.sh
+  # One-off: docker compose run --rm --no-deps backup sh /db/backup.sh
   backup:
     image: postgres:17-alpine
     environment:
