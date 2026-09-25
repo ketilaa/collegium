@@ -14,7 +14,9 @@ then applies the rules that are not the model's to decide:
   budget when search is paid, or up to MAX_FREE_ACTIONS a plan when search
   and reading are free (the local model's time is then the limit);
   first, and one scout per day is always kept;
-- a program is only ever proposed, as a decision for the owner.
+- a program is only ever proposed, as a decision for the owner;
+- sites that keep producing what the organization records, and have a
+  working feed, are proposed as sources: the owner decides.
 """
 
 from typing import Literal
@@ -34,6 +36,8 @@ RESERVE = 5
 # Actions per plan when search and reading are free: each one keeps the
 # local model busy for several jobs, and plans are made daily.
 MAX_FREE_ACTIONS = 6
+# Sources proposed per plan; each needs a look at the site for its feed.
+MAX_SOURCE_PROPOSALS = 2
 
 
 class Action(BaseModel):
@@ -90,6 +94,7 @@ class Strategist(Role):
             goals = memory.active_goals(conn, [domain_id])
             programs = memory.programs(conn, [domain_id])
             abandoned = memory.closed_goals(conn, [domain_id], "abandoned")
+            candidates = strategy.source_candidates(conn, domain_id)[:MAX_SOURCE_PROPOSALS]
             gaps = strategy.find_gaps(conn, domain_id)
             paid = ctx.acquisition is not None and ctx.acquisition.paid_first
             budget = _remaining_budget(ctx, conn) if paid else None
@@ -120,6 +125,7 @@ class Strategist(Role):
         plan = ctx.llm.generate(
             self.system_prompt(), brief + "\n\nWhat is your plan?", StrategyPlan
         )
+        sources = _find_sources(ctx, candidates)
         hypothesis_ids = {h["id"] for h in hypotheses}
 
         def persist(conn: Connection) -> str:
@@ -210,6 +216,28 @@ class Strategist(Role):
                 )
                 notes.append(f"proposed program for the owner: {plan.program.name}")
 
+            for candidate, feed in sources:
+                decision_id = memory.add_decision(
+                    conn,
+                    statement=f"Follow {candidate.site}: approve its feed for {domain['name']}",
+                    rationale=(
+                        f"{candidate.observations} observations and {candidate.evidence} "
+                        f"pieces of evidence came from {candidate.site} in the last "
+                        f"{strategy.SOURCE_WINDOW.days} days. Its feed has "
+                        f"{feed.metadata.get('items')} items."
+                    ),
+                    topic="source",
+                    details={
+                        "domain_id": str(domain_id),
+                        "site": candidate.site,
+                        "feed_url": feed.url,
+                        "title": feed.title,
+                        "uses": candidate.uses,
+                    },
+                )
+                memory.tag_domains(conn, decision_id, [domain_id])
+                notes.append(f"proposed source for the owner: {feed.url}")
+
             notes.append(
                 f"{len(gaps)} gaps; queued {', '.join(queued) or 'nothing'}"
                 + (f"; {skipped} actions skipped (budget or invalid)" if skipped else "")
@@ -218,6 +246,21 @@ class Strategist(Role):
             return "; ".join(notes)
 
         return persist
+
+
+def _find_sources(ctx: Context, candidates: list) -> list:
+    """Each candidate site with its feed, where one was found."""
+    if ctx.acquisition is None:
+        return []
+    found = []
+    for candidate in candidates:
+        try:
+            feed = ctx.acquisition.find_feed(candidate.homepage)
+        except Exception:
+            continue
+        if feed is not None:
+            found.append((candidate, feed))
+    return found
 
 
 def _payload(action: Action, domain_id, labels, hypothesis_ids) -> dict | None:

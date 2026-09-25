@@ -10,6 +10,10 @@
   <article class="card">
     <h3 class="decision">{{ d.statement }}</h3>
     <p>{{ d.rationale }}</p>
+    {% if d.topic == "source" and d.details %}
+      {% set href = d.details.feed_url|http_url %}
+      <p class="meta">Feed: {% if href %}<a href="{{ href }}" rel="noopener noreferrer nofollow" target="_blank">{{ d.details.title or d.details.feed_url }}</a>{% else %}{{ d.details.feed_url }}{% endif %} · approving adds it to the domain; the Scout reads it on its next run.</p>
+    {% endif %}
     <div class="meta">Proposed by the {{ d.proposed_by }} on {{ d.created_at|local("%Y-%m-%d") }}</div>
     <div class="actions">
       <form method="post" action="/decisions/{{ d.id }}/approve">

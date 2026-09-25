@@ -287,10 +287,20 @@ def add_program(conn: Connection, *, name: str, charter: str) -> UUID:
     )
 
 
-def add_decision(conn: Connection, *, statement: str, rationale: str) -> UUID:
-    return _insert_node(
-        conn, "decision", "decisions", {"statement": statement, "rationale": rationale}
-    )
+def add_decision(
+    conn: Connection,
+    *,
+    statement: str,
+    rationale: str,
+    topic: str | None = None,
+    details: dict[str, Any] | None = None,
+) -> UUID:
+    values: dict[str, Any] = {"statement": statement, "rationale": rationale}
+    if topic:
+        values["topic"] = topic
+    if details:
+        values["details"] = Jsonb(details)
+    return _insert_node(conn, "decision", "decisions", values)
 
 
 def set_mission(conn: Connection, statement: str, domain_id: UUID | None) -> UUID:

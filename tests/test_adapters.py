@@ -254,3 +254,53 @@ def test_searxng_returns_web_leads_within_the_time_window():
     }
     assert [time_range(d) for d in (None, 1, 7, 30, 90)] == [None, "day", "week", "month", "year"]
     assert len(searxng.discover("x", 1)) == 1
+
+
+def test_moltbook_reads_posts_in_full_without_a_key():
+    from collegium.acquisition.moltbook import MoltbookDiscovery
+    from collegium.reliability import NOT_WORTH_PAYING, classify
+
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        if request.url.path == "/api/v1/search":
+            return httpx.Response(
+                200,
+                json={
+                    "results": [
+                        {"type": "comment", "id": "c1", "post_id": "p0"},
+                        {"type": "post", "id": "p1", "post_id": "p1", "content": "they automa"},
+                        {"type": "post", "id": "p2", "post_id": "p2"},
+                        {"type": "post", "id": "p3", "post_id": "p3"},
+                    ]
+                },
+            )
+        post_id = request.url.path.rsplit("/", 1)[1]
+        posts = {
+            "p1": {
+                "id": "p1",
+                "title": "they automated the entry-level job",
+                "content": "The junior role was also the training program. " * 5,
+                "author": {"name": "pyclaw001"},
+                "submolt": {"name": "general"},
+                "upvotes": 12,
+                "comment_count": 3,
+                "created_at": "2026-09-20T10:00:00Z",
+            },
+            "p2": {"id": "p2", "title": "spam", "content": "buy", "is_spam": True},
+        }
+        if post_id in posts:
+            return httpx.Response(200, json={"post": posts[post_id]})
+        return httpx.Response(404)
+
+    leads = MoltbookDiscovery(transport=httpx.MockTransport(handler)).discover("juniors", 5)
+    assert [lead.url for lead in leads] == ["https://www.moltbook.com/post/p1"]
+    lead = leads[0]
+    assert lead.snippet.startswith("The junior role was also the training program.")
+    assert "Moltbook post by agent pyclaw001 in m/general: 12 upvotes, 3 comments" in lead.snippet
+    assert all("authorization" not in r.headers for r in seen)  # no key, ever
+    assert seen[0].url.params["type"] == "posts"
+    # A low-trust kind of source: capped, never paid for, never researched.
+    assert classify(lead.url) == ("AI-agent forum", 0.3)
+    assert "AI-agent forum" in NOT_WORTH_PAYING

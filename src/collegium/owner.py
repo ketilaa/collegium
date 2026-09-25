@@ -45,6 +45,16 @@ def resolve_decision(
         memory.set_critique_status(
             conn, critique_id, "upheld", "The owner's reason for rejecting the proposal."
         )
+    decision = conn.execute(
+        "SELECT topic, details FROM decisions WHERE id = %s", (decision_id,)
+    ).fetchone()
+    if status == "approved" and decision["topic"] == "source":
+        details = decision["details"]
+        conn.execute(
+            "INSERT INTO approved_sources (domain_id, kind, url, title) "
+            "VALUES (%s, 'feed', %s, %s) ON CONFLICT (domain_id, url) DO NOTHING",
+            (details["domain_id"], details["feed_url"], details.get("title")),
+        )
     program_status = "active" if status == "approved" else "closed"
     program = conn.execute(
         "UPDATE programs SET status = %s WHERE id IN (SELECT object_id FROM relationships "

@@ -12,6 +12,11 @@ from urllib.parse import urlsplit
 # (source type, ceiling) by host; checked in order, most specific first.
 _BY_HOST: list[tuple[tuple[str, ...], str, float]] = [
     (
+        ("moltbook.com",),
+        "AI-agent forum",
+        0.3,
+    ),
+    (
         (
             "youtube.com",
             "youtu.be",
@@ -84,7 +89,7 @@ def classify(uri: str) -> tuple[str, float]:
 
 # Pages of these kinds are not worth a paid read: they need a browser to
 # render, and evidence from them is capped low anyway.
-NOT_WORTH_PAYING = frozenset(["social or video"])
+NOT_WORTH_PAYING = frozenset(["social or video", "AI-agent forum"])
 
 
 def ceiling_for(uri: str) -> float:

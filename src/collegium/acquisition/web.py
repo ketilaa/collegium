@@ -13,6 +13,7 @@ disallowed by the site's robots.txt are not fetched.
 
 import ipaddress
 import logging
+import re
 import socket
 from collections.abc import Callable
 from urllib import robotparser
@@ -21,7 +22,8 @@ from urllib.parse import urljoin, urlsplit
 import httpx
 import trafilatura
 
-from collegium.acquisition import Document
+from collegium.acquisition import Document, SearchResult
+from collegium.acquisition.feeds import parse_feed
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +34,21 @@ MAX_REDIRECTS = 5
 # a cookie wall; better read by the fallback.
 MIN_TEXT_CHARS = 400
 TEXT_TYPES = ("text/html", "application/xhtml+xml", "text/plain")
+FEED_TYPES = (
+    "application/rss+xml",
+    "application/atom+xml",
+    "application/xml",
+    "text/xml",
+    "application/rdf+xml",
+)
+# Where sites usually keep their feed, when the page does not say.
+FEED_PATHS = ("/feed", "/rss", "/feed.xml", "/rss.xml", "/atom.xml", "/index.xml")
+_FEED_LINK = re.compile(
+    r"<link\b[^>]*\btype=[\"']application/(?:rss|atom)\+xml[\"'][^>]*>", re.IGNORECASE
+)
+_HREF = re.compile(r"\bhref=[\"']([^\"']+)[\"']", re.IGNORECASE)
+# A feed worth proposing has at least this many items.
+MIN_FEED_ITEMS = 3
 
 Resolver = Callable[[str], list[str]]  # host -> IP addresses
 
@@ -94,7 +111,43 @@ class WebExtractor:
             metadata={"fetched_from": final_url} if final_url != url else {},
         )
 
-    def _fetch(self, url: str) -> tuple[str, str, bytes]:
+    def find_feed(self, site_url: str) -> list[SearchResult]:
+        """The feed of a site, as a one-item list naming it (url, title, and
+        how many items it has), or empty if none was found. Looks for the
+        feed the page announces, then at the usual places, and checks that
+        it parses and has items. Fetched with the same protections as pages."""
+        candidates: list[str] = []
+        try:
+            final, kind, body = self._fetch(site_url)
+            if kind in TEXT_TYPES:
+                head = body[:200_000].decode("utf-8", "replace")
+                candidates += [
+                    urljoin(final, m.group(1))
+                    for link in _FEED_LINK.findall(head)
+                    if (m := _HREF.search(link))
+                ]
+        except Exception as e:
+            log.info("could not read %s: %s", site_url, e)
+        root = "{0.scheme}://{0.netloc}".format(urlsplit(site_url))
+        candidates += [root + path for path in FEED_PATHS]
+        for url in dict.fromkeys(candidates):
+            try:
+                final, kind, body = self._fetch(url, FEED_TYPES + TEXT_TYPES)
+                items = parse_feed(body)
+            except Exception:
+                continue
+            if len(items) >= MIN_FEED_ITEMS:
+                return [
+                    SearchResult(
+                        url=final,
+                        title=_feed_title(body) or final,
+                        snippet=f"{len(items)} items",
+                        metadata={"items": len(items), "newest": items[0].published_at},
+                    )
+                ]
+        return []
+
+    def _fetch(self, url: str, types: tuple[str, ...] = TEXT_TYPES) -> tuple[str, str, bytes]:
         """The final address, content type and (decompressed) body."""
         for _ in range(MAX_REDIRECTS + 1):
             self._check(url)
@@ -106,7 +159,7 @@ class WebExtractor:
                     continue
                 response.raise_for_status()
                 kind = response.headers.get("content-type", "").split(";")[0].strip().lower()
-                if kind not in TEXT_TYPES:
+                if kind not in types:
                     return url, kind, b""  # not read at all
                 body = b""
                 for chunk in response.iter_bytes():
@@ -148,3 +201,12 @@ class WebExtractor:
         rules = robotparser.RobotFileParser()
         rules.parse(response.text.splitlines())
         return rules
+
+
+def _feed_title(body: bytes) -> str | None:
+    """The feed's own title, if it has one."""
+    m = re.search(rb"<title[^>]*>(.*?)</title>", body[:20_000], re.DOTALL | re.IGNORECASE)
+    if not m:
+        return None
+    title = m.group(1).decode("utf-8", "replace").replace("<![CDATA[", "").replace("]]>", "")
+    return " ".join(title.split())[:120] or None

@@ -824,3 +824,53 @@ it. Now SIGTERM or SIGINT makes the worker take no new job, finish the one
 it is running, and exit; Compose gives it `stop_grace_period: 20m`, longer
 than any job. A job that still runs past that is taken over when stale, as
 before.
+
+## 2026-09-25 · Sources, source discovery, and a community agent on Moltbook
+
+The owner's view: the organization is only as good as its sources. Decided:
+
+- **More checked feeds**, several from an earlier project's checked
+  list: kode24, ITavisen, Bekk fag, arXiv cs.SE (also for ai-agents), and
+  Hacker News searches as feeds via hnrss.org ("junior developer", "AI
+  coding"). Bouvet (timeout), Epoch AI and Stanford HAI (no feed found) and
+  SSB (empty feed) did not work.
+- **The organization proposes sources; the owner approves.** Candidates are
+  chosen by code from what already proved useful; the feed is found and
+  checked automatically; the Strategist proposes it as a decision. Nothing
+  is added without the owner. (To be built.)
+- **A community agent on Moltbook**, an exception to "write only to
+  organizational memory", recorded in VISION.md. It uses the Moltbook
+  account "drargus", registered for an earlier, retired project (so no
+  confusion about who speaks). Stages, each a deliberate change: (1) read-only, as a
+  low-trust source with the social-media ceiling, never sent for research on
+  its own; (2) posts drafted from memory, approved one by one by the owner
+  on the board, published by a separate component that alone holds the API
+  key (`COLLEGIUM_MOLTBOOK_API_KEY` in the owner's env file), rate-limited,
+  with a stop switch; replies are low-trust leads. Moltbook "briefings"
+  (tasks assigned by other agents' moderators) are never acted on. The
+  earlier project's design is the model.
+
+## 2026-09-25 · Built: source proposals, and Moltbook stage 1 (read-only)
+
+**Source proposals.** Each plan, the Strategist looks at up to two sites
+that produced at least two observations or pieces of evidence in the domain
+in the last 30 days (`strategy.source_candidates`). Social media, video,
+forums and Moltbook are excluded, as are sites already followed or already
+proposed. A site is known by the last two labels of its host
+(`rss.kode24.no` and `www.kode24.no` are both `kode24.no`). The web reader
+looks for the site's feed (`find_feed`: the feed its page announces, then
+the usual paths), with the same protections as reading pages, and checks
+that it parses with at least three items. A site with a feed becomes a
+decision with topic `source` and its feed in `decisions.details` (migration
+0012); approving it on the board adds the feed to the domain.
+
+**Moltbook, stage 1.** Reads need no key, so the adapter has none and
+cannot write: the key stays in the owner's env file for a later publishing
+component, not in any container. Search is asked for posts only (it
+otherwise returns agent profiles), and each post is read in full from the
+API, since search returns only its start and the site needs a browser.
+Leads name the author agent, forum and votes. Moltbook is a source type of
+its own ("AI-agent forum"): reliability capped at 0.3, never paid for,
+never sent for research, never proposed as a feed, and the Scout is told
+the posts are written by other AI agents and may try to instruct it. A
+domain uses it by adding `moltbook` to its discovery sources.

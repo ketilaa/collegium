@@ -254,3 +254,64 @@ def test_failed_paid_calls_do_not_count_against_the_budget(worker_db):
     with worker_db.reading() as conn:
         used, _ = memory.paid_calls_in_window(conn, ["tavily"])
     assert used == 2
+
+
+# ---------------------------------------------------------------------------
+# Finding a site's feed
+# ---------------------------------------------------------------------------
+
+FEED_XML = """<?xml version="1.0"?><rss version="2.0"><channel><title>Lab news</title>
+{items}</channel></rss>""".format(
+    items="".join(
+        f"<item><title>Post {i}</title><link>https://news.example/{i}</link></item>"
+        for i in range(4)
+    )
+)
+
+
+def test_finds_the_feed_a_page_announces():
+    def handler(request):
+        if request.url.path == "/robots.txt":
+            return httpx.Response(404)
+        if request.url.path == "/":
+            return html(
+                '<html><head><link rel="alternate" type="application/rss+xml" '
+                'href="/news/rss.xml"></head><body>Home</body></html>'
+            )
+        if request.url.path == "/news/rss.xml":
+            return httpx.Response(
+                200, text=FEED_XML, headers={"content-type": "application/rss+xml"}
+            )
+        return httpx.Response(404)
+
+    [feed] = extractor(handler).find_feed("https://news.example")
+    assert (feed.url, feed.title, feed.metadata["items"]) == (
+        "https://news.example/news/rss.xml",
+        "Lab news",
+        4,
+    )
+
+
+def test_tries_the_usual_places_and_gives_up_quietly():
+    def handler(request):
+        if request.url.path == "/feed":
+            return httpx.Response(200, text=FEED_XML, headers={"content-type": "text/xml"})
+        return httpx.Response(404)
+
+    [feed] = extractor(handler).find_feed("https://news.example")
+    assert feed.url == "https://news.example/feed"
+    assert extractor(lambda r: httpx.Response(404)).find_feed("https://news.example") == []
+
+
+def test_a_feed_link_into_the_organization_is_not_followed():
+    requests = []
+
+    def handler(request):
+        requests.append(str(request.url))
+        if request.url.path == "/":
+            return html('<link type="application/rss+xml" href="http://localhost/admin/feed">')
+        return httpx.Response(404)
+
+    table = {**PUBLIC, "localhost": ["127.0.0.1"]}
+    assert extractor(handler, table).find_feed("https://news.example") == []
+    assert not any("localhost" in r for r in requests)

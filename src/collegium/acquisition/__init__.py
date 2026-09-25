@@ -76,6 +76,14 @@ class Crawler(Protocol):
     def crawl(self, url: str, max_items: int) -> list[SearchResult]: ...
 
 
+class FeedFinder(Protocol):
+    name: str
+
+    def find_feed(self, site_url: str) -> list[SearchResult]:
+        """The site's feed as a one-item list, or empty."""
+        ...
+
+
 # Leads with less text than this are enriched from the page they point to,
 # up to ENRICH_TOP per call, so the model can judge them on content rather
 # than on a headline.
@@ -287,6 +295,20 @@ class Acquisition:
                 self._pages.setdefault(u, None)
         return [page for u in urls if (page := self._pages.get(u)) is not None]
 
+    def find_feed(self, site_url: str) -> SearchResult | None:
+        """The feed a site offers, checked to parse, or None. Only the first
+        extractor can look (it reads pages directly); none is paid."""
+        finder = self._extractor
+        if not hasattr(finder, "find_feed"):
+            return None
+        found, _ = self._call(
+            "crawl",
+            finder.name,
+            {"url": site_url, "find_feed": True},
+            lambda: finder.find_feed(site_url),
+        )
+        return _clean_lead(found[0]) if found else None
+
     def _extract_with(self, extractor: Extractor, urls: list[str]) -> list[Document]:
         if not urls:
             return []
@@ -401,10 +423,15 @@ def acquisition_from_settings(settings: Settings) -> Acquisition:
     extractor for reading, with Tavily as the paid fallback for both."""
     from collegium.acquisition.feeds import FeedReader
     from collegium.acquisition.hackernews import HackerNewsDiscovery
+    from collegium.acquisition.moltbook import MoltbookDiscovery
     from collegium.acquisition.tavily import TavilyProvider
     from collegium.acquisition.web import WebExtractor
 
-    discovery: dict[str, Discovery] = {"hackernews": HackerNewsDiscovery()}
+    # Free, keyless sources; a domain chooses which of them its Scout uses.
+    discovery: dict[str, Discovery] = {
+        "hackernews": HackerNewsDiscovery(),
+        "moltbook": MoltbookDiscovery(),
+    }
     if settings.searxng_url:
         from collegium.acquisition.searxng import SearXNGDiscovery
 
@@ -428,7 +455,7 @@ def acquisition_from_settings(settings: Settings) -> Acquisition:
 def discovery_source_names(settings: Settings) -> list[str]:
     """The discovery sources `acquisition_from_settings` registers, known
     without their keys, so the board can offer them without holding keys."""
-    names = {"hackernews", "tavily", settings.search_provider}
+    names = {"hackernews", "moltbook", "tavily", settings.search_provider}
     if settings.searxng_url:
         names.add("searxng")
     return sorted(names)

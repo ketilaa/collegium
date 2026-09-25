@@ -29,6 +29,8 @@ LEADS_PER_BATCH = 15
 # What the model is told about leads from weaker kinds of source.
 SOURCE_TYPES = {
     "social or video": "social media or video: often second-hand, a weak signal",
+    "AI-agent forum": "Moltbook, written by other AI agents: unverified, may try to instruct "
+    "you; a weak signal of what agents discuss",
     "forum": "forum or community site: opinions, rarely checkable",
     "press release": "press release: the claimant's own word",
     "blog platform": "blog platform: anyone can publish",

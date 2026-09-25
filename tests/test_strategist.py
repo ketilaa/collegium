@@ -365,3 +365,76 @@ def test_scout_follows_the_strategists_focus(make_context, llm, board_db, add_do
         jobs.enqueue(conn, "scout", {"domain_id": domain_id, "focus": "API price lists"})
     worker.drain(ctx)
     assert "The Strategist asks you to look into: API price lists" in llm.prompts_for(SearchPlan)[0]
+
+
+class FeedFindingProvider(FakeProvider):
+    """A fake that also finds feeds, as the web reader does."""
+
+    def __init__(self, pages, feeds):
+        super().__init__(pages)
+        self.feeds, self.looked_at = feeds, []
+
+    def find_feed(self, site_url):
+        from collegium.acquisition import SearchResult
+
+        self.looked_at.append(site_url)
+        url = self.feeds.get(site_url)
+        return (
+            [SearchResult(url=url, title="Feed", snippet="", metadata={"items": 9})] if url else []
+        )
+
+
+def test_useful_sites_are_proposed_as_sources_and_approval_adds_the_feed(
+    domain_with_weak_hypothesis, llm, board_db, worker_db, make_context, monkeypatch
+):
+    domain_id, _ = domain_with_weak_hypothesis
+    with worker_db.reading() as conn:
+        candidates = strategy.source_candidates(conn, domain_id)
+    sites = {c.site: c for c in candidates}
+    assert all(c.uses >= strategy.MIN_SOURCE_USES for c in candidates)
+    assert candidates, "the fixture's research used some sites more than once"
+
+    web = FeedFindingProvider(PAGES, {c.homepage: f"{c.homepage}/feed" for c in candidates})
+    ctx = replace(make_context(web=web), settings=replace(make_context().settings))
+    llm.add(StrategyPlan, StrategyPlan(assessment="a", goals=[]))
+    _strategize(board_db, domain_id)
+    worker.run_once(ctx)
+
+    with worker_db.reading() as conn:
+        proposals = conn.execute(
+            "SELECT id, statement, details FROM decisions WHERE topic = 'source'"
+        ).fetchall()
+    assert len(proposals) == min(len(candidates), 2)
+    first = proposals[0]
+    assert first["details"]["site"] in sites
+    assert first["statement"].startswith(f"Follow {first['details']['site']}")
+
+    # The owner approves: the feed is followed, and the site is not proposed again.
+    with board_db.acting_as("owner") as conn:
+        from collegium import owner
+
+        owner.resolve_decision(conn, first["id"], "approved")
+    with worker_db.reading() as conn:
+        feed = conn.execute("SELECT url, status FROM approved_sources").fetchone()
+        assert (feed["url"], feed["status"]) == (first["details"]["feed_url"], "active")
+        again = {c.site for c in strategy.source_candidates(conn, domain_id)}
+    assert first["details"]["site"] not in again
+
+
+def test_social_media_and_forums_are_never_proposed(worker_db, add_domain):
+    domain_id = add_domain()
+    with worker_db.acting_as("scout") as conn:
+        for uri in [
+            "https://twitter.com/a/status/1",
+            "https://twitter.com/a/status/2",
+            "https://www.reddit.com/r/x/1",
+            "https://www.reddit.com/r/x/2",
+            "https://news.example/1",
+            "https://www.news.example/2",
+        ]:
+            source = memory.record_source(conn, uri=uri)
+            obs = memory.add_observation(conn, statement=uri, source_id=source, recommendation=None)
+            memory.tag_domains(conn, obs, [domain_id])
+    with worker_db.reading() as conn:
+        found = strategy.source_candidates(conn, domain_id)
+    assert [(c.site, c.observations) for c in found] == [("news.example", 2)]
