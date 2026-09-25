@@ -360,3 +360,24 @@ def test_language_guess():
 )
 def test_source_types_set_reliability_ceilings(uri, kind, ceiling):
     assert classify(uri) == (kind, ceiling)
+
+
+def test_the_worker_finishes_its_job_before_stopping(monkeypatch):
+    import os
+    import signal
+
+    from collegium import worker
+
+    ran = []
+
+    def run_once(ctx, kinds=None):
+        ran.append("job")
+        os.kill(os.getpid(), signal.SIGTERM)  # a stop arrives mid-job
+        ran.append("finished")
+        return True
+
+    monkeypatch.setattr(worker, "run_once", run_once)
+    before = signal.getsignal(signal.SIGTERM)
+    worker.run_forever(ctx=None, idle_seconds=0.01)
+    assert ran == ["job", "finished"]  # finished, and took no second job
+    assert signal.getsignal(signal.SIGTERM) is before  # handlers restored

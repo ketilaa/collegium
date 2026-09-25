@@ -95,6 +95,9 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
+    # On a stop or recreate the worker finishes its current job first; model
+    # jobs run for minutes, and a job cut off loses its work and an attempt.
+    stop_grace_period: 20m
     depends_on:
       logins:
         condition: service_completed_successfully

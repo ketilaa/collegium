@@ -814,3 +814,13 @@ Applied retroactively: the one affected observation (the tweet about a
 Sanders AI bill) had already been researched; its hypothesis goes through
 the Skeptic's review like any other and cannot be accepted on a single
 site.
+
+## 2026-09-25 · The worker stops gracefully
+
+Recreating the worker for a rebuild cut off a 13-minute scout and two other
+jobs: each lost its work and an attempt. The worker runs as PID 1, which
+ignores SIGTERM without a handler, so Docker waited 10 seconds and killed
+it. Now SIGTERM or SIGINT makes the worker take no new job, finish the one
+it is running, and exit; Compose gives it `stop_grace_period: 20m`, longer
+than any job. A job that still runs past that is taken over when stale, as
+before.

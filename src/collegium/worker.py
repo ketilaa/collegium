@@ -6,7 +6,8 @@ the job's completion in one transaction.
 """
 
 import logging
-import time
+import signal
+import threading
 import traceback
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -87,13 +88,32 @@ def run_once(ctx: Context, kinds: tuple[str, ...] | None = None) -> bool:
 
 def run_forever(ctx: Context, hours: WorkingHours | None = None, idle_seconds: float = 5) -> None:
     """Process jobs, but start new ones only within working hours, except
-    the owner's questions, which are answered at any hour."""
-    if hours is not None:
-        log.info("working hours: %s", hours.describe())
-    while True:
-        closed = hours is not None and not hours.is_open()
-        if not run_once(ctx, ANY_HOUR if closed else None):
-            time.sleep(idle_seconds)
+    the owner's questions, which are answered at any hour.
+
+    Stops gracefully: on SIGTERM (a container stop or recreate) or SIGINT it
+    takes no new job, finishes the one it is running, and returns. A job
+    cut off halfway would lose its work and one of its attempts, and model
+    jobs run for minutes, so Compose gives the worker a long grace period.
+    """
+    stopping = threading.Event()
+
+    def stop(signum, frame) -> None:
+        if not stopping.is_set():
+            log.info("%s: stopping after the current job", signal.Signals(signum).name)
+        stopping.set()
+
+    previous = {s: signal.signal(s, stop) for s in (signal.SIGTERM, signal.SIGINT)}
+    try:
+        if hours is not None:
+            log.info("working hours: %s", hours.describe())
+        while not stopping.is_set():
+            closed = hours is not None and not hours.is_open()
+            if not run_once(ctx, ANY_HOUR if closed else None):
+                stopping.wait(idle_seconds)
+        log.info("stopped")
+    finally:
+        for s, handler in previous.items():
+            signal.signal(s, handler)
 
 
 def drain(ctx: Context, limit: int = 1000) -> int:
