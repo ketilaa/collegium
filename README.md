@@ -97,10 +97,10 @@ and prunes backups older than 30 days. Keep the directory somewhere that is
 itself backed up, outside the repository.
 
 ```sh
-docker compose up -d backup                          # scheduled backups
-docker compose run --rm backup sh /db/backup.sh      # one now
-docker compose run --rm backup sh /db/restore.sh /backups/collegium-<stamp>.dump
-                                                     # restore into collegium_restored
+docker compose up -d backup                                 # scheduled backups
+docker compose run --rm --no-deps backup sh /db/backup.sh   # one now
+docker compose run --rm --no-deps backup sh /db/restore.sh /backups/collegium-<stamp>.dump
+                                                            # restore into collegium_restored
 ```
 
 A restore never overwrites the live database; check the restored copy, then
