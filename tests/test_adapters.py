@@ -414,8 +414,11 @@ def test_every_adapter_says_who_it_is():
     MoltbookDiscovery(transport=t).discover("q", 1)
     TavilyProvider("key", transport=t).discover("q", 1)
     with contextlib.suppress(Exception):  # not a feed; only the request matters
-        FeedReader(transport=t).crawl("https://feed.example/rss", 1)
-    assert set(agents) == {USER_AGENT} and len(agents) == 5
+        FeedReader(transport=t, resolver=lambda host: ["93.184.216.34"]).crawl(
+            "https://feed.example/rss", 1
+        )
+    # The feed reader asks for robots.txt first, so six requests from five adapters.
+    assert set(agents) == {USER_AGENT} and len(agents) == 6
     MoltbookClient("key", transport=t)._client.get("/x")
     assert agents[-1].startswith("Collegium/0.1 (+https://github.com/ketilaa/collegium;")
 

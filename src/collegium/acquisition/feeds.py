@@ -6,6 +6,8 @@ then opens with the article itself, so it is not thin and needs no paid
 extraction to be judged and quoted. Feeds are fetched as they are,
 with no query, so what is sent out is only the feed's own URL. XML from
 outside is parsed with defusedxml, which refuses entity-expansion attacks.
+Feeds are fetched like pages (`fetching.SafeFetcher`): an approved feed
+that redirects into the organization is refused, and robots.txt is obeyed.
 """
 
 import html
@@ -15,13 +17,15 @@ import httpx
 from defusedxml import ElementTree
 
 from collegium.acquisition import ENRICHED_SNIPPET_CHARS, SearchResult
-from collegium.identity import USER_AGENT
+from collegium.acquisition.fetching import Resolver, SafeFetcher, resolve
 
 _TAGS = re.compile(r"<[^>]+>")
 ATOM = "{http://www.w3.org/2005/Atom}"
 CONTENT = "{http://purl.org/rss/1.0/modules/content/}encoded"
 # As much of the article as an enriched lead gets from its page.
 LEAD_CHARS = ENRICHED_SNIPPET_CHARS
+# Feeds that carry whole articles are large (METR's is about 9 MB).
+FEED_MAX_BYTES = 20_000_000
 
 
 class FeedError(ValueError):
@@ -33,18 +37,19 @@ class FeedReader:
     # Feed summaries are often a line or nothing; enrich like other thin leads.
     thin_leads = True
 
-    def __init__(self, *, timeout: float = 30, transport: httpx.BaseTransport | None = None):
-        self._client = httpx.Client(
-            timeout=timeout,
-            transport=transport,
-            follow_redirects=True,
-            headers={"User-Agent": USER_AGENT},
-        )
+    def __init__(
+        self,
+        *,
+        timeout: float = 30,
+        transport: httpx.BaseTransport | None = None,
+        resolver: Resolver = resolve,
+    ):
+        self._fetcher = SafeFetcher(timeout=timeout, transport=transport, resolver=resolver)
 
     def crawl(self, url: str, max_items: int) -> list[SearchResult]:
-        response = self._client.get(url)
-        response.raise_for_status()
-        return parse_feed(response.content)[:max_items]
+        # Any content type: feeds are often served as text/html or worse.
+        _, _, body = self._fetcher.fetch(url, None, FEED_MAX_BYTES)
+        return parse_feed(body)[:max_items]
 
 
 # An & that does not start an entity or character reference. Feeds are

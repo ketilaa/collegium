@@ -1056,3 +1056,25 @@ unchanged; `pg_restore` reads either. On the live instance backups go to
 `~/.collegium/backups` (`COLLEGIUM_BACKUP_DIR`), outside the repository.
 One-off `run` commands for `backup` and `logins` need `--no-deps`, or they
 run `migrate` first.
+
+## 2026-09-25 · Security follow-ups: feeds fetched safely, no root, pinned images
+
+The owner chose three of the low findings from the first push's reviews:
+
+- **Feeds are fetched like pages (SEC-9).** The protected fetch (only
+  http(s) on the usual ports, only public addresses, checked at every
+  redirect, robots.txt obeyed, a size cap) moved from `web.py` into
+  `acquisition/fetching.py` (`SafeFetcher`), used by the web reader and the
+  feed reader alike. An approved feed that later redirects into the
+  organization is refused. Feeds obey robots.txt too, as the README
+  promises site owners; all 22 approved feeds were still readable. Feeds
+  get their own cap, 20 MB (METR's feed carries whole articles, about
+  9 MB), and any content type, since feeds are often served as text/html.
+- **The services run as a system user without a shell (SEC-11)**, uid
+  10001; the code and environment in `/app` stay owned by root.
+- **Every image is pinned by digest (SEC-10)**, as `tag@sha256:...`, the
+  tag kept for readers: the digests of the images that were running and
+  tested. SearXNG moves from `latest` to its version tag. To update an
+  image: pull the new tag, test it, replace tag and digest.
+
+Still deferred: SEC-8 (DNS rebinding), SEC-12, SEC-14 and SEC-16.

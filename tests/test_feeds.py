@@ -13,6 +13,7 @@ from defusedxml import EntitiesForbidden
 from collegium import jobs, worker
 from collegium.acquisition import THIN_SNIPPET_CHARS, Acquisition, SearchResult
 from collegium.acquisition.feeds import LEAD_CHARS, FeedError, FeedReader, parse_feed
+from collegium.acquisition.fetching import Refused
 from collegium.roles.base import SearchPlan
 from collegium.roles.scout import ProposedObservation, ScoutReport
 
@@ -126,16 +127,63 @@ def test_entity_expansion_is_refused():
         parse_feed(bomb)
 
 
+PUBLIC = {"lab.example": ["93.184.216.34"]}
+
+
+def reader(handler, table=None):
+    return FeedReader(
+        transport=httpx.MockTransport(handler), resolver=lambda host: (table or PUBLIC)[host]
+    )
+
+
 def test_feed_reader_fetches_with_its_own_user_agent():
     seen = []
 
     def handler(request):
         seen.append(request)
+        if request.url.path == "/robots.txt":
+            return httpx.Response(404)
         return httpx.Response(200, content=RSS)
 
-    items = FeedReader(transport=httpx.MockTransport(handler)).crawl("https://lab.example/rss", 5)
+    items = reader(handler).crawl("https://lab.example/rss", 5)
     assert [i.url for i in items] == ["https://lab.example/agents"]
     assert seen[0].headers["user-agent"].startswith("Collegium/")
+
+
+def test_a_feed_that_redirects_into_the_organization_is_refused():
+    requests = []
+
+    def handler(request):
+        requests.append(str(request.url))
+        if request.url.path == "/robots.txt":
+            return httpx.Response(404)
+        return httpx.Response(302, headers={"location": "http://localhost/admin"})
+
+    with pytest.raises(Refused):
+        reader(handler, {**PUBLIC, "localhost": ["127.0.0.1"]}).crawl("https://lab.example/rss", 5)
+    assert not any("localhost" in r for r in requests)
+
+
+def test_a_feed_on_a_non_public_address_is_not_fetched():
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, content=RSS)
+
+    with pytest.raises(Refused):
+        reader(handler, {"lab.example": ["10.0.0.5"]}).crawl("https://lab.example/rss", 5)
+    assert requests == []
+
+
+def test_a_feed_disallowed_by_robots_txt_is_not_read():
+    def handler(request):
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text="User-agent: Collegium\nDisallow: /rss\n")
+        return httpx.Response(200, content=RSS)
+
+    with pytest.raises(Refused):
+        reader(handler).crawl("https://lab.example/rss", 5)
 
 
 class FakeCrawler:
@@ -303,3 +351,16 @@ def test_the_scout_reads_many_leads_in_batches_and_keeps_social_media_from_resea
     assert status == "proposed"  # recorded, but not investigated
     assert research.fetchone()["n"] == 0
     assert "(1 from social media kept from research)" in notes["notes"]
+
+
+def test_a_feed_with_whole_articles_may_be_larger_than_a_page():
+    padding = b"<!-- " + b"x" * 4_000_000 + b" -->"
+
+    def handler(request):
+        if request.url.path == "/robots.txt":
+            return httpx.Response(404)
+        return httpx.Response(200, content=RSS.replace(b"<rss", padding + b"<rss", 1))
+
+    assert [i.url for i in reader(handler).crawl("https://lab.example/rss", 5)] == [
+        "https://lab.example/agents"
+    ]
