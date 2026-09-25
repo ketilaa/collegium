@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status %}
+{% block title %}Ask{% endblock %}
+{% block content %}
+<h1>Ask the organization</h1>
+<p class="lede">Answered from memory only, with every statement traced to what the organization holds. What memory cannot answer becomes a gap the Strategist sees. Answers come at any hour, usually within a minute or two.</p>
+
+<form method="post" action="/ask" class="card form ask">
+  <label>Your question
+    <textarea name="question" rows="3" required placeholder="What do we know about how AI changes hiring of junior developers?"></textarea></label>
+  {% if domains %}
+  <label>About
+    <select name="domain">
+      <option value="">Everything the organization knows</option>
+      {% for d in domains %}<option value="{{ d.slug }}">{{ d.name }}</option>{% endfor %}
+    </select></label>
+  {% endif %}
+  <button type="submit">Ask</button>
+</form>
+
+<h2>Earlier questions <span class="count">{{ questions|length }}</span></h2>
+{% for q in questions %}
+  <article class="card">
+    <a href="/questions/{{ q.id }}"><strong>{{ q.text }}</strong></a>
+    <div class="meta">{{ status(q.status) }} · {{ q.created_at|local }}{% if q.domains %} · {{ q.domains|join(", ") }}{% endif %}</div>
+    {% if q.answer %}<p class="prose clamp">{{ q.answer }}</p>{% endif %}
+  </article>
+{% else %}
+  <p class="empty">No questions yet.</p>
+{% endfor %}
+{% endblock %}

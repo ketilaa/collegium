@@ -66,6 +66,13 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("goals", help="the organization's goals")
     p.add_argument("--all", action="store_true", help="include achieved and abandoned")
 
+    p = sub.add_parser("ask", help="ask the organization; answered from memory (owner)")
+    p.add_argument("question")
+    p.add_argument("--domain", help="the domain the question is about, if one")
+
+    p = sub.add_parser("questions", help="the owner's questions and their answers")
+    p.add_argument("--limit", type=int, default=10)
+
     p = sub.add_parser("mission", help="show the missions, or set one (owner)")
     p.add_argument("statement", nargs="?", help="the new mission; omit to show")
     p.add_argument("--domain", help="a domain's mission instead of the organization's")
@@ -295,6 +302,28 @@ def _goals(args, settings: Settings) -> None:
         )
 
 
+def _ask(args, settings: Settings) -> None:
+    with _board(settings).acting_as("owner") as conn:
+        question_id = owner.ask(conn, args.question, args.domain)
+    print(f"asked {str(question_id)[:8]}; see `collegium questions` once the worker has answered")
+
+
+def _questions(args, settings: Settings) -> None:
+    with _reader(settings).reading() as conn:
+        rows = board.questions(conn, args.limit)
+        details = {q["id"]: board.question_detail(conn, q["id"]) for q in rows}
+    for q in rows:
+        asked = f"{_local(q['created_at']):%m-%d %H:%M}"
+        print(f"{str(q['id'])[:8]}  {q['status']:10} {asked}  {q['text']}")
+        if q["answer"]:
+            print(f"    {q['answer']}")
+        for c in details[q["id"]]["cites"]:
+            print(f"    {c['number']} {c['kind']}: {c['text']}")
+        if q["missing"] and q["status"] == "answered":
+            print(f"    Missing: {q['missing']}")
+        print()
+
+
 def _mission(args, settings: Settings) -> None:
     if args.statement:
         with _board(settings).acting_as("owner") as conn:
@@ -504,6 +533,8 @@ COMMANDS = {
     "goals": _goals,
     "programs": _programs,
     "mission": _mission,
+    "ask": _ask,
+    "questions": _questions,
     "decisions": _decisions,
     "approve": lambda args, settings: _resolve_decision(args, settings, "approved"),
     "reject": lambda args, settings: _resolve_decision(args, settings, "rejected"),

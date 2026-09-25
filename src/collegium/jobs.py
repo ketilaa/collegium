@@ -43,8 +43,9 @@ def enqueue(
     ).fetchone()["id"]
 
 
-def claim(conn: Connection) -> Job | None:
-    """Take the next due job, or None. Safe with several workers.
+def claim(conn: Connection, kinds: tuple[str, ...] | None = None) -> Job | None:
+    """Take the next due job, or None; only of these kinds, if given. Safe
+    with several workers.
 
     A job still 'running' after STALE_AFTER is assumed to belong to a worker
     that died, and is taken over.
@@ -52,12 +53,13 @@ def claim(conn: Connection) -> Job | None:
     row = conn.execute(
         "UPDATE jobs SET status = 'running', attempts = attempts + 1, started_at = now() "
         "WHERE id = (SELECT id FROM jobs "
-        "            WHERE (status = 'pending' AND run_after <= now()) "
+        "            WHERE ((status = 'pending' AND run_after <= now()) "
         "               OR (status = 'running' AND started_at < now() - %s "
-        "                   AND attempts < max_attempts) "
+        "                   AND attempts < max_attempts)) "
+        "              AND (%s::text[] IS NULL OR kind = ANY(%s::text[])) "
         "            ORDER BY priority, run_after FOR UPDATE SKIP LOCKED LIMIT 1) "
         "RETURNING id, kind, payload, attempts, max_attempts",
-        (STALE_AFTER,),
+        (STALE_AFTER, kinds and list(kinds), kinds and list(kinds)),
     ).fetchone()
     return Job(**row) if row else None
 

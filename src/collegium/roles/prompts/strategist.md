@@ -30,6 +30,8 @@ Return a plan:
   direction worth sustained attention that no program covers. The owner
   decides whether it opens; propose one rarely.
 
+Questions the owner asked that memory could not answer are gaps too, and
+usually worth a goal: they show what the owner wants to know.
 Serve the missions: choose goals that bring the organization closer to
 what the owner says it is for, and let work that does not serve them wait.
 Prefer closing gaps over opening new questions, and depth on what matters

@@ -1,0 +1,29 @@
+{% from "_macros.html" import status %}
+{% if request.headers.get("hx-request") %}<div id="answer"{% if question.status == "pending" %} hx-get="/questions/{{ question.id }}" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>{% endif %}
+{% if question.status == "pending" %}
+  <p class="callout">The Researcher is looking through memory…</p>
+{% else %}
+  <section class="card answer-{{ question.status }}">
+    <div class="meta">{{ status(question.status) }} · {{ question.answered_at|local }}{% if question.model %} · {{ question.model }}{% endif %}</div>
+    <p class="prose answer">{{ question.answer }}</p>
+    {% if question.missing and question.missing != question.text %}<p class="resolution"><strong>Memory lacks:</strong> {{ question.missing }}</p>{% endif %}
+    {% if question.status == "unanswered" %}<p class="meta">This is now a gap the Strategist sees when it next plans.</p>{% endif %}
+  </section>
+  {% if cites %}
+  <h2>Sources in memory</h2>
+  <ol class="plain">
+    {% for c in cites %}
+      <li><span class="prio">{{ c.number }}</span>
+        {% if c.kind == "hypothesis" %}{{ status(c.status) }} <a href="/hypotheses/{{ c.id }}">{{ c.text }}</a>
+        {% elif c.kind == "observation" %}<a href="/observations/{{ c.id }}">{{ c.text }}</a>
+        {% elif c.kind == "evidence" %}{{ c.text }}
+          {% if c.excerpt %}<blockquote>{{ c.excerpt }}</blockquote>{% endif %}
+          {% if c.bears_on_kind == "hypothesis" %}<div class="meta">Evidence on <a href="/hypotheses/{{ c.bears_on }}">a hypothesis</a></div>
+          {% elif c.bears_on_kind == "observation" %}<div class="meta">Evidence for <a href="/observations/{{ c.bears_on }}">an observation</a></div>{% endif %}
+        {% else %}<span class="kind">{{ c.kind }}</span> {{ c.text }}{% endif %}
+      </li>
+    {% endfor %}
+  </ol>
+  {% endif %}
+{% endif %}
+{% if request.headers.get("hx-request") %}</div>{% endif %}

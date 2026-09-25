@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Question{% endblock %}
+{% block content %}
+<p class="crumb"><a href="/ask">Ask</a></p>
+<h1 class="claim">{{ question.text }}</h1>
+<p class="meta">Asked {{ question.created_at|local }}</p>
+<div id="answer"{% if question.status == "pending" %} hx-get="/questions/{{ question.id }}" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
+  {% include "_question.html" %}
+</div>
+{% endblock %}

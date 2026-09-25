@@ -23,10 +23,16 @@ from collegium.roles.base import Context
 log = logging.getLogger(__name__)
 
 
-def run_once(ctx: Context) -> bool:
-    """Process one job. Returns False when there was nothing to do."""
+# Jobs taken at any hour: the owner is waiting for them, and they make no
+# external calls.
+ANY_HOUR = ("ask",)
+
+
+def run_once(ctx: Context, kinds: tuple[str, ...] | None = None) -> bool:
+    """Process one job (only of these kinds, if given). Returns False when
+    there was nothing to do."""
     with ctx.db.reading() as conn:
-        job = jobs.claim(conn)
+        job = jobs.claim(conn, kinds)
     if job is None:
         return False
 
@@ -80,15 +86,13 @@ def run_once(ctx: Context) -> bool:
 
 
 def run_forever(ctx: Context, hours: WorkingHours | None = None, idle_seconds: float = 5) -> None:
-    """Process jobs, but start new ones only within working hours."""
+    """Process jobs, but start new ones only within working hours, except
+    the owner's questions, which are answered at any hour."""
     if hours is not None:
         log.info("working hours: %s", hours.describe())
     while True:
-        if hours is not None and not hours.is_open():
-            wait = (hours.next_opening() - hours.local()).total_seconds()
-            time.sleep(min(max(wait, 1), 300))
-            continue
-        if not run_once(ctx):
+        closed = hours is not None and not hours.is_open()
+        if not run_once(ctx, ANY_HOUR if closed else None):
             time.sleep(idle_seconds)
 
 

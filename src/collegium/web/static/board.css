@@ -224,3 +224,11 @@ li.row form.inline { margin: 0; }
 .mission-statement { font-family: var(--serif); font-size: 1.2rem; line-height: 1.45; margin: 0 0 0.35rem; max-width: 70ch; }
 .mission p.meta { margin: 0.15rem 0; }
 details > summary.meta { cursor: pointer; margin-top: 0.5rem; }
+
+.ask select { max-width: 24rem; }
+.clamp { display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.answer { font-size: 1.05rem; }
+.answer-unanswered { border-left: 3px solid var(--warn); }
+.answer-answered { border-left: 3px solid var(--good); }
+.status-unanswered { background: var(--warn-bg); color: var(--warn); }
+.status-answered { background: var(--good-bg); color: var(--good); }

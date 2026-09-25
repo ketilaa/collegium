@@ -23,7 +23,9 @@ NOTABLE_MENTIONS = 2
 
 @dataclass(frozen=True)
 class Gap:
-    kind: str  # weak support | unresolved critiques | unstudied entity | not scouted
+    # weak support | unresolved critiques | unstudied entity | not scouted
+    # | unanswered question
+    kind: str
     about: UUID | None  # the hypothesis or entity concerned
     description: str
 
@@ -75,6 +77,11 @@ def find_gaps(conn: Connection, domain_id: UUID) -> list[Gap]:
     if last is None or datetime.now(UTC) - last > STALE_AFTER:
         when = "never" if last is None else f"last on {last:%Y-%m-%d %H:%M}"
         gaps.append(Gap("not scouted", None, f"the domain was scouted {when}"))
+    for q in memory.unanswered_questions(conn, domain_id)[:3]:
+        lacking = (
+            f" Memory lacks: {q['missing']}" if q["missing"] and q["missing"] != q["text"] else ""
+        )
+        gaps.append(Gap("unanswered question", q["id"], f'the owner asked "{q["text"]}".{lacking}'))
     return gaps
 
 

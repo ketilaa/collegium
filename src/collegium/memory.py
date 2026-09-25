@@ -5,6 +5,7 @@ records who wrote what. Nothing here commits; callers own the transaction.
 """
 
 import hashlib
+import re
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any
@@ -602,6 +603,138 @@ def refined_hypotheses(conn: Connection, hypothesis_id: UUID) -> list[UUID]:
         (hypothesis_id,),
     )
     return [r["object_id"] for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Questions from the owner
+# ---------------------------------------------------------------------------
+
+
+def add_question(conn: Connection, text: str, domain_id: UUID | None = None) -> UUID:
+    question_id = _insert_node(conn, "question", "questions", {"text": text})
+    if domain_id is not None:
+        tag_domains(conn, question_id, [domain_id])
+    return question_id
+
+
+def question(conn: Connection, question_id: UUID) -> dict | None:
+    return conn.execute("SELECT * FROM questions WHERE id = %s", (question_id,)).fetchone()
+
+
+def answer_question(
+    conn: Connection,
+    question_id: UUID,
+    *,
+    answer: str,
+    answered: bool,
+    missing: str | None,
+    cites: list[UUID],
+) -> None:
+    conn.execute(
+        "UPDATE questions SET status = %s, answer = %s, missing = %s, answered_at = now() "
+        "WHERE id = %s",
+        ("answered" if answered else "unanswered", answer, missing, question_id),
+    )
+    # The answer refers to its sources as [1], [2], ... in this order.
+    for n, node_id in enumerate(dict.fromkeys(cites), 1):
+        add_relationship(
+            conn, subject_id=question_id, predicate="cites", object_id=node_id, rationale=f"[{n}]"
+        )
+
+
+def unanswered_questions(conn: Connection, domain_id: UUID, days: int = 14) -> list[dict]:
+    """Recent questions memory could not answer, asked about this domain or
+    about no domain in particular."""
+    return conn.execute(
+        "SELECT q.*, n.created_at FROM questions q JOIN nodes n ON n.id = q.id "
+        "WHERE q.status = 'unanswered' AND n.created_at > now() - make_interval(days => %s) "
+        "AND (NOT EXISTS (SELECT 1 FROM node_domains d WHERE d.node_id = q.id) "
+        "     OR EXISTS (SELECT 1 FROM node_domains d WHERE d.node_id = q.id "
+        "                AND d.domain_id = %s)) "
+        "ORDER BY n.created_at DESC",
+        (days, domain_id),
+    ).fetchall()
+
+
+def recall(conn: Connection, terms: list[str], domain_id: UUID | None = None) -> dict:
+    """What memory holds about these search terms, best matches first.
+
+    Full-text search: statements and summaries are English (the working
+    language); excerpts and names are matched word for word, since they
+    keep the source's language. A record matches a term when it has all the
+    term's words, in any order; any term will do, and ranking puts records
+    matching more of them first.
+    """
+    terms = _search_terms(terms)
+    if not terms:
+        return {"hypotheses": [], "observations": [], "evidence": [], "entities": []}
+    in_domain = (
+        "AND (%(domain)s::uuid IS NULL OR EXISTS (SELECT 1 FROM node_domains d "
+        "WHERE d.node_id = {id} AND d.domain_id = %(domain)s))"
+    )
+    params: dict[str, Any] = {"domain": domain_id} | {f"t{i}": t for i, t in enumerate(terms)}
+
+    def any_term(config: str) -> str:
+        return (
+            "("
+            + " || ".join(f"plainto_tsquery('{config}', %(t{i})s)" for i in range(len(terms)))
+            + ")"
+        )
+
+    english, simple = any_term("english"), any_term("simple")
+    return {
+        "hypotheses": conn.execute(
+            "SELECT h.id, h.statement, h.status, c.confidence, "
+            f"ts_rank(to_tsvector('english', h.statement || ' ' || coalesce(h.rationale, '')), "
+            f"{english}) AS rank FROM hypotheses h "
+            "LEFT JOIN current_confidence c ON c.target_id = h.id "
+            f"WHERE to_tsvector('english', h.statement || ' ' || coalesce(h.rationale, '')) "
+            f"@@ {english} {in_domain.format(id='h.id')} "
+            "ORDER BY h.status IN ('rejected', 'superseded', 'retired'), rank DESC LIMIT 8",
+            params,
+        ).fetchall(),
+        "observations": conn.execute(
+            "SELECT o.id, o.statement, o.status, n.created_at FROM observations o "
+            "JOIN nodes n ON n.id = o.id WHERE to_tsvector('english', o.statement || ' ' || "
+            f"coalesce(o.recommendation, '')) @@ {english} {in_domain.format(id='o.id')} "
+            "ORDER BY ts_rank(to_tsvector('english', o.statement), "
+            f"{english}) DESC, n.created_at DESC LIMIT 6",
+            params,
+        ).fetchall(),
+        # Each piece of evidence once, with the first record it bears on
+        # (hypotheses before critiques and observations).
+        "evidence": conn.execute(
+            "SELECT * FROM (SELECT DISTINCT ON (e.id) e.id, e.summary, e.excerpt, "
+            "e.reliability, l.stance, l.target_id, l.target_kind, s.uri, "
+            f"ts_rank(to_tsvector('english', e.summary), {english}) AS rank FROM evidence e "
+            "JOIN evidence_links l ON l.evidence_id = e.id AND l.retracted_at IS NULL "
+            "LEFT JOIN sources s ON s.id = e.source_id "
+            f"WHERE (to_tsvector('english', e.summary) @@ {english} "
+            f"OR to_tsvector('simple', e.excerpt) @@ {simple}) "
+            f"{in_domain.format(id='e.id')} "
+            "ORDER BY e.id, l.target_kind <> 'hypothesis', l.created_at) found "
+            "ORDER BY rank DESC LIMIT 6",
+            params,
+        ).fetchall(),
+        "entities": conn.execute(
+            "SELECT e.id, e.name, e.entity_type, count(r.id) AS mentions FROM entities e "
+            "LEFT JOIN relationships r ON r.object_id = e.id AND r.predicate = 'mentions' "
+            "AND r.retracted_at IS NULL "
+            f"WHERE e.status = 'active' AND to_tsvector('simple', e.name) @@ {simple} "
+            "GROUP BY e.id ORDER BY mentions DESC LIMIT 8",
+            params,
+        ).fetchall(),
+    }
+
+
+def _search_terms(terms: list[str]) -> list[str]:
+    """Search terms as plain words: quotes and operators removed."""
+    cleaned = []
+    for t in terms:
+        t = " ".join(re.sub(r"[\"'()|&!:*<>-]", " ", t).split())
+        if t and t.lower() not in ("or", "and", "not"):
+            cleaned.append(t)
+    return cleaned[:12]
 
 
 # ---------------------------------------------------------------------------

@@ -232,6 +232,46 @@ def feeds(conn: Connection) -> list[dict]:
     ).fetchall()
 
 
+def questions(conn: Connection, limit: int = 30) -> list[dict]:
+    return conn.execute(
+        "SELECT q.*, n.created_at, (SELECT array_agg(d.slug) FROM node_domains nd "
+        "JOIN domains d ON d.id = nd.domain_id WHERE nd.node_id = q.id) AS domains "
+        "FROM questions q JOIN nodes n ON n.id = q.id ORDER BY n.created_at DESC LIMIT %s",
+        (limit,),
+    ).fetchall()
+
+
+def question_detail(conn: Connection, question_id: UUID) -> dict | None:
+    """A question, its answer, and the records the answer cites, each with
+    where to read more: evidence points to what it bears on."""
+    q = conn.execute(
+        "SELECT q.*, n.created_at, r.model, r.role_version FROM questions q "
+        "JOIN nodes n ON n.id = q.id LEFT JOIN runs r ON r.id = ("
+        " SELECT l.run_id FROM audit_log l WHERE l.table_name = 'questions' "
+        " AND l.row_id = q.id AND l.action = 'UPDATE' ORDER BY l.at DESC LIMIT 1) "
+        "WHERE q.id = %s",
+        (question_id,),
+    ).fetchone()
+    if q is None:
+        return None
+    cites = conn.execute(
+        "SELECT r.rationale AS number, t.id, t.kind, "
+        "coalesce(h.statement, o.statement, e.summary, n.name) AS text, "
+        "coalesce(h.status, o.status, n.status) AS status, e.excerpt, "
+        "(SELECT l.target_id FROM evidence_links l WHERE l.evidence_id = e.id "
+        " AND l.retracted_at IS NULL LIMIT 1) AS bears_on, "
+        "(SELECT l.target_kind FROM evidence_links l WHERE l.evidence_id = e.id "
+        " AND l.retracted_at IS NULL LIMIT 1) AS bears_on_kind "
+        "FROM relationships r JOIN nodes t ON t.id = r.object_id "
+        "LEFT JOIN hypotheses h ON h.id = t.id LEFT JOIN observations o ON o.id = t.id "
+        "LEFT JOIN evidence e ON e.id = t.id LEFT JOIN entities n ON n.id = t.id "
+        "WHERE r.subject_id = %s AND r.predicate = 'cites' AND r.retracted_at IS NULL "
+        "ORDER BY length(r.rationale), r.rationale",
+        (question_id,),
+    ).fetchall()
+    return {"question": q, "cites": cites}
+
+
 def missions(conn: Connection) -> dict:
     """The organization's mission and each domain's, each with its history
     (newest first; the first is current unless it was superseded)."""

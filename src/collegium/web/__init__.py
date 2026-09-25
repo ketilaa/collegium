@@ -136,6 +136,24 @@ def create_app(settings: Settings, database: Callable[[], Database], crawler=Non
     def contradictions(request: Request, conn: Reading):
         return page(request, "contradictions.html", **board.contradictions(conn))
 
+    @app.get("/ask", response_class=HTMLResponse)
+    def ask(request: Request, conn: Reading):
+        return page(
+            request,
+            "ask.html",
+            questions=board.questions(conn),
+            domains=[d for d in board.domains(conn) if d["status"] == "active"],
+        )
+
+    @app.get("/questions/{question_id}", response_class=HTMLResponse)
+    def question(request: Request, question_id: UUID, conn: Reading):
+        detail = board.question_detail(conn, question_id)
+        if detail is None:
+            raise HTTPException(404, "No such question")
+        # While the answer is pending, htmx asks for the fragment again.
+        name = "_question.html" if request.headers.get("hx-request") else "question.html"
+        return page(request, name, **detail)
+
     @app.get("/decisions", response_class=HTMLResponse)
     def decisions(request: Request, conn: Reading):
         return page(

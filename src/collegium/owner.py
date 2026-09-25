@@ -100,6 +100,17 @@ def set_mission(conn: Connection, statement: str, slug: str | None = None) -> UU
     return memory.set_mission(conn, statement, domain_id)
 
 
+def ask(conn: Connection, text: str, slug: str | None = None) -> UUID:
+    """A question for the organization, answered from memory at any hour."""
+    text = text.strip()
+    if not text:
+        raise OwnerError("Ask a question.")
+    domain_id = domain(conn, slug)["id"] if slug else None
+    question_id = memory.add_question(conn, text, domain_id)
+    jobs.enqueue(conn, "ask", {"question_id": question_id}, priority=1)
+    return question_id
+
+
 def add_domain(conn: Connection, slug: str, name: str, description: str | None = None) -> UUID:
     slug, name = slug.strip().lower(), name.strip()
     if not slug or not name:

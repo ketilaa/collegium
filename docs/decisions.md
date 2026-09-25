@@ -714,3 +714,35 @@ robots.txt declares `ai-input=yes, ai-train=no`. Its author
 sells the method the site writes about, so its claims about it (such as
 "25-66x productivity gains") are claims to be challenged, and reliability
 ceilings do not yet recognise a claimant's own site.
+
+## 2026-09-25 · Milestone 4, part 4: Ask the Organization
+
+As decided: answers come from memory only, cite what they use, run at any
+hour, and questions memory cannot answer become gaps for the Strategist.
+
+- **A question is a node** (migration 0010: node kind `question`, table
+  `questions`), asked by the owner through the board or `collegium ask`.
+  Its answer's sources are `cites` relationships whose rationale is the
+  source number ([1], [2], ...) used in the answer text.
+- **The Researcher answers** (`roles/answerer.py`, job `ask`, no searching).
+  The Historian stays deterministic. The model turns the question into
+  search terms (English, plus the question's own key words, since excerpts
+  keep their source's language); Postgres full-text search finds hypotheses,
+  observations, evidence and entities (English configuration for
+  statements and summaries, simple for excerpts and names; a term matches
+  when all its words occur, in any order); the model answers.
+- **Citations are structural.** Tried against the real model and a copy of
+  live memory: with a free-text answer and a separate citation list, the
+  14B model wrote good answers and cited nothing. The answer is now a list
+  of points, each requiring at least one source label; points citing no
+  record shown are dropped, and an answer with no points left is recorded
+  as unanswered ("Memory holds nothing on this yet."). The answer is
+  written in the question's language (named in the request, since the
+  model otherwise answered Norwegian questions in English), and each point
+  says how firmly it is held: accepted hypotheses as conclusions, others as
+  "we are investigating whether ...". The model still sometimes overstates
+  weak evidence; the answer page shows each source's kind and status.
+- **Any hour.** The worker takes `ask` jobs outside working hours
+  (`jobs.claim` with kinds) and queues them at priority 1.
+- **Gaps.** Unanswered questions from the last 14 days, about the domain
+  or about no domain, are gaps the Strategist sees ("unanswered question").
