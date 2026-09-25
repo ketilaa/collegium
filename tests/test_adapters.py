@@ -295,6 +295,24 @@ def test_blocked_search_engines_are_an_outage_not_an_empty_result():
     assert [lead.url for lead in leads] == ["https://hn.example"]
 
 
+def test_a_spent_budget_skips_the_paid_fallback_search_when_search_is_free():
+    from collegium.acquisition import Acquisition
+
+    class Free(FakeProvider):
+        name = "free"
+
+    class Paid(FakeProvider):
+        metered = True
+
+    free = Free({})
+    paid = Paid({"https://p.example": ("P", "paid result")})
+    acquisition = Acquisition(
+        {"searxng": free, "tavily": paid}, free, default="searxng", fallback_search="tavily"
+    ).for_run(lambda *a: None, budget=lambda: 0)
+    assert acquisition.discover("q", max_results=5) == []
+    assert paid.searches == []
+
+
 def test_searxng_is_asked_at_a_measured_pace(monkeypatch):
     from collegium.acquisition import searxng as module
 

@@ -208,9 +208,15 @@ class Acquisition:
                     raise
                 results = []
             if not results and not sources and self._fallback_search is not None:
-                results = self._discover_from(
-                    self._fallback_search, query, max_results, recent_days
-                )
+                try:
+                    results = self._discover_from(
+                        self._fallback_search, query, max_results, recent_days
+                    )
+                except BudgetExhausted:
+                    # With free search first, a spent budget only means no
+                    # paid second opinion: the work goes on with nothing.
+                    if self.paid_first:
+                        raise
             per_source.append(results)
         return interleave(per_source)
 

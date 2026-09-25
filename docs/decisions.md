@@ -969,3 +969,6 @@ budget.
   "forum"), but observations from them are still researched
   (`NOT_WORTH_RESEARCH` is the old list). LinkedIn counts as social media
   (ceiling 0.3).
+- With free search first, a spent budget only skips the paid fallback
+  search; it no longer defers the job to the next day. The 19 reviews and
+  resolutions deferred that way were released by hand.
