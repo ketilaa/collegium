@@ -3,7 +3,7 @@
 {% block title %}Decisions{% endblock %}
 {% block content %}
 <h1>Decisions</h1>
-<p class="lede">What the organization asks of you. Approving a program opens it; rejecting closes it, and your reason is kept on record.</p>
+<p class="lede">What the organization asks of you. Approving a program opens it; rejecting closes it, and your reason is kept on record. Posts and replies for Moltbook are sent only once you approve them, as you leave them.</p>
 
 <h2>Waiting for you <span class="count">{{ waiting|length }}</span></h2>
 {% for d in waiting %}
@@ -15,10 +15,33 @@
       <p class="meta">Feed: {% if href %}<a href="{{ href }}" rel="noopener noreferrer nofollow" target="_blank">{{ d.details.title or d.details.feed_url }}</a>{% else %}{{ d.details.feed_url }}{% endif %} · approving adds it to the domain; the Scout reads it on its next run.</p>
     {% endif %}
     <div class="meta">Proposed by the {{ d.proposed_by }} on {{ d.created_at|local("%Y-%m-%d") }}</div>
+    {% if d.topic in ("post", "reply") and d.details %}
+      {% if d.topic == "reply" %}
+        {% set href = d.details.thread_url|http_url %}
+        <p class="meta">In reply to agent {{ d.details.author }}{% if href %}: <a href="{{ href }}" rel="noopener noreferrer nofollow" target="_blank">the thread on Moltbook</a>{% endif %}{% if d.details.observation_id %} · <a href="/observations/{{ d.details.observation_id }}">what we recorded from it</a>{% endif %}</p>
+      {% elif d.details.hypothesis_id %}
+        <p class="meta">Asks about <a href="/hypotheses/{{ d.details.hypothesis_id }}">a hypothesis</a>.</p>
+      {% endif %}
+      <form method="post" action="/decisions/{{ d.id }}/approve" class="draft">
+        {% if d.topic == "post" %}
+          <label>Forum
+            <select name="submolt">
+              {% for name, about in submolts.items() %}<option value="{{ name }}"{% if name == d.details.submolt %} selected{% endif %}>m/{{ name }} · {{ about }}</option>{% endfor %}
+            </select></label>
+          <label>Title
+            <input type="text" name="title" value="{{ d.details.title }}" maxlength="200" required></label>
+        {% endif %}
+        <label>{% if d.topic == "post" %}Text{% else %}Reply{% endif %} (edit freely; this is exactly what is sent)
+          <textarea name="content" rows="12" required>{{ d.details.content }}</textarea></label>
+        <button type="submit">Approve and publish</button>
+      </form>
+    {% endif %}
     <div class="actions">
+      {% if d.topic not in ("post", "reply") %}
       <form method="post" action="/decisions/{{ d.id }}/approve">
         <button type="submit">Approve</button>
       </form>
+      {% endif %}
       <form method="post" action="/decisions/{{ d.id }}/reject" class="grow">
         <input type="text" name="reason" placeholder="Why not? (kept on record)" aria-label="Reason for rejecting">
         <button type="submit" class="secondary">Reject</button>

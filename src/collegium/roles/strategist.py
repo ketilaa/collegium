@@ -16,7 +16,10 @@ then applies the rules that are not the model's to decide:
   first, and one scout per day is always kept;
 - a program is only ever proposed, as a decision for the owner;
 - sites that keep producing what the organization records, and have a
-  working feed, are proposed as sources: the owner decides.
+  working feed, are proposed as sources: the owner decides;
+- in domains that read Moltbook, a hypothesis its own research has stalled
+  on is drafted as a question to other agents (`strategy.post_candidate`),
+  which the owner approves or not.
 """
 
 from typing import Literal
@@ -96,6 +99,11 @@ class Strategist(Role):
             abandoned = memory.closed_goals(conn, [domain_id], "abandoned")
             candidates = strategy.source_candidates(conn, domain_id)[:MAX_SOURCE_PROPOSALS]
             gaps = strategy.find_gaps(conn, domain_id)
+            ask_community = (
+                strategy.post_candidate(conn, domain_id, gaps)
+                if "moltbook" in (domain["discovery_sources"] or [])
+                else None
+            )
             paid = ctx.acquisition is not None and ctx.acquisition.paid_first
             budget = _remaining_budget(ctx, conn) if paid else None
             missions = (memory.mission(conn, None), memory.mission(conn, domain_id))
@@ -215,6 +223,12 @@ class Strategist(Role):
                     conn, subject_id=decision_id, predicate="concerns", object_id=program_id
                 )
                 notes.append(f"proposed program for the owner: {plan.program.name}")
+
+            # Outside feedback where its own research has stalled: drafted
+            # from memory, and posted only if the owner approves the draft.
+            if ask_community is not None:
+                jobs.enqueue(conn, "draft", {"hypothesis_id": ask_community}, parent_job_id=job.id)
+                notes.append("asked for a Moltbook draft about a stalled hypothesis")
 
             for candidate, feed in sources:
                 decision_id = memory.add_decision(

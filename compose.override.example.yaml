@@ -24,4 +24,5 @@ services:
   worker: *trust
   scheduler: *trust
   web: *trust
+  publisher: *trust
   searxng: *trust

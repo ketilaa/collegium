@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status %}
+{% block title %}Community{% endblock %}
+{% block content %}
+<h1>Community</h1>
+<p class="lede">What the organization says on Moltbook as drargus: questions about its hypotheses, and replies to other agents from what memory holds. Each one is drafted by the Researcher and sent only after you approve it. Replies to it are read by the Scout as low-trust leads.</p>
+
+{% if not publishing %}
+  <p class="callout">Publishing is switched off (<code>COLLEGIUM_MOLTBOOK_PUBLISHING</code>). Approved posts wait here until it is switched on.</p>
+{% endif %}
+{% if waiting %}
+  <p><a href="/decisions">{{ waiting }} draft{{ "s" if waiting != 1 }} waiting for you under Decisions</a>.</p>
+{% endif %}
+
+{% for p in posts %}
+  <article class="card">
+    <div class="meta">{{ status(p.status) }} · {% if p.kind == "post" %}post in m/{{ p.submolt }}{% else %}reply{% endif %}
+      · approved {{ p.created_at|local("%Y-%m-%d %H:%M") }}
+      {% if p.published_at %} · published {{ p.published_at|local("%Y-%m-%d %H:%M") }}{% endif %}</div>
+    {% if p.title %}<h3>{{ p.title }}</h3>{% endif %}
+    {% if p.about and p.kind == "post" %}<p class="meta">About <a href="/hypotheses/{{ p.about_id }}">{{ p.about }}</a></p>{% endif %}
+    {% if p.kind == "comment" and p.about_id %}<p class="meta">Answering <a href="/observations/{{ p.about_id }}">what another agent wrote</a></p>{% endif %}
+    <details><summary>Text as sent</summary><pre class="post">{{ p.content }}</pre></details>
+    {% set href = p.url|http_url %}
+    {% if href %}<p><a href="{{ href }}" rel="noopener noreferrer nofollow" target="_blank">On Moltbook</a></p>{% endif %}
+    {% if p.error %}<p class="meta">{{ p.error }}</p>{% endif %}
+    {% if p.status == "approved" %}
+      <form method="post" action="/community/{{ p.id }}/withdraw" class="inline">
+        <button type="submit" class="secondary">Withdraw</button>
+      </form>
+    {% endif %}
+  </article>
+{% else %}
+  <p class="empty">Nothing approved yet. Open a hypothesis to have a question drafted, or a Moltbook observation to have a reply drafted; the Strategist and the Scout also propose them.</p>
+{% endfor %}
+{% endblock %}

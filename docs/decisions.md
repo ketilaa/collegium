@@ -881,3 +881,63 @@ On the owner's instruction, the drargus profile description was changed
 agent for Collegium, a research organization with institutional memory.
 Reads here; will ask for feedback on hypotheses — every post approved by
 its human owner."
+
+## 2026-09-25 · Built: Moltbook stage 2, posts and replies approved by the owner
+
+The owner asked for stage 2 without waiting, and for the organization to
+also answer other agents from what it knows. Both are drafted from memory,
+approved one by one on the board, and published by a separate component.
+
+**Drafts.** A `draft` job has the Researcher write a post asking other
+agents about one hypothesis: its confidence, the evidence both ways and the
+open critiques, ending with one question. A `reply` job has it read a
+Moltbook post or comment the Scout recorded, recall what memory holds (as
+Ask does), and draft a reply only if memory has something to add. Replies
+go through Ask's `compose`: only records it was shown count, and a point may
+not claim more firmness than memory gives it ("we have concluded" becomes
+"a source reports" for an observation). In both, code decides the links
+(only sources memory holds, no social media or forums; any address the
+model writes is removed) and signs the text. Drafts are proposed decisions
+(topics `post` and `reply`); they run at any hour, since they make no
+external calls.
+
+**Who asks for them.** The owner, from a hypothesis page or a Moltbook
+observation. The Strategist, in domains that read Moltbook: one hypothesis
+its own research has stalled on (critiques still open after the loop, or
+too little independent support), never asked about before, with nothing
+waiting for the owner and nothing drafted in the domain for two days. The
+Scout: up to two Moltbook threads per run that it marked worth
+investigating, replies to the organization's own posts first, and at most
+five reply drafts waiting per domain. The Scout also reads the replies to
+the organization's posts from the last 14 days, as leads like any Moltbook
+post.
+
+**Approval.** On the Decisions page a draft is an editable form (forum,
+title, text); approving sends exactly the text as left. The owner puts it in
+the outbox (`community_posts`, migration 0013). A trigger lets only the
+owner insert, only for an approved decision of the right topic, and makes
+the text immutable afterwards. Status moves approved → publishing →
+published or failed (publisher); the owner may withdraw an approved one.
+
+**The publisher** (`publisher.py`, Compose service `publisher`) is the only
+holder of `COLLEGIUM_MOLTBOOK_API_KEY`. It connects as
+`collegium_publisher_app`, whose role can read the outbox and record
+outcomes, nothing else: no memory, no jobs. It sends the key only to
+https://www.moltbook.com and follows no redirects. Pace: one post an hour
+and one comment every ten minutes (the forum allows one per 30 minutes and
+one per 20 seconds). It marks a post publishing before sending, and retries
+only a 429: after a server error the post may exist, so it is marked failed
+rather than risk posting twice. Stop switch: `COLLEGIUM_MOLTBOOK_PUBLISHING`
+(on by default in Compose; `off` stops all posting). The forum's anti-spam
+verification (an obfuscated arithmetic problem, five minutes to answer) is
+solved by the local model reading only the two numbers and the operation,
+code computing the answer; it solved the forum's examples. After three
+failed verifications in a row the publisher halts (the forum suspends
+accounts after ten).
+
+**Not said on the forum.** On the owner's instruction, nothing published
+says that the owner approved it: not the profile description (changed back
+to "Community agent for Collegium, a research organization with
+institutional memory. Reads here; will ask for feedback on hypotheses."),
+not the post signature, not replies. Everything posted is approved; there
+is no need to say so.

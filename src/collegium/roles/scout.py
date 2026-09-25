@@ -1,13 +1,13 @@
 """The Scout: breadth-first exploration of a domain, producing observations."""
 
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from collegium import jobs, memory
+from collegium import community, jobs, memory
 from collegium.acquisition import SearchResult, injection_signals, interleave
 from collegium.dates import parse_date
 from collegium.db import Connection
@@ -24,6 +24,10 @@ from collegium.roles.base import (
 )
 from collegium.untrusted import fence, warning
 
+# Moltbook posts and comments the Researcher is asked to consider replying
+# to, per run, and at most this many drafts waiting for the owner.
+MAX_REPLY_DRAFTS = 2
+MAX_REPLIES_WAITING = 5
 # Leads per request to the model, and at most 5 observations from each.
 LEADS_PER_BATCH = 15
 # What the model is told about leads from weaker kinds of source.
@@ -109,6 +113,11 @@ class Scout(Role):
             recent = memory.recent_observations(conn, domain_id)
             feeds = memory.active_feeds(conn, domain_id)
             entities = memory.top_entities(conn, [domain_id])
+            posts = (
+                memory.published_posts(conn, domain_id)
+                if "moltbook" in (domain and domain["discovery_sources"] or [])
+                else []
+            )
         if domain is None:
             raise LookupError(f"domain {domain_id} not found")
 
@@ -123,6 +132,9 @@ class Scout(Role):
             raise NothingToWorkWith("no acquisition provider configured")
         searched, found = _search(ctx, plan.queries, domain["discovery_sources"])
         crawled, crawled_from, feed_errors = _crawl(ctx, feeds)
+        replies, replied_to = _replies(ctx, posts)
+        crawled += replies
+        crawled_from |= replied_to
         with ctx.db.reading() as conn:
             # Feeds repeat their items run after run; skip what is already known.
             seen = memory.known_source_uris(conn, [r.url for r in crawled])
@@ -157,6 +169,7 @@ class Scout(Role):
 
         def persist(conn: Connection) -> str:
             recorded = investigating = skipped = social = 0
+            conversations: list[tuple[bool, UUID]] = []  # (reply to us, observation)
             for g in grounded:
                 obs, result = g.proposal, g.result
                 if _key(obs.statement) in known:
@@ -204,17 +217,32 @@ class Scout(Role):
                 )
                 recorded += 1
                 social += obs.investigate and not _worth_research(g)
+                if obs.investigate and community.thread(result.url):
+                    conversations.append((result.url in replied_to, observation_id))
                 if _worth_research(g):
                     jobs.enqueue(
                         conn, "research", {"observation_id": observation_id}, parent_job_id=job.id
                     )
                     investigating += 1
+            # Discussions memory may have something to add to: replies to
+            # the organization's own posts first. Drafts go to the owner.
+            room = min(
+                MAX_REPLY_DRAFTS,
+                MAX_REPLIES_WAITING - memory.reply_decisions_waiting(conn, domain_id),
+            )
+            conversations.sort(key=lambda c: not c[0])
+            for _, observation_id in conversations[: max(room, 0)]:
+                jobs.enqueue(
+                    conn, "reply", {"observation_id": observation_id}, parent_job_id=job.id
+                )
             reasons = Counter(
                 "unsupported names" if why.startswith("unsupported") else why for why, _ in rejected
             )
             summary = ", ".join(f"{n} {why}" for why, n in reasons.items()) or "none"
             examples = "".join(f" [{why}] {statement[:90]}" for why, statement in rejected[:6])
             feed_note = f"; {len(crawled)} new feed items from {len(feeds)} feeds" if feeds else ""
+            if posts:
+                feed_note += f"; replies read on {len(posts)} of our Moltbook posts"
             if feed_errors:
                 feed_note += f" ({feed_errors} feeds failed)"
             return (
@@ -222,6 +250,12 @@ class Scout(Role):
                 f"batches; recorded {recorded} observations, "
                 f"{investigating} sent for research"
                 + (f" ({social} from social media kept from research)" if social else "")
+                + (
+                    f", {min(len(conversations), max(room, 0))} Moltbook threads to consider "
+                    "replying to"
+                    if conversations
+                    else ""
+                )
                 + f", {skipped} already known; rejected: {summary}.{examples}"
                 + flag_note(results)
             )
@@ -300,6 +334,29 @@ def _crawl(ctx: Context, feeds: list[dict]) -> tuple[list[SearchResult], dict[st
                 came_from[item.url] = {"feed": feed["url"]}
                 items.append(item)
     return items, came_from, errors
+
+
+# Replies read per post and run; older ones were read in earlier runs.
+MAX_REPLIES = 20
+
+
+def _replies(ctx: Context, posts: list[dict]) -> tuple[list[SearchResult], dict[str, dict]]:
+    """Other agents' replies to the organization's recent posts: low-trust
+    leads like any Moltbook post, noting which question they answer."""
+    items: list[SearchResult] = []
+    came_from: dict[str, dict] = {}
+    for post in posts:
+        try:
+            found = ctx.acquisition.replies("moltbook", post["external_id"], max_items=MAX_REPLIES)
+        except Exception:
+            continue
+        for item in found:
+            if item.url in came_from:
+                continue
+            about = f" (the question was about: {post['about']})" if post["about"] else ""
+            items.append(replace(item, title=f"{item.title}: {post['title']}{about}"))
+            came_from[item.url] = {"reply_to": post["url"]}
+    return items, came_from
 
 
 def _search(

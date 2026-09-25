@@ -19,6 +19,17 @@ class Settings:
     board_database_url: str | None = field(
         default_factory=lambda: _env("COLLEGIUM_BOARD_DATABASE_URL")
     )
+    # The Moltbook publisher connects as collegium_publisher_app: the outbox only.
+    publisher_database_url: str | None = field(
+        default_factory=lambda: _env("COLLEGIUM_PUBLISHER_DATABASE_URL")
+    )
+
+    # The community agent's key. Only the publisher is given it.
+    moltbook_api_key: str | None = field(default_factory=lambda: _env("COLLEGIUM_MOLTBOOK_API_KEY"))
+    # The stop switch: nothing is posted unless this is "on".
+    moltbook_publishing: bool = field(
+        default_factory=lambda: _env("COLLEGIUM_MOLTBOOK_PUBLISHING", "off") == "on"
+    )
 
     # Any OpenAI-compatible chat endpoint: Ollama, llama.cpp, vLLM.
     llm_base_url: str = field(

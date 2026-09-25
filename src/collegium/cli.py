@@ -6,7 +6,7 @@ from datetime import datetime
 
 import truststore
 
-from collegium import board, jobs, memory, owner, scheduler, worker
+from collegium import board, jobs, memory, owner, publisher, scheduler, worker
 from collegium.acquisition import acquisition_from_settings, discovery_source_names
 from collegium.acquisition.feeds import FeedReader
 from collegium.config import Settings, require
@@ -29,6 +29,8 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("web", help="serve the board (no login yet: keep it on localhost)")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)
+
+    sub.add_parser("publisher", help="publish the posts the owner approved on Moltbook")
 
     p = sub.add_parser("domain", help="manage research domains (owner)")
     dsub = p.add_subparsers(dest="action", required=True)
@@ -87,6 +89,15 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("decision", help="decision id or unique prefix")
     p.add_argument("--reason", help="kept as your upheld objection to the proposal")
 
+    p = sub.add_parser("draft", help="have a Moltbook post drafted about a hypothesis (owner)")
+    p.add_argument("hypothesis", help="id or unique prefix")
+
+    p = sub.add_parser("posts", help="the community agent's posts: approved, published, failed")
+    p.add_argument("--limit", type=int, default=20)
+
+    p = sub.add_parser("withdraw", help="withdraw an approved post before it is published (owner)")
+    p.add_argument("post", help="post id or unique prefix")
+
     p = sub.add_parser("challenge", help="critique a hypothesis; it goes through the loop (owner)")
     p.add_argument("hypothesis", help="id or unique prefix")
     p.add_argument("argument", help="what you object to")
@@ -133,17 +144,21 @@ def main(argv: list[str] | None = None) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _llm(settings: Settings) -> OpenAICompatibleLLM:
+    return OpenAICompatibleLLM(
+        settings.llm_base_url,
+        settings.llm_model,
+        api_key=settings.llm_api_key,
+        timeout=settings.llm_timeout_seconds,
+        max_tokens=settings.llm_max_tokens,
+    )
+
+
 def _worker(args, settings: Settings) -> None:
     db = Database(require(settings.worker_database_url, "COLLEGIUM_WORKER_DATABASE_URL"))
     ctx = Context(
         db=db,
-        llm=OpenAICompatibleLLM(
-            settings.llm_base_url,
-            settings.llm_model,
-            api_key=settings.llm_api_key,
-            timeout=settings.llm_timeout_seconds,
-            max_tokens=settings.llm_max_tokens,
-        ),
+        llm=_llm(settings),
         acquisition=acquisition_from_settings(settings),
         settings=settings,
     )
@@ -164,6 +179,14 @@ def _scheduler(args, settings: Settings) -> None:
             print(f"enqueued {scheduler.tick(db, hours)} jobs")
     else:
         scheduler.run_forever(db, hours)
+
+
+def _publisher(args, settings: Settings) -> None:
+    db = Database(require(settings.publisher_database_url, "COLLEGIUM_PUBLISHER_DATABASE_URL"))
+    client = publisher.MoltbookClient(
+        require(settings.moltbook_api_key, "COLLEGIUM_MOLTBOOK_API_KEY")
+    )
+    publisher.run_forever(db, client, _llm(settings), enabled=settings.moltbook_publishing)
 
 
 def _web(args, settings: Settings) -> None:
@@ -415,6 +438,42 @@ def _resolve(args, settings: Settings) -> None:
     print(f"queued critique resolution for {len(rows)} hypotheses")
 
 
+def _draft(args, settings: Settings) -> None:
+    with _board(settings).acting_as("owner") as conn:
+        matches = board.match_nodes(conn, args.hypothesis, ["hypothesis"])
+        if len(matches) != 1:
+            raise SystemExit(f"{len(matches)} hypotheses match {args.hypothesis!r}")
+        owner.request_draft(conn, matches[0]["id"])
+    print("draft queued; it comes back under `collegium decisions` for you to approve")
+
+
+def _posts(args, settings: Settings) -> None:
+    with _reader(settings).reading() as conn:
+        rows = board.community_posts(conn, args.limit)
+    for p in rows:
+        when = p["published_at"] or p["attempted_at"] or p["created_at"]
+        where = f"m/{p['submolt']}" if p["kind"] == "post" else "reply"
+        print(f"{str(p['id'])[:8]}  {_local(when):%Y-%m-%d %H:%M}  {p['status']:10} {where}")
+        print(f"  {p['title'] or p['content'].splitlines()[0][:100]}")
+        if p["url"]:
+            print(f"  {p['url']}")
+        if p["error"]:
+            print(f"  {p['error']}")
+    if not rows:
+        print("no posts yet")
+
+
+def _withdraw(args, settings: Settings) -> None:
+    with _board(settings).acting_as("owner") as conn:
+        rows = conn.execute(
+            "SELECT id FROM community_posts WHERE id::text LIKE %s", (args.post + "%",)
+        ).fetchall()
+        if len(rows) != 1:
+            raise SystemExit(f"{len(rows)} posts match {args.post!r}")
+        owner.withdraw_post(conn, rows[0]["id"])
+    print("withdrawn; it will not be published")
+
+
 def _hypotheses(args, settings: Settings) -> None:
     with _reader(settings).reading() as conn:
         rows = board.hypotheses(conn, include_all=args.all)
@@ -527,6 +586,10 @@ def _jobs(args, settings: Settings) -> None:
 
 COMMANDS = {
     "worker": _worker,
+    "publisher": _publisher,
+    "draft": _draft,
+    "posts": _posts,
+    "withdraw": _withdraw,
     "scheduler": _scheduler,
     "web": _web,
     "domain": _domain,

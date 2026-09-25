@@ -46,6 +46,8 @@ services:
       - worker_password=${COLLEGIUM_WORKER_PASSWORD:-worker}
       - -v
       - board_password=${COLLEGIUM_BOARD_PASSWORD:-board}
+      - -v
+      - publisher_password=${COLLEGIUM_PUBLISHER_PASSWORD:-publisher}
       - -f
       - /db/logins.sql
     depends_on:
@@ -117,6 +119,27 @@ services:
       logins:
         condition: service_completed_successfully
 
+  # Publishes the posts and replies the owner approved on Moltbook. The only
+  # service given the Moltbook key; its database login reaches the outbox
+  # and nothing else. The model solves the forum's verification challenges.
+  publisher:
+    build: .
+    command: ["collegium", "publisher"]
+    environment:
+      COLLEGIUM_PUBLISHER_DATABASE_URL: postgresql://collegium_publisher_app:${COLLEGIUM_PUBLISHER_PASSWORD:-publisher}@db:5432/collegium
+      COLLEGIUM_MOLTBOOK_API_KEY: ${COLLEGIUM_MOLTBOOK_API_KEY:-}
+      # The stop switch: "off" stops all posting.
+      COLLEGIUM_MOLTBOOK_PUBLISHING: ${COLLEGIUM_MOLTBOOK_PUBLISHING:-on}
+      COLLEGIUM_LLM_BASE_URL: ${COLLEGIUM_LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      COLLEGIUM_LLM_MODEL: ${COLLEGIUM_LLM_MODEL:-qwen3:14b}
+      COLLEGIUM_LLM_MAX_TOKENS: ${COLLEGIUM_LLM_MAX_TOKENS:-2048}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    depends_on:
+      logins:
+        condition: service_completed_successfully
+
   # The board. It has no login yet, so it is published on localhost only.
   web:
     build: .
@@ -124,6 +147,8 @@ services:
     environment:
       COLLEGIUM_BOARD_DATABASE_URL: postgresql://collegium_board_app:${COLLEGIUM_BOARD_PASSWORD:-board}@db:5432/collegium
       COLLEGIUM_SEARXNG_URL: http://searxng:8080
+      # Only to show whether publishing is on; the board has no key.
+      COLLEGIUM_MOLTBOOK_PUBLISHING: ${COLLEGIUM_MOLTBOOK_PUBLISHING:-on}
       COLLEGIUM_DAILY_CALL_BUDGET: ${COLLEGIUM_DAILY_CALL_BUDGET:-50}
       COLLEGIUM_WORK_HOURS: ${COLLEGIUM_WORK_HOURS:-08:00-16:00}
       COLLEGIUM_WORK_DAYS: ${COLLEGIUM_WORK_DAYS:-mon-fri}

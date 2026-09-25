@@ -242,6 +242,22 @@ class Acquisition:
         ]
         return self._enrich(results) if getattr(crawler, "thin_leads", False) else results
 
+    def replies(self, source: str, post_id: str, *, max_items: int) -> list[SearchResult]:
+        """Replies to one of the organization's own posts on a forum, as
+        leads. Only sources that can list replies (Moltbook) have them."""
+        provider = self._discovery.get(source)
+        if provider is None or not hasattr(provider, "replies"):
+            raise UnknownSource(f"{source} has no replies")
+        results, acquisition_id = self._call(
+            "crawl",
+            source,
+            {"replies_to": post_id, "max_items": max_items},
+            lambda: provider.replies(post_id, max_items),
+        )
+        return [
+            _clean_lead(replace(r, provider=source, acquisition_id=acquisition_id)) for r in results
+        ]
+
     def _enrich(self, results: list[SearchResult]) -> list[SearchResult]:
         """Prefix the top thin leads with the opening of their page. A failed
         extraction leaves the leads as they were; it is recorded anyway."""

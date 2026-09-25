@@ -3,8 +3,10 @@
 from collegium.roles.answerer import Answerer
 from collegium.roles.base import Role
 from collegium.roles.corroborator import Corroborator
+from collegium.roles.drafter import Drafter
 from collegium.roles.historian import Historian
 from collegium.roles.mapper import Mapper
+from collegium.roles.replier import Replier
 from collegium.roles.researcher import Researcher
 from collegium.roles.resolver import Resolver
 from collegium.roles.scout import Scout
@@ -23,5 +25,7 @@ ROLES: dict[str, Role] = {
         Corroborator(),
         Strategist(),
         Answerer(),
+        Drafter(),
+        Replier(),
     )
 }

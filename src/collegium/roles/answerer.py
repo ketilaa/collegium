@@ -74,7 +74,7 @@ class Answerer(Role):
         )
         with ctx.db.reading() as conn:
             found = memory.recall(conn, plan.terms, domain_ids[0] if domain_ids else None)
-        labels, records, brief = _brief(found)
+        labels, records, shown = brief(found)
         if not labels:
 
             def nothing(conn: Connection) -> str:
@@ -95,7 +95,7 @@ class Answerer(Role):
         language = "English" if is_english(q["text"]) else "Norwegian"
         reply = ctx.llm.generate(
             system,
-            f"The owner asks: {q['text']}\n\nWhat memory holds:\n\n{brief}\n\n"
+            f"The owner asks: {q['text']}\n\nWhat memory holds:\n\n{shown}\n\n"
             f"What is your answer? Write it in {language}.",
             Answer,
         )
@@ -250,7 +250,7 @@ def _renumber(text: str, number: dict[str, int]) -> str:
     return _WRAPPED.sub(lambda m: "".join(re.findall(r"\[\d+\]", m.group(1))), text)
 
 
-def _brief(found: dict) -> tuple[dict[str, UUID], dict[str, dict], str]:
+def brief(found: dict) -> tuple[dict[str, UUID], dict[str, dict], str]:
     """Records as labelled lines; excerpts are outside text and fenced.
     Also, per label, the record's kind, status and confidence."""
     labels: dict[str, UUID] = {}

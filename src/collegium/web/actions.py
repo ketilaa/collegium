@@ -32,6 +32,13 @@ NOTICES = {
     "feed-approved": "Feed approved. The Scout reads it on its next run.",
     "feed-updated": "Feed updated.",
     "scout": "Scout queued. It starts within working hours.",
+    "draft": "Draft requested. It comes back here, under Decisions, for you to approve.",
+    "reply": (
+        "Reply requested. If memory has something to add, the draft comes back under "
+        "Decisions for you to approve."
+    ),
+    "withdrawn": "Withdrawn. It will not be published.",
+    "post-approved": "Approved. The publisher sends it to Moltbook as the pace allows.",
     "strategize": "Planning queued. It starts within working hours.",
 }
 
@@ -87,8 +94,22 @@ def add_actions(
         return done("/mission", "mission")
 
     @app.post("/decisions/{decision_id}/approve")
-    def approve(decision_id: UUID, conn: Acting):
-        owner.resolve_decision(conn, decision_id, "approved")
+    def approve(
+        decision_id: UUID,
+        conn: Acting,
+        title: Annotated[str | None, Form()] = None,
+        content: Annotated[str | None, Form()] = None,
+        submolt: Annotated[str | None, Form()] = None,
+    ):
+        # A post or reply is approved as the owner last edited it.
+        edits = {
+            k: v
+            for k, v in (("title", title), ("content", content), ("submolt", submolt))
+            if v is not None
+        }
+        owner.resolve_decision(conn, decision_id, "approved", post=edits or None)
+        if edits:
+            return done("/community", "post-approved")
         return done("/decisions", "approved")
 
     @app.post("/decisions/{decision_id}/reject")
@@ -106,6 +127,21 @@ def add_actions(
     ):
         owner.challenge(conn, hypothesis_id, argument, alternative=alternative, severity=severity)
         return done(f"/hypotheses/{hypothesis_id}", "challenged")
+
+    @app.post("/hypotheses/{hypothesis_id}/draft")
+    def draft(hypothesis_id: UUID, conn: Acting):
+        owner.request_draft(conn, hypothesis_id)
+        return done(f"/hypotheses/{hypothesis_id}", "draft")
+
+    @app.post("/observations/{observation_id}/reply")
+    def reply(observation_id: UUID, conn: Acting):
+        owner.request_reply(conn, observation_id)
+        return done(f"/observations/{observation_id}", "reply")
+
+    @app.post("/community/{post_id}/withdraw")
+    def withdraw(post_id: UUID, conn: Acting):
+        owner.withdraw_post(conn, post_id)
+        return done("/community", "withdrawn")
 
     @app.post("/domains")
     def add_domain(

@@ -10,7 +10,7 @@ from uuid import UUID
 
 import psycopg
 
-from collegium import jobs, memory
+from collegium import community, jobs, memory
 from collegium.db import Connection
 
 DOMAIN_STATUSES = ("active", "paused", "retired")
@@ -23,11 +23,18 @@ class OwnerError(Exception):
 
 
 def resolve_decision(
-    conn: Connection, decision_id: UUID, status: str, reason: str | None = None
+    conn: Connection,
+    decision_id: UUID,
+    status: str,
+    reason: str | None = None,
+    *,
+    post: dict | None = None,
 ) -> str | None:
     """Approve or reject a proposed decision. A rejection's reason is kept
     as the owner's upheld critique of the proposal. A decision about a
-    program opens or closes it; returns the program's name if so."""
+    program opens or closes it; returns the program's name if so. Approving
+    a post puts it in the publisher's outbox, with the owner's edits
+    (`post`: title, content, submolt) if any."""
     if status not in ("approved", "rejected"):
         raise OwnerError(f"unknown decision status {status!r}")
     updated = conn.execute(
@@ -55,6 +62,10 @@ def resolve_decision(
             "VALUES (%s, 'feed', %s, %s) ON CONFLICT (domain_id, url) DO NOTHING",
             (details["domain_id"], details["feed_url"], details.get("title")),
         )
+    if status == "approved" and decision["topic"] == "post":
+        _queue_post(conn, decision_id, {**decision["details"], **(post or {})})
+    if status == "approved" and decision["topic"] == "reply":
+        _queue_reply(conn, decision_id, {**decision["details"], **(post or {})})
     program_status = "active" if status == "approved" else "closed"
     program = conn.execute(
         "UPDATE programs SET status = %s WHERE id IN (SELECT object_id FROM relationships "
@@ -63,6 +74,80 @@ def resolve_decision(
         (program_status, decision_id),
     ).fetchone()
     return program["name"] if program else None
+
+
+def _queue_post(conn: Connection, decision_id: UUID, details: dict) -> None:
+    """The approved post, exactly as the owner last saw it, into the outbox."""
+    title = (details.get("title") or "").strip()
+    content = (details.get("content") or "").replace("\r\n", "\n").strip()
+    submolt = (details.get("submolt") or "").strip()
+    if found := community.problems(title, content, submolt):
+        raise OwnerError(" ".join(found))
+    conn.execute(
+        "INSERT INTO community_posts (decision_id, domain_id, about_id, submolt, title, content) "
+        "VALUES (%s, %s, %s, %s, %s, %s)",
+        (
+            decision_id,
+            details.get("domain_id"),
+            details.get("hypothesis_id"),
+            submolt,
+            title,
+            content,
+        ),
+    )
+
+
+def _queue_reply(conn: Connection, decision_id: UUID, details: dict) -> None:
+    """The approved reply, exactly as the owner last saw it, into the outbox."""
+    content = (details.get("content") or "").replace("\r\n", "\n").strip()
+    if found := community.reply_problems(content):
+        raise OwnerError(" ".join(found))
+    conn.execute(
+        "INSERT INTO community_posts (decision_id, domain_id, about_id, kind, reply_to_post, "
+        "reply_to_comment, content) VALUES (%s, %s, %s, 'comment', %s, %s, %s)",
+        (
+            decision_id,
+            details.get("domain_id"),
+            details.get("observation_id"),
+            details["reply_to_post"],
+            details.get("reply_to_comment"),
+            content,
+        ),
+    )
+
+
+def request_reply(conn: Connection, observation_id: UUID) -> UUID:
+    """Ask the Researcher whether memory has something to say to a Moltbook
+    post or comment, and to draft a reply if so. It comes back as a
+    decision, or not at all when memory has nothing to add."""
+    o = memory.observation(conn, observation_id)
+    if o is None:
+        raise OwnerError("No such observation.")
+    if community.thread(o["source_uri"] or "") is None:
+        raise OwnerError("Only a Moltbook post or comment can be replied to.")
+    if memory.post_decision(conn, observation_id, ("proposed", "approved"), "reply"):
+        raise OwnerError("A reply to it has already been drafted.")
+    return jobs.enqueue(conn, "reply", {"observation_id": observation_id}, priority=2)
+
+
+def withdraw_post(conn: Connection, post_id: UUID) -> None:
+    """Take an approved post back before the publisher sends it."""
+    updated = conn.execute(
+        "UPDATE community_posts SET status = 'withdrawn' WHERE id = %s AND status = 'approved'",
+        (post_id,),
+    ).rowcount
+    if not updated:
+        raise OwnerError("That post is no longer waiting to be published.")
+
+
+def request_draft(conn: Connection, hypothesis_id: UUID) -> UUID:
+    """Ask the Researcher to draft a Moltbook post about a hypothesis. It
+    comes back as a decision: nothing is posted without the owner."""
+    if memory.hypothesis(conn, hypothesis_id) is None:
+        raise OwnerError("No such hypothesis.")
+    if memory.post_decision(conn, hypothesis_id, ("proposed",)):
+        raise OwnerError("A draft about it is already waiting for you under Decisions.")
+    return jobs.enqueue(conn, "draft", {"hypothesis_id": hypothesis_id}, priority=2)
 
 
 def challenge(

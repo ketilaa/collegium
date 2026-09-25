@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from collegium import board, memory
+from collegium import board, community, memory
 from collegium.acquisition import discovery_source_names, metered_provider_names
 from collegium.config import Settings
 from collegium.db import Connection, Database
@@ -161,7 +161,19 @@ def create_app(settings: Settings, database: Callable[[], Database], crawler=Non
             "decisions.html",
             waiting=board.decisions_waiting(conn),
             resolved=board.decisions_resolved(conn),
+            submolts=community.SUBMOLTS,
             challenges=board.owner_challenges(conn, limit=30),
+        )
+
+    @app.get("/community", response_class=HTMLResponse)
+    def community_page(request: Request, conn: Reading):
+        waiting = [d for d in board.decisions_waiting(conn) if d["topic"] in ("post", "reply")]
+        return page(
+            request,
+            "community.html",
+            posts=board.community_posts(conn, 50),
+            waiting=len(waiting),
+            publishing=settings.moltbook_publishing,
         )
 
     @app.get("/domains", response_class=HTMLResponse)
@@ -207,7 +219,11 @@ def create_app(settings: Settings, database: Callable[[], Database], crawler=Non
         if detail is None:
             raise HTTPException(404, "No such observation")
         return page(
-            request, "observation.html", **detail, evidence=_group(detail["citations"], "stance")
+            request,
+            "observation.html",
+            **detail,
+            evidence=_group(detail["citations"], "stance"),
+            thread=community.thread(detail["observation"].get("source_uri") or ""),
         )
 
     @app.get("/discoveries", response_class=HTMLResponse)

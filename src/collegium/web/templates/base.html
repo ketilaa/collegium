@@ -16,7 +16,7 @@
       {% for href, name in [("/", "Overview"), ("/ask", "Ask"), ("/mission", "Mission"), ("/programs", "Programs"),
                             ("/goals", "Goals"), ("/hypotheses", "Hypotheses"),
                             ("/contradictions", "Contradictions"), ("/discoveries", "Discoveries"),
-                            ("/decisions", "Decisions"), ("/domains", "Domains"),
+                            ("/decisions", "Decisions"), ("/community", "Community"), ("/domains", "Domains"),
                             ("/operations", "Operations")] %}
         <a href="{{ href }}"{% if here == href or (href != "/" and here.startswith(href)) %} aria-current="page"{% endif %}>{{ name }}</a>
       {% endfor %}

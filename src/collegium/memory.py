@@ -480,7 +480,8 @@ def recent_observations(conn: Connection, domain_id: UUID, limit: int = 20) -> l
 
 def observation(conn: Connection, observation_id: UUID) -> dict | None:
     return conn.execute(
-        "SELECT o.*, s.uri AS source_uri, s.title AS source_title FROM observations o "
+        "SELECT o.*, s.uri AS source_uri, s.title AS source_title, "
+        "s.metadata AS source_metadata FROM observations o "
         "LEFT JOIN sources s ON s.id = o.source_id WHERE o.id = %s",
         (observation_id,),
     ).fetchone()
@@ -769,3 +770,61 @@ def _unit(value: float | None) -> float | None:
 def _timestamp_or_none(value: str | None) -> str | None:
     moment = parse_date(value)
     return moment.isoformat() if moment else None
+
+
+# ---------------------------------------------------------------------------
+# The community agent's posts
+# ---------------------------------------------------------------------------
+
+
+def post_decision(
+    conn: Connection, about_id: UUID, statuses: tuple[str, ...], topic: str = "post"
+) -> dict | None:
+    """The latest post (or reply) decision about this record in one of
+    these statuses."""
+    return conn.execute(
+        "SELECT d.* FROM decisions d JOIN relationships r ON r.subject_id = d.id "
+        "JOIN nodes n ON n.id = d.id "
+        "WHERE d.topic = %s AND d.status = ANY(%s) AND r.predicate = 'concerns' "
+        "AND r.object_id = %s AND r.retracted_at IS NULL ORDER BY n.created_at DESC LIMIT 1",
+        (topic, list(statuses), about_id),
+    ).fetchone()
+
+
+def published_posts(conn: Connection, domain_id: UUID, days: int = 14) -> list[dict]:
+    """The organization's posts in this domain published in the last days,
+    newest first, with the hypothesis each asked about."""
+    return conn.execute(
+        "SELECT p.*, h.statement AS about FROM community_posts p "
+        "LEFT JOIN hypotheses h ON h.id = p.about_id "
+        "WHERE p.status = 'published' AND p.domain_id = %s "
+        "AND p.published_at > now() - make_interval(days => %s) ORDER BY p.published_at DESC",
+        (domain_id, days),
+    ).fetchall()
+
+
+def reply_decisions_waiting(conn: Connection, domain_id: UUID) -> int:
+    """Reply drafts in this domain still waiting for the owner."""
+    return conn.execute(
+        "SELECT count(*) AS n FROM decisions d JOIN node_domains nd ON nd.node_id = d.id "
+        "WHERE d.topic = 'reply' AND d.status = 'proposed' AND nd.domain_id = %s",
+        (domain_id,),
+    ).fetchone()["n"]
+
+
+def source_uris_of(conn: Connection, node_ids: list[UUID]) -> list[str]:
+    """Where these records come from, in their order: the source of an
+    observation or a piece of evidence, the supporting sources of a
+    hypothesis."""
+    uris: list[str] = []
+    for node_id in node_ids:
+        rows = conn.execute(
+            "SELECT s.uri FROM observations o JOIN sources s ON s.id = o.source_id "
+            "WHERE o.id = %(id)s "
+            "UNION ALL SELECT s.uri FROM evidence e JOIN sources s ON s.id = e.source_id "
+            "WHERE e.id = %(id)s",
+            {"id": node_id},
+        ).fetchall()
+        found = [r["uri"] for r in rows if r["uri"]] or supporting_source_uris(conn, node_id)
+        uris += [u for u in found if u not in uris]
+    return uris

@@ -1,8 +1,9 @@
 """Moltbook, a forum where AI agents post: discovery through its search.
 
-Stage 1 of the community agent (docs/decisions.md): read-only. Reads need
-no API key, so this adapter has none and no way to write anything; the key
-is kept for a separate publishing component, later.
+Reads need no API key, so this adapter has none and no way to write
+anything: the key is held only by the publisher (`collegium.publisher`),
+which sends the posts the owner approved. Replies to those posts come back
+through here, as leads like any other.
 
 Everything here is written by other AI agents: unverified, often
 repetitive, and a natural channel for prompt injection. Leads carry the
@@ -13,6 +14,9 @@ paid reading, and keeps observations from them out of research.
 import httpx
 
 from collegium.acquisition import ENRICHED_SNIPPET_CHARS, SearchResult
+
+# The community agent's own account: its words are not leads.
+OWN_ACCOUNT = "drargus"
 
 API = "https://www.moltbook.com/api/v1"
 SITE = "https://www.moltbook.com"
@@ -49,6 +53,34 @@ class MoltbookDiscovery:
             leads.append(_lead(post))
             if len(leads) == max_results:
                 break
+        return leads
+
+    def replies(self, post_id: str, max_items: int) -> list[SearchResult]:
+        """Comments on one of the organization's posts, newest first,
+        replies to comments included; its own comments left out."""
+        response = self._client.get(
+            f"/posts/{post_id}/comments", params={"sort": "new", "limit": max_items}
+        )
+        response.raise_for_status()
+        leads: list[SearchResult] = []
+        pending = list(response.json().get("comments", []))
+        while pending and len(leads) < max_items:
+            comment = pending.pop(0)
+            pending += comment.get("replies") or []
+            author = (comment.get("author") or {}).get("name") or "unknown agent"
+            text = " ".join((comment.get("content") or "").split())
+            if author == OWN_ACCOUNT or not text or comment.get("is_deleted"):
+                continue
+            leads.append(
+                SearchResult(
+                    url=f"{SITE}/post/{post_id}#comment-{comment['id']}",
+                    title=f"Reply by agent {author} to Collegium's question",
+                    snippet=f"{text[:ENRICHED_SNIPPET_CHARS]}\nMoltbook comment by agent "
+                    f"{author}: {comment.get('upvotes', 0)} upvotes",
+                    published_at=comment.get("created_at"),
+                    metadata={"moltbook_author": author, "moltbook_reply_to": post_id},
+                )
+            )
         return leads
 
     def _post(self, post_id: str) -> dict | None:

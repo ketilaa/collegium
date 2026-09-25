@@ -106,8 +106,10 @@ def critiques_of(conn: Connection, target_id: UUID) -> list[dict]:
 
 def observation_detail(conn: Connection, oid: UUID) -> dict | None:
     o = conn.execute(
-        "SELECT o.*, n.created_at, a.name AS recorded_by FROM observations o "
-        "JOIN nodes n ON n.id = o.id JOIN actors a ON a.id = n.created_by WHERE o.id = %s",
+        "SELECT o.*, n.created_at, a.name AS recorded_by, s.uri AS source_uri "
+        "FROM observations o JOIN nodes n ON n.id = o.id "
+        "JOIN actors a ON a.id = n.created_by LEFT JOIN sources s ON s.id = o.source_id "
+        "WHERE o.id = %s",
         (oid,),
     ).fetchone()
     if o is None:
@@ -402,3 +404,15 @@ def acquisition_request(q: dict) -> str:
         or q["request"].get("url")
         or ", ".join(q["request"].get("urls", []))
     )
+
+
+def community_posts(conn: Connection, limit: int = 30) -> list[dict]:
+    """The community agent's posts, those still to be sent first, then the
+    newest, with the hypothesis each asks about."""
+    return conn.execute(
+        "SELECT p.*, h.statement AS about FROM community_posts p "
+        "LEFT JOIN hypotheses h ON h.id = p.about_id "
+        "ORDER BY p.status IN ('approved', 'publishing') DESC, "
+        "coalesce(p.published_at, p.attempted_at, p.created_at) DESC LIMIT %s",
+        (limit,),
+    ).fetchall()

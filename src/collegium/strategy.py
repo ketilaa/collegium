@@ -185,3 +185,32 @@ def source_candidates(conn: Connection, domain_id: UUID) -> list[SourceCandidate
         for key, c in counts.items()
     ]
     return sorted((c for c in candidates if c.uses >= MIN_SOURCE_USES), key=lambda c: -c.uses)
+
+
+# The community agent asks about one hypothesis at a time per domain, and
+# not more often than this.
+POST_EVERY = timedelta(days=2)
+
+
+def post_candidate(conn: Connection, domain_id: UUID, gaps: list[Gap]) -> UUID | None:
+    """A hypothesis to ask other agents about on Moltbook, or None: one the
+    organization's own research has stalled on (critiques still open after
+    the loop, or too little independent support), never asked about
+    before. Nothing while a draft waits for the owner, or when the domain
+    posted recently."""
+    busy = conn.execute(
+        "SELECT 1 FROM decisions d JOIN node_domains nd ON nd.node_id = d.id "
+        "JOIN nodes n ON n.id = d.id WHERE d.topic = 'post' AND nd.domain_id = %s "
+        "AND (d.status = 'proposed' OR n.created_at > now() - %s) LIMIT 1",
+        (domain_id, POST_EVERY),
+    ).fetchone()
+    if busy:
+        return None
+    order = {"unresolved critiques": 0, "weak support": 1}
+    stalled = sorted((g for g in gaps if g.kind in order), key=lambda g: order[g.kind])
+    for gap in stalled:
+        if memory.post_decision(conn, gap.about, ("proposed", "approved", "rejected")):
+            continue
+        if memory.hypothesis_evidence(conn, gap.about):
+            return gap.about
+    return None

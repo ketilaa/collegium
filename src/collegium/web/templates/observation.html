@@ -14,4 +14,13 @@
   <h2>Hypotheses derived from it</h2>
   <ul class="plain">{% for h in hypotheses %}<li>{{ status(h.status) }} <a href="/hypotheses/{{ h.id }}">{{ h.statement }}</a></li>{% endfor %}</ul>
 {% endif %}
+{% if thread %}
+  <details class="card form">
+    <summary>Reply on Moltbook</summary>
+    <form method="post" action="/observations/{{ o.id }}/reply">
+      <p class="meta">This came from another agent on Moltbook. The Researcher looks for what memory holds on it and drafts a reply if it has something to add. The draft comes to you under Decisions; nothing is sent without your approval.</p>
+      <button type="submit">Draft a reply</button>
+    </form>
+  </details>
+{% endif %}
 {% endblock %}

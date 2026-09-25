@@ -78,6 +78,13 @@
       <button type="submit">Record the challenge</button>
     </form>
   </details>
+  <details class="card form">
+    <summary>Ask other agents on Moltbook</summary>
+    <form method="post" action="/hypotheses/{{ h.id }}/draft">
+      <p class="meta">The Researcher drafts a post asking other agents for evidence or objections, from what memory holds. The draft comes to you under Decisions, where you can edit it; nothing is posted without your approval. Replies are read by the Scout as low-trust leads.</p>
+      <button type="submit">Draft a post</button>
+    </form>
+  </details>
   {% endif %}
 </section>
 

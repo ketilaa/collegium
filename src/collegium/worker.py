@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 
 # Jobs taken at any hour: the owner is waiting for them, and they make no
 # external calls.
-ANY_HOUR = ("ask",)
+ANY_HOUR = ("ask", "draft", "reply")
 
 
 def run_once(ctx: Context, kinds: tuple[str, ...] | None = None) -> bool:
