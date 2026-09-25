@@ -972,3 +972,15 @@ budget.
 - With free search first, a spent budget only skips the paid fallback
   search; it no longer defers the job to the next day. The 19 reviews and
   resolutions deferred that way were released by hand.
+
+## 2026-09-25 · One User-Agent, with a contact
+
+Every request the organization makes itself now says who it is, in one
+place (`identity.py`): `Collegium/0.1 (+https://github.com/ketilaa/collegium;
+research agent)`, and `community agent` for the Moltbook publisher. Before,
+the web reader, feed reader and Moltbook reader each spelled out their own
+string without a contact, and the Hacker News and Tavily adapters sent
+httpx's default. The contact is the public GitHub repository, created for
+this on the owner's instruction (no code pushed yet); `COLLEGIUM_CONTACT`
+overrides it. Requests SearXNG makes to search engines on the
+organization's behalf keep SearXNG's own headers.

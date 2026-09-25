@@ -1,5 +1,6 @@
 """The HTTP adapters, against mock transports."""
 
+import contextlib
 import json
 
 import httpx
@@ -381,3 +382,37 @@ def test_moltbook_reads_posts_in_full_without_a_key():
     # A low-trust kind of source: capped, never paid for, never researched.
     assert classify(lead.url) == ("AI-agent forum", 0.3)
     assert "AI-agent forum" in NOT_WORTH_PAYING
+
+
+def test_every_adapter_says_who_it_is():
+    from urllib import robotparser
+
+    from collegium.acquisition.feeds import FeedReader
+    from collegium.acquisition.moltbook import MoltbookDiscovery
+    from collegium.acquisition.searxng import SearXNGDiscovery
+    from collegium.identity import USER_AGENT
+    from collegium.publisher import MoltbookClient
+
+    assert USER_AGENT == "Collegium/0.1 (+https://github.com/ketilaa/collegium; research agent)"
+    agents = []
+
+    def record(request):
+        agents.append(request.headers["user-agent"])
+        return httpx.Response(200, json={"results": [], "hits": [], "comments": []})
+
+    t = httpx.MockTransport(record)
+    SearXNGDiscovery("http://s", transport=t, pause=0).discover("q", 1)
+    HackerNewsDiscovery(transport=t).discover("q", 1)
+    MoltbookDiscovery(transport=t).discover("q", 1)
+    TavilyProvider("key", transport=t).discover("q", 1)
+    with contextlib.suppress(Exception):  # not a feed; only the request matters
+        FeedReader(transport=t).crawl("https://feed.example/rss", 1)
+    assert set(agents) == {USER_AGENT} and len(agents) == 5
+    MoltbookClient("key", transport=t)._client.get("/x")
+    assert agents[-1].startswith("Collegium/0.1 (+https://github.com/ketilaa/collegium;")
+
+    # A site can address it by name in robots.txt.
+    rules = robotparser.RobotFileParser()
+    rules.parse(["User-agent: Collegium", "Disallow: /private"])
+    assert not rules.can_fetch(USER_AGENT, "https://site.example/private/page")
+    assert rules.can_fetch(USER_AGENT, "https://site.example/public")

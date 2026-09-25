@@ -24,10 +24,10 @@ import trafilatura
 
 from collegium.acquisition import Document, SearchResult
 from collegium.acquisition.feeds import parse_feed
+from collegium.identity import USER_AGENT
 
 log = logging.getLogger(__name__)
 
-USER_AGENT = "Collegium/0.1 (research; read-only)"
 MAX_BYTES = 3_000_000
 MAX_REDIRECTS = 5
 # Less article text than this and the page probably needs a browser, or is

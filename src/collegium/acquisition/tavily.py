@@ -3,6 +3,7 @@
 import httpx
 
 from collegium.acquisition import Document, SearchResult
+from collegium.identity import USER_AGENT
 
 API = "https://api.tavily.com"
 
@@ -14,7 +15,7 @@ class TavilyProvider:
     def __init__(self, api_key: str, *, timeout: float = 60, transport=None):
         self._client = httpx.Client(
             base_url=API,
-            headers={"Authorization": f"Bearer {api_key}"},
+            headers={"Authorization": f"Bearer {api_key}", "User-Agent": USER_AGENT},
             timeout=timeout,
             transport=transport,
         )

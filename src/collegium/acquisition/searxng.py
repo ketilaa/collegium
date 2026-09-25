@@ -11,6 +11,7 @@ import time
 import httpx
 
 from collegium.acquisition import SearchResult, SearchUnavailable
+from collegium.identity import USER_AGENT
 
 # Seconds between queries. The engines behind SearXNG block an address that
 # asks too fast, and the organization is not in a hurry.
@@ -40,7 +41,10 @@ class SearXNGDiscovery:
         pause: float = PAUSE,
     ):
         self._client = httpx.Client(
-            base_url=base_url.rstrip("/"), timeout=timeout, transport=transport
+            base_url=base_url.rstrip("/"),
+            timeout=timeout,
+            transport=transport,
+            headers={"User-Agent": USER_AGENT},
         )
         self._pause = pause
         self._last = float("-inf")

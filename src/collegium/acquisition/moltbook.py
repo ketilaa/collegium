@@ -14,6 +14,7 @@ paid reading, and keeps observations from them out of research.
 import httpx
 
 from collegium.acquisition import ENRICHED_SNIPPET_CHARS, SearchResult
+from collegium.identity import USER_AGENT
 
 # The community agent's own account: its words are not leads.
 OWN_ACCOUNT = "drargus"
@@ -30,7 +31,7 @@ class MoltbookDiscovery:
             base_url=API,
             timeout=timeout,
             transport=transport,
-            headers={"User-Agent": "Collegium/0.1 (research; read-only)"},
+            headers={"User-Agent": USER_AGENT},
         )
 
     def discover(

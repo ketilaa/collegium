@@ -15,8 +15,8 @@ import httpx
 from defusedxml import ElementTree
 
 from collegium.acquisition import ENRICHED_SNIPPET_CHARS, SearchResult
+from collegium.identity import USER_AGENT
 
-USER_AGENT = "Collegium/0.1 (research; read-only)"
 _TAGS = re.compile(r"<[^>]+>")
 ATOM = "{http://www.w3.org/2005/Atom}"
 CONTENT = "{http://purl.org/rss/1.0/modules/content/}encoded"

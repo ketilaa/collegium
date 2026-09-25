@@ -33,6 +33,7 @@ from pydantic import BaseModel
 
 from collegium import community
 from collegium.db import Database
+from collegium.identity import user_agent
 from collegium.llm import LLM
 from collegium.untrusted import fence, sanitize
 
@@ -68,7 +69,7 @@ class MoltbookClient:
             follow_redirects=False,
             headers={
                 "Authorization": f"Bearer {api_key}",
-                "User-Agent": "Collegium/0.1 (community agent)",
+                "User-Agent": user_agent("community agent"),
             },
         )
 

@@ -13,6 +13,7 @@ import time
 import httpx
 
 from collegium.acquisition import SearchResult
+from collegium.identity import USER_AGENT
 
 API = "https://hn.algolia.com/api/v1"
 DISCUSSION = "https://news.ycombinator.com/item?id={}"
@@ -83,7 +84,12 @@ class HackerNewsDiscovery:
         transport: httpx.BaseTransport | None = None,
     ):
         self._min_points = min_points
-        self._client = httpx.Client(base_url=API, timeout=timeout, transport=transport)
+        self._client = httpx.Client(
+            base_url=API,
+            timeout=timeout,
+            transport=transport,
+            headers={"User-Agent": USER_AGENT},
+        )
 
     def discover(
         self, query: str, max_results: int, *, recent_days: int | None = None
