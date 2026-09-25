@@ -1,5 +1,9 @@
 """Reading pages for free, with a paid fallback, and never reading inside."""
 
+import asyncio
+import re
+import time
+
 import httpx
 import pytest
 
@@ -339,25 +343,104 @@ def test_a_feed_with_whole_articles_is_found_although_larger_than_a_page():
 # ---------------------------------------------------------------------------
 
 
-def test_a_page_that_trickles_in_is_given_up_at_its_deadline():
-    ticks = iter(range(0, 10_000, 10))  # every look at the clock, ten seconds later
-    sent = []
+def fetcher(handler, table=None, resolve=None):
+    return SafeFetcher(
+        transport=httpx.MockTransport(handler), resolver=resolve or resolver(table or PUBLIC)
+    )
 
-    def trickle():
-        for _ in range(100):
-            sent.append(1)
-            yield b"<p>still coming</p>"
 
-    def handler(request):
+def no_robots(handler):
+    async def wrapped(request):
         if request.url.path == "/robots.txt":
             return httpx.Response(404)
+        return await handler(request)
+
+    return wrapped
+
+
+def within(seconds, call):
+    """Run `call`, which must give up with Refused, and within `seconds`."""
+    started = time.monotonic()
+    with pytest.raises(Refused, match="longer than"):
+        call()
+    assert time.monotonic() - started < seconds
+
+
+async def trickle():
+    for _ in range(100):
+        await asyncio.sleep(0.05)
+        yield b"<p>still coming</p>"
+
+
+def test_a_page_that_trickles_in_is_given_up_at_its_deadline():
+    @no_robots
+    async def handler(request):
         return httpx.Response(200, content=trickle(), headers={"content-type": "text/html"})
 
-    fetcher = SafeFetcher(
-        transport=httpx.MockTransport(handler),
-        resolver=resolver(PUBLIC),
-        clock=lambda: next(ticks),
+    within(1, lambda: fetcher(handler).fetch("https://news.example/slow", TEXT_TYPES, deadline=0.3))
+
+
+def test_headers_that_trickle_in_are_given_up_at_the_deadline():
+    @no_robots
+    async def handler(request):
+        await asyncio.sleep(5)  # the server takes its time before answering at all
+        return html(ARTICLE)
+
+    within(1, lambda: fetcher(handler).fetch("https://news.example/slow", TEXT_TYPES, deadline=0.3))
+
+
+def test_a_robots_txt_that_trickles_in_counts_against_the_deadline():
+    async def handler(request):
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, content=trickle())
+        return html(ARTICLE)
+
+    within(
+        1, lambda: fetcher(handler).fetch("https://news.example/agents", TEXT_TYPES, deadline=0.3)
     )
-    with pytest.raises(Refused, match="deadline"):
-        fetcher.fetch("https://news.example/slow", TEXT_TYPES, deadline=60)
-    assert len(sent) < 100
+
+
+def test_a_slow_name_lookup_counts_against_the_deadline():
+    def slow_resolve(host):
+        time.sleep(2)
+        return PUBLIC[host]
+
+    async def handler(request):
+        return html(ARTICLE)
+
+    within(
+        1,
+        lambda: fetcher(handler, resolve=slow_resolve).fetch(
+            "https://news.example/agents", TEXT_TYPES, deadline=0.3
+        ),
+    )
+
+
+def test_a_huge_robots_txt_is_read_only_as_far_as_the_cap_and_still_obeyed():
+    robots = "User-agent: *\nDisallow: /private/\n" + "# padding\n" * 100_000
+
+    async def handler(request):
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text=robots)
+        return html(ARTICLE)
+
+    with pytest.raises(Refused, match="robots.txt disallows"):
+        fetcher(handler).fetch("https://news.example/private/x", TEXT_TYPES)
+    _, _, body = fetcher(handler).fetch("https://news.example/agents", TEXT_TYPES)
+    assert b"Agents at work" in body
+
+
+def test_only_a_few_announced_feeds_are_tried():
+    requested = []
+
+    def handler(request):
+        requested.append(request.url.path)
+        if request.url.path == "/":
+            return html(
+                "".join(f'<link type="application/rss+xml" href="/feed{i}.xml">' for i in range(50))
+            )
+        return httpx.Response(404)
+
+    assert extractor(handler).find_feed("https://news.example") == []
+    announced = [p for p in requested if re.fullmatch(r"/feed\d+\.xml", p)]
+    assert announced == ["/feed0.xml", "/feed1.xml", "/feed2.xml"]

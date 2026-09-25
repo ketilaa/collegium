@@ -1090,3 +1090,24 @@ deadline for the whole of it, redirects included: 60 seconds for pages,
 120 for feeds. Feed discovery (`find_feed`) uses the feed cap and
 deadline too, so a feed with whole articles, like METR's, can be found
 for source proposals.
+
+## 2026-09-25 · The fetch deadline covers the whole fetch
+
+Correcting the previous entry: its deadline was checked only between
+chunks of the body, so robots.txt (read with no cap), the name lookups,
+the handshake and the headers could still trickle past it (review
+51408ea-001: SEC-18, SEC-19), and `find_feed` tried every feed a page
+announced (SEC-20). Now:
+
+- **A fetch runs under `asyncio.timeout`** (httpx's async client inside a
+  blocking `SafeFetcher.fetch`), which cancels wherever the fetch waits:
+  robots.txt, every redirect, handshake, headers, body. A thread-side
+  timer closing the socket was considered, but closing a socket from
+  another thread does not reliably wake a blocked read.
+- **Name lookups** run in a small thread pool of their own, awaited under
+  the same deadline (a stuck lookup is left to finish in its thread).
+  This also closes the gap left for SEC-8.
+- **robots.txt is read no further than 500 KB** (Google's limit); the
+  rules read so far still apply.
+- **`find_feed` tries at most 3 announced feeds**, then the usual places,
+  all within one feed deadline (120 s) together.

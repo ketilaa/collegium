@@ -10,6 +10,7 @@ organization, checked at every redirect, and only where robots.txt allows.
 
 import logging
 import re
+import time
 from urllib.parse import urljoin, urlsplit
 
 import httpx
@@ -40,6 +41,9 @@ _FEED_LINK = re.compile(
 _HREF = re.compile(r"\bhref=[\"']([^\"']+)[\"']", re.IGNORECASE)
 # A feed worth proposing has at least this many items.
 MIN_FEED_ITEMS = 3
+# A page may announce any number of feeds, anywhere; only the first few are
+# tried, and all candidates share one deadline.
+MAX_ANNOUNCED_FEEDS = 3
 
 
 class WebExtractor:
@@ -50,7 +54,7 @@ class WebExtractor:
         self,
         *,
         timeout: float = 20,
-        transport: httpx.BaseTransport | None = None,
+        transport: httpx.AsyncBaseTransport | None = None,
         resolver: Resolver = resolve,
     ):
         self._fetcher = SafeFetcher(timeout=timeout, transport=transport, resolver=resolver)
@@ -89,25 +93,32 @@ class WebExtractor:
         """The feed of a site, as a one-item list naming it (url, title, and
         how many items it has), or empty if none was found. Looks for the
         feed the page announces, then at the usual places, and checks that
-        it parses and has items. Fetched with the same protections as pages."""
+        it parses and has items. Fetched with the same protections as pages,
+        and given up when the candidates together take FEED_DEADLINE_SECONDS."""
+        give_up_at = time.monotonic() + FEED_DEADLINE_SECONDS
         candidates: list[str] = []
         try:
             final, kind, body = self._fetch(site_url)
             if kind in TEXT_TYPES:
                 head = body[:200_000].decode("utf-8", "replace")
-                candidates += [
+                announced = [
                     urljoin(final, m.group(1))
                     for link in _FEED_LINK.findall(head)
                     if (m := _HREF.search(link))
                 ]
+                candidates += list(dict.fromkeys(announced))[:MAX_ANNOUNCED_FEEDS]
         except Exception as e:
             log.info("could not read %s: %s", site_url, e)
         root = "{0.scheme}://{0.netloc}".format(urlsplit(site_url))
         candidates += [root + path for path in FEED_PATHS]
         for url in dict.fromkeys(candidates):
+            remaining = give_up_at - time.monotonic()
+            if remaining <= 0:
+                log.info("gave up looking for the feed of %s", site_url)
+                break
             try:
                 final, kind, body = self._fetcher.fetch(
-                    url, FEED_TYPES + TEXT_TYPES, FEED_MAX_BYTES, FEED_DEADLINE_SECONDS
+                    url, FEED_TYPES + TEXT_TYPES, FEED_MAX_BYTES, remaining
                 )
                 items = parse_feed(body)
             except Exception:
