@@ -1111,3 +1111,25 @@ announced (SEC-20). Now:
   rules read so far still apply.
 - **`find_feed` tries at most 3 announced feeds**, then the usual places,
   all within one feed deadline (120 s) together.
+
+## 2026-09-25 · Feed links found by a scan; a correction about SEC-8
+
+Review 9e4d2af-001:
+
+- **Correction:** the previous entry says the lookup thread pool "also
+  closes the gap left for SEC-8". It does not. httpx looks the host up
+  again when it connects (in the event loop's default executor, which
+  `asyncio.run` waits for after the deadline, up to the resolver's own
+  timeout; SEC-21), and that second, independent lookup is exactly what
+  DNS rebinding (SEC-8) uses. Both stay open, to be fixed together by
+  connecting to the address that was checked (a transport given the
+  resolved IP, keeping SNI and the Host header).
+- **Feed links on a page are found by a linear scan (SEC-22)**, not one
+  regex over the page: on a page whose tags never close, the regex took
+  35 s for 66 KB and would take many minutes for the 200 KB read, in the
+  worker, after any deadline; `html.parser` was as slow (120 s on bare
+  `<link ` fragments). Each `<link` tag ends at its `>`, the next `<` or
+  2,000 characters, so tags never overlap; the attribute regexes run on
+  the tag alone. Same results on real pages.
+- **SEC-23 stays open:** a robots.txt that redirects, errors or times out
+  is cached as "allow everything" until the process restarts.

@@ -35,10 +35,10 @@ FEED_TYPES = (
 )
 # Where sites usually keep their feed, when the page does not say.
 FEED_PATHS = ("/feed", "/rss", "/feed.xml", "/rss.xml", "/atom.xml", "/index.xml")
-_FEED_LINK = re.compile(
-    r"<link\b[^>]*\btype=[\"']application/(?:rss|atom)\+xml[\"'][^>]*>", re.IGNORECASE
-)
+_FEED_TYPE = re.compile(r"\btype=[\"']application/(?:rss|atom)\+xml[\"']", re.IGNORECASE)
 _HREF = re.compile(r"\bhref=[\"']([^\"']+)[\"']", re.IGNORECASE)
+# Longer than any real <link> tag; a page's tags are cut here when read.
+MAX_TAG_CHARS = 2_000
 # A feed worth proposing has at least this many items.
 MIN_FEED_ITEMS = 3
 # A page may announce any number of feeds, anywhere; only the first few are
@@ -103,8 +103,8 @@ class WebExtractor:
                 head = body[:200_000].decode("utf-8", "replace")
                 announced = [
                     urljoin(final, m.group(1))
-                    for link in _FEED_LINK.findall(head)
-                    if (m := _HREF.search(link))
+                    for tag in _link_tags(head)
+                    if _FEED_TYPE.search(tag) and (m := _HREF.search(tag))
                 ]
                 candidates += list(dict.fromkeys(announced))[:MAX_ANNOUNCED_FEEDS]
         except Exception as e:
@@ -136,6 +136,24 @@ class WebExtractor:
 
     def _fetch(self, url: str, types: tuple[str, ...] = TEXT_TYPES) -> tuple[str, str, bytes]:
         return self._fetcher.fetch(url, types)
+
+
+def _link_tags(page: str) -> list[str]:
+    """The <link ...> tags of a page, each ending at its `>`, the next `<` or
+    MAX_TAG_CHARS, whichever comes first, so tags never overlap and the work
+    grows with the page. A scan, not one regex over the page: on a malformed
+    page (tags that never close) a regex backtracks for minutes, and so does
+    html.parser."""
+    tags, lower, start = [], page.lower(), 0
+    while (start := lower.find("<link", start)) >= 0:
+        limit = min(start + MAX_TAG_CHARS, len(page))
+        ends = [
+            i for i in (lower.find(">", start, limit), lower.find("<", start + 1, limit)) if i >= 0
+        ]
+        end = min(ends, default=limit)
+        tags.append(page[start:end])
+        start = end
+    return tags
 
 
 def _feed_title(body: bytes) -> str | None:
