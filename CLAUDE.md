@@ -4,9 +4,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-Milestones 1 (institutional memory), 2 (research workflow), 2.5 (acquisition layer) and 3 (strategy layer) are done. Milestone 4 (board interface) is in progress; its plan is in `docs/decisions.md`. The owner's secrets live in `~/.collegium/.env`: never read or print that file, only source it into a command's environment.
+Milestones 1 (institutional memory), 2 (research workflow), 2.5 (acquisition layer), 3 (strategy layer) and 4 (the board, including Mission, Contradictions and Ask the Organization) are done. Since then: free-first acquisition (own SearXNG and web reader, Tavily only as a paid fallback), source proposals, and the community agent on Moltbook (reads; drafts posts and replies that the owner approves; a separate publisher sends them). The organization runs live on the owner's laptop; see `docs/operations.md`. Nothing has been pushed to GitHub yet (see Pushing).
 
-`VISION.md` is the source of truth for intent. `docs/decisions.md` records the technical decisions made so far and why. Read both before making design decisions, and add an entry to `docs/decisions.md` when you make a new one.
+Where to look, and how much to read:
+- `VISION.md` is the source of truth for intent; read the relevant section before design decisions.
+- `docs/decisions.md` records every technical decision and why, newest last (about 60 KB). Do not read it whole: `grep -n "^## " docs/decisions.md` for the headings, then read the entries that bear on the task. Add an entry for each new decision.
+- `docs/operations.md`: how the live instance is run, deployed, inspected and changed by hand.
+- `docs/reviews/README.md`: the security review before a push.
+- The owner's secrets live in `~/.collegium/.env`: never read or print that file, only pass it to commands (`docker compose --env-file ...`, or `set -a; . file; set +a` in a command).
+
+Open threads (update this list as they close):
+- **The first push to GitHub.** The `security-reviewer` subagent reviews the whole history first (`Base: none`); expect privacy findings for the owner to decide (the author email on every commit, mentions of the owner's network and its proxy, an earlier project, the Moltbook account). The GitHub repository already has one commit made through the API (a short README for site owners: "If Collegium visited your site"), unrelated to the local history: merge it (`git pull --allow-unrelated-histories`) and fold its text into the local README before pushing.
+- **Offered, not yet approved:** an adapter for NAV/SSB (Norwegian statistics); Milestone 5.
+
+## Working with the owner
+
+- The owner is the board chair: propose, with a recommendation, before building anything substantial; build once they agree. Ask only about decisions that are theirs to make.
+- Commit, apply migrations, rebuild and push only when the owner asks (they usually say which: "commit, apply migration and rebuild"). A migration is never applied without explicit approval; deploy with `--no-deps` (see `docs/operations.md`).
+- Before committing: `uv run pytest -q` and `uv run ruff check . && uv run ruff format .` pass, and `docs/decisions.md` has an entry for any decision made. Commit messages say what and why, and end with the Co-Authored-By line.
+- Report what was done plainly, including what failed or was skipped.
 
 ## Pushing
 
@@ -21,10 +37,12 @@ Nothing is pushed without a PASS from the `security-reviewer` subagent: run `scr
 ## Commands
 
 ```sh
+# The live instance: always --env-file ~/.collegium/.env, and see docs/operations.md.
 docker compose up -d db                  # Postgres on localhost:5432 (collegium/collegium)
-docker compose run --rm migrate          # apply pending migrations with dbmate
-docker compose run --rm logins           # create/update the worker and board login users
-docker compose up -d                     # everything: db, migrate, logins, worker, scheduler, web
+docker compose run --rm migrate          # apply pending migrations (only with the owner's approval)
+docker compose run --rm logins           # create/update the worker, board and publisher logins
+docker compose up -d                     # a fresh setup only: this also runs migrate
+docker compose up -d --no-deps <service> # a running setup: recreate without migrating
 
 docker compose up -d backup              # daily pg_dump into COLLEGIUM_BACKUP_DIR (see README)
 
@@ -129,9 +147,11 @@ This means history and provenance must be kept, not overwritten.
 
 ## Milestones
 
+All of 1-4 are done; 5 is next when the owner chooses.
+
 1. Institutional memory: Postgres schema and audit history. Knowledge must survive restarts and agent replacement.
 2. Research workflow: Scout, Researcher, Skeptic and Historian, with a minimal acquisition layer (`search`/`extract`, one Tavily adapter).
-2.5. Knowledge acquisition layer. Part 1 done: discover/extract split, Hacker News adapter, per-domain discovery sources, call log. Part 2 so far: grounded Scout observations, crawling owner-approved feeds. Related entities (`map` jobs) and citation tracking (`collegium why`) done.
+2.5. Knowledge acquisition layer: discover/extract split, Hacker News, SearXNG, web reader, feeds, Moltbook, per-domain discovery sources, call log, grounded Scout observations, related entities (`map` jobs) and citation tracking (`collegium why`).
 3. Strategy layer: Strategist, knowledge-gap detection and research programs. Includes the critique-resolution loop: open critiques are investigated and resolved, which is how hypotheses come to be accepted. Until then almost nothing is accepted, by design.
 4. Board interface: a dashboard with Mission, Programs, Goals, Hypotheses, Contradictions, Recent Discoveries and "Ask the Organization".
 5. Long-term evolution: cross-domain knowledge and belief revision.

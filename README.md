@@ -15,19 +15,23 @@ See [VISION.md](VISION.md).
 
 ## Status
 
-Founding. Milestone 1 (institutional memory) is done. Milestone 2 (the
-Scout → Researcher → Skeptic → Historian workflow) is implemented and has
-run end to end against a local 7B model and live search.
+Running daily on a laptop with a local 14B model. Done: institutional
+memory, the Scout → Researcher → Skeptic → Historian workflow with critique
+resolution, the Strategist, a board for the owner (missions, goals,
+hypotheses, contradictions, discoveries, decisions, Ask the Organization),
+free-first search and reading, and a community agent on Moltbook whose
+every post the owner approves.
 
 ## Getting started
 
-Requires Docker, [uv](https://docs.astral.sh/uv/), a local model server with
-an OpenAI-compatible API (e.g. [Ollama](https://ollama.com) with
-`qwen3:14b`), and a [Tavily](https://tavily.com) API key.
+Requires Docker, [uv](https://docs.astral.sh/uv/) and a local model server
+with an OpenAI-compatible API (e.g. [Ollama](https://ollama.com) or
+llama.cpp's `llama-server` with a 14B model). Search runs on the bundled
+SearXNG; a [Tavily](https://tavily.com) API key is an optional paid fallback.
 
 ```sh
-cp .env.example .env                # fill in TAVILY_API_KEY
-docker compose up -d                # database, migrations, worker, scheduler
+cp .env.example .env                # set COLLEGIUM_CONTACT; optionally TAVILY_API_KEY
+docker compose up -d                # database, migrations, worker, scheduler, board, search
 set -a; . ./.env; set +a            # for the CLI on the host
 
 uv run collegium domain add ai-agents "AI and agents"
