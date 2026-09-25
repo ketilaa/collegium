@@ -37,6 +37,7 @@ FEED_TYPES = (
 FEED_PATHS = ("/feed", "/rss", "/feed.xml", "/rss.xml", "/atom.xml", "/index.xml")
 _FEED_TYPE = re.compile(r"\btype=[\"']application/(?:rss|atom)\+xml[\"']", re.IGNORECASE)
 _HREF = re.compile(r"\bhref=[\"']([^\"']+)[\"']", re.IGNORECASE)
+_LINK_START = re.compile("<link", re.IGNORECASE)  # a literal: no backtracking
 # Longer than any real <link> tag; a page's tags are cut here when read.
 MAX_TAG_CHARS = 2_000
 # A feed worth proposing has at least this many items.
@@ -143,16 +144,19 @@ def _link_tags(page: str) -> list[str]:
     MAX_TAG_CHARS, whichever comes first, so tags never overlap and the work
     grows with the page. A scan, not one regex over the page: on a malformed
     page (tags that never close) a regex backtracks for minutes, and so does
-    html.parser."""
-    tags, lower, start = [], page.lower(), 0
-    while (start := lower.find("<link", start)) >= 0:
+    html.parser. Positions are taken in the page itself, never in a
+    lowercased copy, whose length can differ ("İ".lower() is two characters)."""
+    tags, pos = [], 0
+    for m in _LINK_START.finditer(page):
+        start = m.start()
+        if start < pos:
+            continue  # inside the previous tag
         limit = min(start + MAX_TAG_CHARS, len(page))
         ends = [
-            i for i in (lower.find(">", start, limit), lower.find("<", start + 1, limit)) if i >= 0
+            i for i in (page.find(">", start, limit), page.find("<", start + 1, limit)) if i >= 0
         ]
-        end = min(ends, default=limit)
-        tags.append(page[start:end])
-        start = end
+        pos = min(ends, default=limit)
+        tags.append(page[start:pos])
     return tags
 
 

@@ -9,7 +9,7 @@ import pytest
 
 from collegium.acquisition import Acquisition, BudgetExhausted, Document, SearchResult
 from collegium.acquisition.fetching import Refused, SafeFetcher
-from collegium.acquisition.web import TEXT_TYPES, WebExtractor
+from collegium.acquisition.web import TEXT_TYPES, WebExtractor, _link_tags
 
 PARAGRAPHS = [
     "Teams that adopted coding agents measured how often the agents' changes were merged "
@@ -457,3 +457,32 @@ def test_a_malformed_page_cannot_make_finding_its_feed_take_long():
     started = time.monotonic()
     assert extractor(handler).find_feed("https://news.example") == []
     assert time.monotonic() - started < 0.5
+
+
+@pytest.mark.parametrize(
+    "page",
+    [
+        "İ" * 10 + "<link",  # "İ".lower() is two characters long
+        "İ" * 1000 + "<link type='application/rss+xml' href='/f'>",
+    ],
+)
+def test_finding_feed_links_ends_on_text_whose_lowercase_is_longer(page):
+    started = time.monotonic()
+    _link_tags(page)
+    assert time.monotonic() - started < 0.5
+
+
+def test_a_feed_link_after_many_dotted_capital_is_is_found():
+    page = "İstanbul " * 500 + '<LINK type="application/rss+xml" href="/haberler.rss">'
+
+    def handler(request):
+        if request.url.path == "/":
+            return html(page)
+        if request.url.path == "/haberler.rss":
+            return httpx.Response(
+                200, text=FEED_XML, headers={"content-type": "application/rss+xml"}
+            )
+        return httpx.Response(404)
+
+    [feed] = extractor(handler).find_feed("https://news.example")
+    assert feed.url == "https://news.example/haberler.rss"
