@@ -24,8 +24,10 @@ ATOM = "{http://www.w3.org/2005/Atom}"
 CONTENT = "{http://purl.org/rss/1.0/modules/content/}encoded"
 # As much of the article as an enriched lead gets from its page.
 LEAD_CHARS = ENRICHED_SNIPPET_CHARS
-# Feeds that carry whole articles are large (METR's is about 9 MB).
+# Feeds that carry whole articles are large (METR's is about 9 MB), and
+# take longer to arrive than a page.
 FEED_MAX_BYTES = 20_000_000
+FEED_DEADLINE_SECONDS = 120
 
 
 class FeedError(ValueError):
@@ -48,7 +50,7 @@ class FeedReader:
 
     def crawl(self, url: str, max_items: int) -> list[SearchResult]:
         # Any content type: feeds are often served as text/html or worse.
-        _, _, body = self._fetcher.fetch(url, None, FEED_MAX_BYTES)
+        _, _, body = self._fetcher.fetch(url, None, FEED_MAX_BYTES, FEED_DEADLINE_SECONDS)
         return parse_feed(body)[:max_items]
 
 

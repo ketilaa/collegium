@@ -4,7 +4,8 @@ import httpx
 import pytest
 
 from collegium.acquisition import Acquisition, BudgetExhausted, Document, SearchResult
-from collegium.acquisition.web import WebExtractor
+from collegium.acquisition.fetching import Refused, SafeFetcher
+from collegium.acquisition.web import TEXT_TYPES, WebExtractor
 
 PARAGRAPHS = [
     "Teams that adopted coding agents measured how often the agents' changes were merged "
@@ -315,3 +316,48 @@ def test_a_feed_link_into_the_organization_is_not_followed():
     table = {**PUBLIC, "localhost": ["127.0.0.1"]}
     assert extractor(handler, table).find_feed("https://news.example") == []
     assert not any("localhost" in r for r in requests)
+
+
+def test_a_feed_with_whole_articles_is_found_although_larger_than_a_page():
+    padding = "<!-- " + "x" * 4_000_000 + " -->"
+
+    def handler(request):
+        if request.url.path == "/feed":
+            return httpx.Response(
+                200,
+                text=FEED_XML.replace("<rss", padding + "<rss", 1),
+                headers={"content-type": "application/rss+xml"},
+            )
+        return httpx.Response(404)
+
+    [feed] = extractor(handler).find_feed("https://news.example")
+    assert feed.url == "https://news.example/feed"
+
+
+# ---------------------------------------------------------------------------
+# The protected fetch itself
+# ---------------------------------------------------------------------------
+
+
+def test_a_page_that_trickles_in_is_given_up_at_its_deadline():
+    ticks = iter(range(0, 10_000, 10))  # every look at the clock, ten seconds later
+    sent = []
+
+    def trickle():
+        for _ in range(100):
+            sent.append(1)
+            yield b"<p>still coming</p>"
+
+    def handler(request):
+        if request.url.path == "/robots.txt":
+            return httpx.Response(404)
+        return httpx.Response(200, content=trickle(), headers={"content-type": "text/html"})
+
+    fetcher = SafeFetcher(
+        transport=httpx.MockTransport(handler),
+        resolver=resolver(PUBLIC),
+        clock=lambda: next(ticks),
+    )
+    with pytest.raises(Refused, match="deadline"):
+        fetcher.fetch("https://news.example/slow", TEXT_TYPES, deadline=60)
+    assert len(sent) < 100

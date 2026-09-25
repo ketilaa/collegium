@@ -16,7 +16,7 @@ import httpx
 import trafilatura
 
 from collegium.acquisition import Document, SearchResult
-from collegium.acquisition.feeds import parse_feed
+from collegium.acquisition.feeds import FEED_DEADLINE_SECONDS, FEED_MAX_BYTES, parse_feed
 from collegium.acquisition.fetching import Resolver, SafeFetcher, resolve
 
 log = logging.getLogger(__name__)
@@ -106,7 +106,9 @@ class WebExtractor:
         candidates += [root + path for path in FEED_PATHS]
         for url in dict.fromkeys(candidates):
             try:
-                final, kind, body = self._fetch(url, FEED_TYPES + TEXT_TYPES)
+                final, kind, body = self._fetcher.fetch(
+                    url, FEED_TYPES + TEXT_TYPES, FEED_MAX_BYTES, FEED_DEADLINE_SECONDS
+                )
                 items = parse_feed(body)
             except Exception:
                 continue

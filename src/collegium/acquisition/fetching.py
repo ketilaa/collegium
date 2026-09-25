@@ -4,11 +4,14 @@ Addresses come from outside (search results, feeds, redirects), and this
 runs inside the organization's network. A page must never be able to point
 the organization at itself: only http(s) on the usual ports, and only hosts
 that resolve to public addresses, checked again at every redirect. What the
-site's robots.txt disallows for Collegium is not fetched. Bodies are capped.
+site's robots.txt disallows for Collegium is not fetched. Bodies are capped,
+and a fetch that takes longer than its deadline, however slowly the site
+sends, is given up.
 """
 
 import ipaddress
 import socket
+import time
 from collections.abc import Callable
 from urllib import robotparser
 from urllib.parse import urljoin, urlsplit
@@ -19,6 +22,8 @@ from collegium.identity import USER_AGENT
 
 MAX_BYTES = 3_000_000
 MAX_REDIRECTS = 5
+# The whole fetch, all redirects included; httpx's timeout is per read.
+DEADLINE_SECONDS = 60
 
 Resolver = Callable[[str], list[str]]  # host -> IP addresses
 
@@ -38,6 +43,7 @@ class SafeFetcher:
         timeout: float = 20,
         transport: httpx.BaseTransport | None = None,
         resolver: Resolver = resolve,
+        clock: Callable[[], float] = time.monotonic,
     ):
         self._client = httpx.Client(
             timeout=timeout,
@@ -46,15 +52,22 @@ class SafeFetcher:
             headers={"User-Agent": USER_AGENT},
         )
         self._resolve = resolver
+        self._clock = clock
         self._robots: dict[str, robotparser.RobotFileParser | None] = {}
 
     def fetch(
-        self, url: str, types: tuple[str, ...] | None, max_bytes: int = MAX_BYTES
+        self,
+        url: str,
+        types: tuple[str, ...] | None,
+        max_bytes: int = MAX_BYTES,
+        deadline: float = DEADLINE_SECONDS,
     ) -> tuple[str, str, bytes]:
         """The final address, content type and (decompressed) body. A body
         whose type is not in `types` is not read (empty); None reads any."""
         headers = {"Accept": ", ".join(types)} if types else {}
+        give_up_at = self._clock() + deadline
         for _ in range(MAX_REDIRECTS + 1):
+            self._on_time(url, give_up_at)
             self._check(url)
             if not self._allowed(url):
                 raise Refused(f"robots.txt disallows {url}")
@@ -66,13 +79,18 @@ class SafeFetcher:
                 kind = response.headers.get("content-type", "").split(";")[0].strip().lower()
                 if types is not None and kind not in types:
                     return url, kind, b""  # not read at all
-                body = b""
+                body = bytearray()
                 for chunk in response.iter_bytes():
                     body += chunk
                     if len(body) > max_bytes:
                         raise Refused(f"{url} is larger than {max_bytes} bytes")
-                return url, kind, body
+                    self._on_time(url, give_up_at)
+                return url, kind, bytes(body)
         raise Refused(f"more than {MAX_REDIRECTS} redirects from {url}")
+
+    def _on_time(self, url: str, give_up_at: float) -> None:
+        if self._clock() > give_up_at:
+            raise Refused(f"{url} took longer than its deadline")
 
     def _check(self, url: str) -> None:
         parts = urlsplit(url)

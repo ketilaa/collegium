@@ -1078,3 +1078,15 @@ The owner chose three of the low findings from the first push's reviews:
   image: pull the new tag, test it, replace tag and digest.
 
 Still deferred: SEC-8 (DNS rebinding), SEC-12, SEC-14 and SEC-16.
+
+## 2026-09-25 · A deadline for every fetch, and large feeds can be found
+
+Review 1e4ac72-001 (SEC-17): the body was built with `bytes +=`, copying
+everything read so far on each chunk, which at the 20 MB feed cap means
+gigabytes of copying; and httpx's timeout is per read, so a site sending
+a byte now and then could hold a job (or a board request approving a
+feed) indefinitely. The body is now a `bytearray`, and every fetch has a
+deadline for the whole of it, redirects included: 60 seconds for pages,
+120 for feeds. Feed discovery (`find_feed`) uses the feed cap and
+deadline too, so a feed with whole articles, like METR's, can be found
+for source proposals.
