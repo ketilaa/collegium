@@ -15,6 +15,7 @@ services:
       test: ["CMD", "pg_isready", "-U", "collegium", "-d", "collegium"]
       interval: 2s
       retries: 30
+    restart: unless-stopped
 
   # One-shot: applies pending migrations, then exits.
   migrate:

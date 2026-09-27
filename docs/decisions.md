@@ -1142,3 +1142,15 @@ in the worker. It was deployed for about an hour before the review caught
 it. Tags are now found with a case-insensitive literal (`<link`, which
 cannot backtrack) on the page itself, and ended in the page itself; tests
 cover the dotted capital I.
+
+## 2026-09-27 · A goal repeated in the same plan is not abandoned
+
+The ai-agents plan of 2026-09-27 abandoned the goal "Evaluate the
+competitive environment among AI companies and the impact of new models on
+the economics of running them", with the reason that a new goal covered
+it, and listed that same goal, same wording, without its label. The rule
+that a plan cannot abandon a goal it also continues only recognized
+continuation by label, so the abandonment stood, and the repeated goal was
+then skipped as closed in this run. Now a goal is continued if the plan
+names it by label or repeats its statement (compared as `statement_key`
+does). The owner reopened the goal the same day; its outcome says why.

@@ -307,9 +307,12 @@ def _abandon_goals(
 ) -> dict[UUID, tuple[str, str]]:
     """Abandon the goals the plan drops, keeping the reason. Only active
     goals of this domain can be abandoned, never one the same plan also
-    continues: when the model contradicts itself, the goal stays."""
+    continues, by its label or by repeating its statement: when the model
+    contradicts itself, the goal stays."""
     active = {g["id"]: g for g in goals if g["id"] not in achieved}
+    by_statement = {memory.statement_key(g["statement"]): g["id"] for g in goals}
     continued = {labels.get((p.existing or "").strip().upper()) for p in plan.goals}
+    continued |= {by_statement.get(memory.statement_key(p.statement)) for p in plan.goals}
     abandoned: dict[UUID, tuple[str, str]] = {}
     for a in plan.abandon:
         goal_id = labels.get(a.goal.strip().upper())

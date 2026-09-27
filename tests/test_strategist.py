@@ -227,22 +227,28 @@ def test_goals_that_no_longer_serve_the_mission_are_abandoned(
             goals=[
                 _goal("Follow OpenAI's safety work", priority=1),
                 _goal("Measure agent reliability", priority=2),
+                _goal("Track open-weight model releases", priority=3),
             ],
         ),
     )
     _strategize(board_db, domain_id)
     worker.run_once(ctx)
 
-    # G1 is off-mission; G2 is both continued and abandoned (kept); G7 does not exist.
+    # G1 is off-mission; G2 is both continued and abandoned (kept). G3 is
+    # abandoned "in favour of" itself, repeated without its label (kept: the
+    # same goal, not a replacement).
     llm.add(
         StrategyPlan,
         StrategyPlan(
             assessment="b",
-            goals=[_goal("Measure agent reliability", existing="G2")],
+            goals=[
+                _goal("Measure agent reliability", existing="G2"),
+                _goal("track open-weight model releases."),
+            ],
             abandon=[
                 GoalAbandonment(goal="G1", reason="The mission is about agent reliability."),
                 GoalAbandonment(goal="G2", reason="Contradicts the plan."),
-                GoalAbandonment(goal="G7", reason="No such goal."),
+                GoalAbandonment(goal="G3", reason="Covered by the new goal on releases."),
             ],
         ),
     )
@@ -259,7 +265,9 @@ def test_goals_that_no_longer_serve_the_mission_are_abandoned(
         "The mission is about agent reliability."
     )
     assert goals["Measure agent reliability"]["status"] == "active"
+    assert goals["Track open-weight model releases"]["status"] == "active"
     assert "abandoned goal: Follow OpenAI's safety work" in notes
+    assert "Track open-weight" not in notes
 
     # The next plan is told what was dropped and why, so it is not set again.
     llm.add(StrategyPlan, StrategyPlan(assessment="c", goals=[]))

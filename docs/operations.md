@@ -21,9 +21,13 @@ changed. For what the code does, see CLAUDE.md; for why, docs/decisions.md.
   it; only pass it to commands. Every Compose command uses it:
 
   ```sh
-  E="--env-file $HOME/.collegium/.env"
-  docker compose $E ps
+  docker compose --env-file ~/.collegium/.env ps
   ```
+
+  The shell is zsh, which does not split an unquoted `$E` into words: write
+  the flag out in full (below, `$E` stands for it). **Never run
+  `docker compose config`** with the env file, or grep its output: it
+  expands every secret into the output.
 
   It holds, among others, the Tavily and Moltbook keys, the database
   passwords, the LLM settings and `COLLEGIUM_CONTACT`. If something fails
