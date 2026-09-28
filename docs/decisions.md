@@ -1280,3 +1280,30 @@ approved by the owner like posts and replies (VISION.md).
 - **Next, not built:** following agents, and a per-agent credibility built
   from our own verdicts on their contributions (ceiling 0.3 rising to at
   most 0.6; Moltbook stays one site for the Historian's independence rule).
+
+## 2026-09-28 · A hold-back: the laptop forced a reboot under load
+
+Running everything (Postgres, the board, the worker, SearXNG, the
+publisher and the model) on the owner's laptop pushed it into a forced
+reboot. Decided with the owner, as a hold-back until it has a proper host:
+
+1. **Colima is smaller:** 3 CPUs, 6 GB (was 6 and 12, raised for the
+   in-Compose model experiment on 2026-09-27 and never put back).
+2. **The smaller model:** the host's `llama-server` now runs Qwen2.5 7B
+   Instruct instead of 14B, with 4 threads; `COLLEGIUM_LLM_MODEL` updated
+   to match, so runs record which model actually answered.
+3. **A rest between jobs:** `COLLEGIUM_WORKER_REST_SECONDS`
+   (`worker.run_forever`'s `rest_seconds`), a pause after each job the
+   worker actually processed (not while idle, which already waits). 0 by
+   default; the owner's env file sets it to 120. Interruptible, so a stop
+   signal during the rest is honoured at once, and `drain` (used by tests
+   and manual runs) is unaffected.
+
+Not done, and available if this is not enough: memory limits on the
+Compose services, and shorter working hours
+(`COLLEGIUM_WORK_HOURS`/`COLLEGIUM_WORK_DAYS`, already supported).
+
+This trades throughput for headroom: fewer jobs a day, and a weaker model
+for the Researcher and Skeptic. Grounding and the critique loop still
+apply, so nothing ungrounded is accepted; the organization is simply
+slower until it moves to a proper host.

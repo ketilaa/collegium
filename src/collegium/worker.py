@@ -104,7 +104,12 @@ def run_once(ctx: Context, kinds: tuple[str, ...] | None = None) -> bool:
     return True
 
 
-def run_forever(ctx: Context, hours: WorkingHours | None = None, idle_seconds: float = 5) -> None:
+def run_forever(
+    ctx: Context,
+    hours: WorkingHours | None = None,
+    idle_seconds: float = 5,
+    rest_seconds: float = 0,
+) -> None:
     """Process jobs, but start new ones only within working hours, except
     the owner's questions, which are answered at any hour.
 
@@ -112,6 +117,12 @@ def run_forever(ctx: Context, hours: WorkingHours | None = None, idle_seconds: f
     takes no new job, finishes the one it is running, and returns. A job
     cut off halfway would lose its work and one of its attempts, and model
     jobs run for minutes, so Compose gives the worker a long grace period.
+
+    With `rest_seconds` set, the worker pauses that long after each job it
+    actually ran, so the model server is not driven back to back (a
+    hold-back while the organization runs on the owner's laptop, not a
+    dedicated host: see docs/decisions.md, 2026-09-28). The pause is
+    interruptible, so a stop signal during it is honoured at once.
     """
     stopping = threading.Event()
 
@@ -124,9 +135,14 @@ def run_forever(ctx: Context, hours: WorkingHours | None = None, idle_seconds: f
     try:
         if hours is not None:
             log.info("working hours: %s", hours.describe())
+        if rest_seconds:
+            log.info("resting %ss after each job", rest_seconds)
         while not stopping.is_set():
             closed = hours is not None and not hours.is_open()
-            if not run_once(ctx, ANY_HOUR if closed else None):
+            if run_once(ctx, ANY_HOUR if closed else None):
+                if rest_seconds:
+                    stopping.wait(rest_seconds)
+            else:
                 stopping.wait(idle_seconds)
         log.info("stopped")
     finally:

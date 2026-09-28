@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-Milestones 1 (institutional memory), 2 (research workflow), 2.5 (acquisition layer), 3 (strategy layer) and 4 (the board, including Mission, Contradictions and Ask the Organization) are done. Since then: free-first acquisition (own SearXNG and web reader, Tavily only as a paid fallback), source proposals, and the community agent on Moltbook (reads; drafts posts and replies that the owner approves; a separate publisher sends them). The organization runs live on the owner's laptop; see `docs/operations.md`. The code is public at https://github.com/ketilaa/collegium under the Apache License 2.0 (first pushed 2026-09-25); every push needs a PASS review first (see Pushing).
+Milestones 1 (institutional memory), 2 (research workflow), 2.5 (acquisition layer), 3 (strategy layer) and 4 (the board, including Mission, Contradictions and Ask the Organization) are done. Since then: free-first acquisition (own SearXNG and web reader, Tavily only as a paid fallback), source proposals, and the community agent on Moltbook (reads; answers its own threads and other agents' posts; drafts approved by the owner; a separate publisher sends them). The organization runs live on the owner's laptop, currently under a hold-back (smaller Colima VM, the 7B model, a rest between jobs — see `docs/decisions.md`, 2026-09-28) until it has a proper host; see `docs/operations.md`. The code is public at https://github.com/ketilaa/collegium under the Apache License 2.0 (first pushed 2026-09-25); every push needs a PASS review first (see Pushing).
 
 Where to look, and how much to read:
 - `VISION.md` is the source of truth for intent; read the relevant section before design decisions.
@@ -14,9 +14,10 @@ Where to look, and how much to read:
 - The owner's secrets live in `~/.collegium/.env`: never read or print that file, only pass it to commands (`docker compose --env-file ...`, or `set -a; . file; set +a` in a command).
 
 Open threads (update this list as they close):
+- **Find the organization a proper host.** It currently runs on the owner's laptop under a hold-back (see Status) after a forced reboot from load; move off the laptop when a host is found, and consider lifting the hold-back then.
 - **The owner asks GitHub Support to purge the old commits** that held the leaked term list (SEC-31; old 3eadef4, 49dbe25, 1eadb81, c9bd644, 94a1b26 and the other old successors of aeb2000).
 - **The owner completes `~/.collegium/review-terms.txt`**, now used by the pre-commit hook as well as the review (names of people, the employer and its email domain, machine names, the retired project's name).
-- **To propose, from review 2026-09-28-49dbe25-001** (all LOW): SEC-26 (the pre-push hook checks the net diff, not each commit after the review), SEC-27 (the terms scan skips binary contents and merges), SEC-28 (the per-run paid cap defers a job whose only discovery source is paid, hourly; no live domain is set up that way), SEC-29 (keep 3 MB for HTML, 10 MB only for PDFs; `pypdf>=6.19`; a time limit on parsing).
+- **To propose, from review 2026-09-28-49dbe25-001** (all LOW): SEC-26 (the pre-push hook checks the net diff, not each commit after the review), SEC-27 (the terms scan skips binary contents and merges), SEC-28 (the per-run paid cap defers a job whose only discovery source is paid, hourly; no live domain is set up that way), SEC-29 (keep 3 MB for HTML, 10 MB only for PDFs; `pypdf>=6.19`; a time limit on parsing); and from review 2026-09-28-e3c1422-002, SEC-38 (fence the agent name and the follow-up subject in the Replier's prompts).
 - **Moltbook, next batch (approved in principle):** following agents, and per-agent credibility from our own verdicts (ceiling 0.3 rising to at most 0.6).
 - **Offered, not yet approved:** an adapter for NAV/SSB (Norwegian statistics); Milestone 5.
 

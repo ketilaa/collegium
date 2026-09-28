@@ -172,7 +172,7 @@ def _worker(args, settings: Settings) -> None:
         # A manual run: the owner is watching, whatever the hour.
         print(f"ran {worker.drain(ctx)} jobs")
     else:
-        worker.run_forever(ctx, settings.working_hours())
+        worker.run_forever(ctx, settings.working_hours(), rest_seconds=settings.worker_rest_seconds)
 
 
 def _scheduler(args, settings: Settings) -> None:

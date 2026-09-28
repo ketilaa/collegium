@@ -381,3 +381,46 @@ def test_the_worker_finishes_its_job_before_stopping(monkeypatch):
     worker.run_forever(ctx=None, idle_seconds=0.01)
     assert ran == ["job", "finished"]  # finished, and took no second job
     assert signal.getsignal(signal.SIGTERM) is before  # handlers restored
+
+
+def test_the_worker_rests_after_a_job_but_not_while_idle(monkeypatch):
+    from collegium import worker
+
+    waited: list[float] = []
+    calls = iter([True, False, True])  # job, idle, job, then stop
+
+    def run_once(ctx, kinds=None):
+        return next(calls)
+
+    def wait(self, timeout=None):
+        waited.append(timeout)
+        if len(waited) == 3:  # stop after the second rest
+            self.set()
+
+    monkeypatch.setattr(worker, "run_once", run_once)
+    monkeypatch.setattr(worker.threading.Event, "wait", wait)
+    worker.run_forever(ctx=None, idle_seconds=5, rest_seconds=120)
+    # rest after the job, idle_seconds while idle, rest after the next job
+    assert waited == [120, 5, 120]
+
+
+def test_no_rest_when_rest_seconds_is_zero(monkeypatch):
+    from collegium import worker
+
+    waited: list[float] = []
+    calls = iter([True, True])
+
+    def run_once(ctx, kinds=None):
+        return next(calls, False)
+
+    def wait(self, timeout=None):
+        waited.append(timeout)
+        self.set()
+
+    monkeypatch.setattr(worker, "run_once", run_once)
+    monkeypatch.setattr(worker.threading.Event, "wait", wait)
+    worker.run_forever(ctx=None, idle_seconds=5, rest_seconds=0)
+    # A job ran but rest_seconds is 0, so no wait() call happens for it;
+    # the loop goes straight to claiming the next job, which returns False
+    # (idle), and that idle wait stops the loop.
+    assert waited == [5]

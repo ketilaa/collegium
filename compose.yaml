@@ -88,6 +88,9 @@ services:
       # Who runs this copy; sent in the User-Agent of every request.
       COLLEGIUM_CONTACT: ${COLLEGIUM_CONTACT:-}
       COLLEGIUM_LLM_MAX_TOKENS: ${COLLEGIUM_LLM_MAX_TOKENS:-2048}
+      # A pause after each job, so the model server is not driven back to
+      # back; a hold-back while the organization runs on a laptop.
+      COLLEGIUM_WORKER_REST_SECONDS: ${COLLEGIUM_WORKER_REST_SECONDS:-0}
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
       # Free search first; Tavily is the fallback.
       COLLEGIUM_SEARXNG_URL: http://searxng:8080

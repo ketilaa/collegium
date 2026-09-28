@@ -15,8 +15,30 @@ changed. For what the code does, see CLAUDE.md; for why, docs/decisions.md.
   that fail with certificate errors need
   `SSL_CERT_FILE=$HOME/.collegium/ca-bundle.pem`.
 - **The model** runs on the host outside Docker: llama.cpp's `llama-server`
-  with `Qwen/Qwen2.5-14B-Instruct-GGUF:Q4_K_M`, at `http://localhost:8080/v1`
-  (`host.docker.internal:8080` from the containers).
+  at `http://localhost:8080/v1` (`host.docker.internal:8080` from the
+  containers). **Under the hold-back** (see below), it serves
+  `Qwen/Qwen2.5-7B-Instruct-GGUF` with 4 threads:
+
+  ```sh
+  llama-server -hf Qwen/Qwen2.5-7B-Instruct-GGUF --offline -c 8192 -ctk q8_0 \
+    -ctv q8_0 -fa on -t 4 -to 3600 --jinja -n 2048 -np 1 \
+    --repeat-penalty 1.15 --repeat-last-n 256 --port 8080
+  ```
+
+  `COLLEGIUM_LLM_MODEL` in the env file must match the model actually
+  running, since every run records it. The normal setup is the 14B model
+  (`Qwen/Qwen2.5-14B-Instruct-GGUF:Q4_K_M`) with more threads.
+- **The hold-back (2026-09-28):** running everything on this laptop —
+  Postgres, the board, the worker, SearXNG, the publisher and the model —
+  forced a reboot under load. Until the organization has a proper host:
+  Colima runs smaller (`colima start --cpu 3 --memory 6`, not the default
+  6/12), the model is the 7B one above, and
+  `COLLEGIUM_WORKER_REST_SECONDS=120` in the env file pauses the worker
+  after each job so the model server is not driven back to back. See
+  `docs/decisions.md`, 2026-09-28. Lifting it: set Colima back to
+  `--cpu 6 --memory 12` (or more, on a real host), restart `llama-server`
+  with the 14B model and more threads, update `COLLEGIUM_LLM_MODEL`, and
+  remove or lower `COLLEGIUM_WORKER_REST_SECONDS`.
 - **Secrets** are in `~/.collegium/.env`: never read or print
   it; only pass it to commands. Every Compose command uses it:
 

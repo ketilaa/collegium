@@ -43,6 +43,12 @@ class Settings:
     llm_timeout_seconds: float = field(
         default_factory=lambda: float(_env("COLLEGIUM_LLM_TIMEOUT_SECONDS", "600"))
     )
+    # A pause after each job, so the model server is not driven back to back
+    # (a hold-back while the organization runs on the owner's laptop: see
+    # docs/decisions.md, 2026-09-28). 0 means no pause.
+    worker_rest_seconds: float = field(
+        default_factory=lambda: float(_env("COLLEGIUM_WORKER_REST_SECONDS", "0"))
+    )
 
     # The organization's own SearXNG (free, no quota); when set, it is the
     # default search and Tavily becomes the fallback.
