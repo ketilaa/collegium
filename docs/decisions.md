@@ -1382,3 +1382,26 @@ therefore never be tried again. Now only an active decision (`proposed`
 or `approved`) blocks, matching how `owner.request_reply` already treated
 rejection. A follow-up scout run naturally resurfaces the comment and
 redrafts it, since nothing else changed about how comments are found.
+
+## 2026-09-28 · Goals were never linked to the program they belong to
+
+The owner approved a program and found it still showed no goals: not a
+matter of priority. `goals.program_id` has existed in the schema since
+Milestone 1 and the board already displays goals grouped by program, but
+`strategist.py` never set it — `PlannedGoal` had no field for the model to
+say a goal belongs to a program, so every goal was created with
+`program_id = NULL`, regardless of what the Strategist proposed or how
+important the goal was.
+
+Fixed: programs get a label too (P1, P2, ...) alongside H/N/G; `PlannedGoal`
+gets an optional `program` field (a P label, or "new" for the program
+proposed in the same plan); the program (new or matched by name) is now
+created before goals are processed, so a new goal can be linked to it in
+the same run. A label that does not resolve to an actual program is
+ignored rather than risk a wrong link or a foreign-key error. Most goals
+still have no program; the prompt says to link one only when it genuinely
+is that program's own work.
+
+The three live developers-ai goals that already match the approved
+program's charter ("AI Impact on Software Development") were linked by
+hand as a one-time correction, as the strategist actor.

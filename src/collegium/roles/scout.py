@@ -146,19 +146,23 @@ class Scout(Role):
         replies, replied_to = _replies(ctx, posts)
         crawled += replies
         crawled_from |= replied_to
-        with ctx.db.reading() as conn:
-            # Feeds repeat their items run after run; skip what is already known.
-            seen = memory.known_source_uris(conn, [r.url for r in crawled])
-        crawled = [r for r in crawled if r.url not in seen and r.url not in found]
         # New comments in the organization's own threads: each gets a reply,
-        # as long as few drafts wait for the owner. The rest are held back,
-        # neither answered nor read as leads, so a later run answers them.
+        # as long as few drafts wait for the owner. Chosen before "already
+        # known" below: a comment recorded once, from an earlier attempt
+        # that was since rejected, is still worth a fresh look — the
+        # Replier's own guard (an active decision for the thread) is what
+        # actually stops a duplicate, not whether this URL was seen before.
         with ctx.db.reading() as conn:
             room = MAX_REPLIES_WAITING - memory.reply_decisions_waiting(conn, domain_id)
         comments = [r for r in crawled if r.url in replied_to]
         new_replies = comments[: max(0, min(room, MAX_OWN_THREAD_REPLIES))]
         held = {r.url for r in comments[len(new_replies) :]}
-        crawled = [r for r in crawled if r.url not in held]
+        with ctx.db.reading() as conn:
+            # Feeds repeat their items run after run; skip what is already known.
+            seen = memory.known_source_uris(conn, [r.url for r in crawled])
+        crawled = [
+            r for r in crawled if r.url not in seen and r.url not in found and r.url not in held
+        ]
         found |= crawled_from
         results = interleave([searched, crawled])
         if not results:

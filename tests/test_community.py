@@ -784,6 +784,32 @@ def test_the_scout_answers_every_new_comment_in_our_threads(
     assert "vina" in source["metadata"]["moltbook_author"]
 
 
+def test_a_comment_already_recorded_is_still_offered_again(
+    researched, board_db, worker_db, publisher_db, llm, make_context
+):
+    """A comment recorded once, from a first reply attempt that was since
+    rejected, must not be silently dropped as "already known": that check
+    is meant for repeating feed items, not our own threads (a real
+    Moltbook comment was left unanswerable this way once already)."""
+    approved_post(researched, board_db, worker_db, llm, make_context)
+    publisher.publish_next(publisher_db, Forum(challenge=False).client(), llm)
+    with worker_db.acting_as("scout") as conn:
+        # The first attempt already recorded this exact comment as a source.
+        memory.record_source(conn, uri="https://www.moltbook.com/post/new-1#comment-c-7")
+    with board_db.acting_as("owner") as conn:
+        conn.execute(
+            "UPDATE domains SET discovery_sources = '{fake,moltbook}' WHERE id = %s", (researched,)
+        )
+        jobs.enqueue(conn, "scout", {"domain_id": researched}, priority=1)
+    llm.add(SearchPlan, SearchPlan(queries=["agents"]))
+    llm.add(ScoutReport, ScoutReport(observations=[]))
+    ctx = make_context(PAGES, extra_sources={"moltbook": FakeMoltbook()})
+    assert worker.run_once(ctx)  # the scout
+    with worker_db.reading() as conn:
+        replies = conn.execute("SELECT payload FROM jobs WHERE kind = 'reply'").fetchall()
+    assert len(replies) == 1
+
+
 def test_comments_wait_while_many_drafts_wait_for_the_owner(
     researched, board_db, worker_db, publisher_db, llm, make_context
 ):
