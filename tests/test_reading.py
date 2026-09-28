@@ -4,6 +4,7 @@ import asyncio
 import re
 import time
 
+import httpcore
 import httpx
 import pytest
 
@@ -486,3 +487,83 @@ def test_a_feed_link_after_many_dotted_capital_is_is_found():
 
     [feed] = extractor(handler).find_feed("https://news.example")
     assert feed.url == "https://news.example/haberler.rss"
+
+
+# ---------------------------------------------------------------------------
+# Connections go to the addresses that were checked (DNS rebinding)
+# ---------------------------------------------------------------------------
+
+
+class Network(httpcore.AsyncNetworkBackend):
+    """The network as the fetcher's connections see it: records where each
+    connection goes, and answers each with the next canned response."""
+
+    def __init__(self, *responses: bytes):
+        self.responses = list(responses)
+        self.connected: list[str] = []
+
+    async def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
+        self.connected.append(host)
+        return httpcore.AsyncMockStream([self.responses.pop(0)])
+
+    async def connect_unix_socket(self, path, timeout=None, socket_options=None):
+        raise AssertionError("no sockets")
+
+    async def sleep(self, seconds):
+        pass
+
+
+def response(status: int, body: str = "", kind: str = "text/html") -> bytes:
+    reason = {200: "OK", 301: "Moved", 404: "Not Found", 503: "Unavailable"}[status]
+    return (
+        f"HTTP/1.1 {status} {reason}\r\nContent-Type: {kind}\r\nConnection: close\r\n"
+        f"Content-Length: {len(body.encode())}\r\n\r\n{body}"
+    ).encode()
+
+
+def test_connections_go_to_the_checked_address_never_to_a_new_lookup():
+    # A rebinding DNS server: public for the check, private for anything after.
+    answers = iter([["93.184.216.34"], ["93.184.216.34"]])
+
+    def rebinding(host):
+        return next(answers, ["127.0.0.1"])
+
+    network = Network(response(404), response(200, ARTICLE))
+    fetcher = SafeFetcher(resolver=rebinding, network=network)
+    url, kind, body = fetcher.fetch("http://news.example/agents", TEXT_TYPES)
+    assert body.decode().startswith("<html>") and kind == "text/html"
+    # robots.txt and the page, each to the checked address; the name itself,
+    # which a new lookup would have turned into 127.0.0.1, never reaches it.
+    assert network.connected == ["93.184.216.34", "93.184.216.34"]
+
+
+def test_a_host_that_was_not_checked_cannot_be_connected_to():
+    from collegium.acquisition.fetching import PinnedBackend
+
+    backend = PinnedBackend({"news.example": ["93.184.216.34"]}, Network(response(404)))
+    with pytest.raises(httpcore.ConnectError, match="not checked"):
+        asyncio.run(backend.connect_tcp("intranet.example", 80))
+
+
+def test_a_robots_txt_that_cannot_be_read_stops_the_fetch_and_is_asked_again():
+    network = Network(response(503), response(404), response(200, ARTICLE))
+    fetcher = SafeFetcher(resolver=resolver(PUBLIC), network=network)
+    with pytest.raises(Refused, match="robots.txt"):
+        fetcher.fetch("http://news.example/agents", TEXT_TYPES)
+    # Not cached: the next fetch asks again, finds none, and reads the page.
+    assert fetcher.fetch("http://news.example/agents", TEXT_TYPES)[2]
+    assert len(network.connected) == 3
+
+
+def test_a_robots_txt_that_moves_is_followed_and_obeyed():
+    moved = (
+        b"HTTP/1.1 301 Moved\r\nLocation: http://www.news.example/robots.txt\r\n"
+        b"Connection: close\r\nContent-Length: 0\r\n\r\n"
+    )
+    rules = response(200, "User-agent: *\nDisallow: /private/\n", "text/plain")
+    network = Network(moved, rules)
+    table = {**PUBLIC, "www.news.example": ["93.184.216.36"]}
+    fetcher = SafeFetcher(resolver=resolver(table), network=network)
+    with pytest.raises(Refused, match="robots.txt"):
+        fetcher.fetch("http://news.example/private/page", TEXT_TYPES)
+    assert network.connected == ["93.184.216.34", "93.184.216.36"]

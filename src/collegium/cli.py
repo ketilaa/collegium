@@ -586,7 +586,7 @@ def _jobs(args, settings: Settings) -> None:
     for j in rows:
         detail = j["last_error"] if j["status"] != "succeeded" else j["notes"]
         print(
-            f"{_local(j['created_at']):%m-%d %H:%M}  {j['kind']:8} {j['status']:9} "
+            f"{_local(j['changed_at']):%m-%d %H:%M}  {j['kind']:8} {j['status']:9} "
             f"x{j['attempts']}  {detail or ''}"
         )
 

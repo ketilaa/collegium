@@ -10,8 +10,12 @@ pushed with the code they cleared.
 1. `scripts/security-review-bundle.sh` gathers the commits not yet on the
    remote (all of history before the first push) into `.review/<hash>/`:
    the diff, a secret scan of every commit in the range, `pip-audit` of the
-   locked dependencies, the direct dependencies as PyPI knows them, and the
-   container images. The reviewer can only read, so everything that needs
+   locked dependencies, the direct dependencies as PyPI knows them, the
+   container images, every path any commit touched (deleted files
+   included), the binary files with their readable text, and a
+   case-insensitive scan for the owner's sensitive terms. The terms are in
+   `~/.collegium/review-terms.txt` (or `COLLEGIUM_REVIEW_TERMS`), never
+   committed; hits refer to them by number. The reviewer can only read, so everything that needs
    a command or the network happens here.
 2. The `security-reviewer` subagent reads the bundle and the code and
    returns its report. It saves nothing itself.

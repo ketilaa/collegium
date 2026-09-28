@@ -9,7 +9,7 @@ from markupsafe import escape
 from test_feeds import BROKEN, FEED, FakeCrawler
 from test_pipeline import PAGES, enqueue_scout, script_research, script_review, script_scout
 
-from collegium import board, memory, worker
+from collegium import board, jobs, memory, worker
 from collegium.config import Settings
 from collegium.db import Database
 from collegium.web import create_app, http_url
@@ -428,3 +428,17 @@ def test_contradictions_are_found(client, researched, worker_db):
     assert "The measurements are from a single vendor." in page
     assert "Agents replace analysts." in page
     assert '<a href="/contradictions">3</a>' in client.get("/").text
+
+
+def test_operations_lists_jobs_by_their_latest_activity(client, board_db, worker_db, add_domain):
+    domain_id = add_domain()
+    with board_db.acting_as("owner") as conn:
+        first = jobs.enqueue(conn, "scout", {"domain_id": domain_id}, priority=1)
+        second = jobs.enqueue(conn, "strategize", {"domain_id": domain_id}, priority=5)
+    with worker_db.reading() as conn:
+        assert jobs.claim(conn).id == first  # queued first, started last
+    with worker_db.reading() as conn:
+        listed = [j["id"] for j in board.jobs(conn)]
+    assert listed == [first, second]
+    page = client.get("/operations").text
+    assert page.index(">scout<") < page.index(">strategize<")

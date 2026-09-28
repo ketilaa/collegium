@@ -1154,3 +1154,43 @@ continuation by label, so the abandonment stood, and the repeated goal was
 then skipped as closed in this run. Now a goal is continued if the plan
 names it by label or repeats its statement (compared as `statement_key`
 does). The owner reopened the goal the same day; its outcome says why.
+
+## 2026-09-28 · Follow-ups from the first push's reviews
+
+Proposed on 2026-09-27 and approved by the owner.
+
+- **Connections go to the address that was checked (SEC-8, SEC-21).** The
+  fetcher resolved a name, checked the addresses, and then let httpx
+  resolve it again to connect: a hostile DNS server could answer the check
+  with a public address and the connection with a private one (DNS
+  rebinding), and the second lookup ran in the default executor, outside
+  the fetch's deadline. Now `_check` pins each host to the addresses it
+  approved, and `PinnedBackend`, an httpcore network backend under httpx's
+  own transport, connects only to those. anyio makes no lookup for an IP
+  address, so the second lookup is gone, and both findings with it. TLS
+  and the Host header still use the name. httpx takes no network backend,
+  so the transport's pool is replaced (`transport._pool`); a test fails if
+  a connection ever goes to the name instead of the address. `httpcore` is
+  now a declared dependency (it was already locked, through httpx).
+- **robots.txt per RFC 9309 (SEC-23).** Redirects are followed, up to
+  five, each hop checked like any other. No robots.txt (4xx) allows
+  everything and is remembered; one that cannot be read (5xx, errors,
+  timeouts, a refused hop) allows nothing this time and is asked again.
+  Before, all of these meant "allow everything", remembered until restart.
+- **The push guard (SEC-12).** The deny list covers every way to change
+  `core.hooksPath`, `--no-verify` in any abbreviation, and git
+  configuration through the environment; `git push -n` (a dry run) is no
+  longer listed. After a PASS, only new reports named like
+  `docs/reviews/YYYY-MM-DD-*.md` may be added; any other change, including
+  to an earlier report, needs a new review. On GitHub, a ruleset ("Protect
+  main") blocks force pushes and deletion of the default branch.
+- **The review bundle sees the whole range (SEC-14, SEC-16).** It lists
+  every path any commit touched, deleted files included, and every binary
+  file with its size and readable text. It scans contents, messages and
+  identities case-insensitively for the owner's sensitive terms, kept in
+  `~/.collegium/review-terms.txt` and never committed; hits refer to terms
+  by number, and a location that contains a term is not named.
+
+Also: the operations page and `collegium jobs` list jobs by their latest
+activity (queued, started or finished), not by when they were queued, so a
+job queued yesterday and running now is at the top.

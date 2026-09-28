@@ -72,6 +72,66 @@ PATTERNS='(tvly-[A-Za-z0-9_-]{10,}|moltbook_[A-Za-z0-9_-]{10,}|sk-[A-Za-z0-9_-]{
     git log --format='%an <%ae> | %cn <%ce>' $RANGE | sort | uniq -c
 } >"$OUT/secrets-scan.txt"
 
+# Every path any commit in the range touched, including files added and
+# later deleted, and every binary file in it with its size and readable
+# text: `git log -p` shows neither a deleted file in the net diff nor the
+# contents of a binary one (that is how a stray swap file once went unseen).
+git log --format= --name-status --no-renames $RANGE | sort -u >"$OUT/all-paths.txt"
+git rev-list --objects $RANGE | python3 -c '
+import subprocess, sys, re
+out = open(sys.argv[1], "w")
+seen = 0
+for line in sys.stdin:
+    sha, _, path = line.rstrip("\n").partition(" ")
+    if not path:
+        continue
+    kind = subprocess.run(["git", "cat-file", "-t", sha], capture_output=True, text=True).stdout.strip()
+    if kind != "blob":
+        continue
+    data = subprocess.run(["git", "cat-file", "blob", sha], capture_output=True).stdout
+    if b"\0" not in data[:8000]:
+        continue
+    seen += 1
+    text = re.findall(rb"[ -~]{6,}", data)[:40]
+    out.write(f"{path} ({len(data)} bytes, blob {sha[:10]})\n")
+    out.writelines(f"    {t.decode()}\n" for t in text)
+if not seen:
+    out.write("(no binary files in the range)\n")
+' "$OUT/binary-files.txt"
+
+# Sensitive terms (the employer, private names, hosts): a case-insensitive
+# scan of the range's contents, commit messages and identities. The terms
+# live in a local file that is never committed, and hits name the term by
+# its number only, so no report repeats it.
+TERMS="${COLLEGIUM_REVIEW_TERMS:-$HOME/.collegium/review-terms.txt}"
+if [ -s "$TERMS" ] && grep -qvE '^\s*(#|$)' "$TERMS"; then
+    git log -p --format='@@commit %h%n@@who %an <%ae> | %cn <%ce>%n%B' $RANGE | python3 -c '
+import sys
+terms = [t.strip().lower() for t in open(sys.argv[1]) if t.strip() and not t.startswith("#")]
+out = open(sys.argv[2], "w")
+hits, commit, where = set(), "?", "message"
+for line in sys.stdin:
+    if line.startswith("@@commit "):
+        commit, where = line.split()[1], "message"
+    elif line.startswith("@@who "):
+        where = "author or committer"
+    elif line.startswith("diff --git "):
+        where = "file " + line.split(" b/", 1)[-1].strip()
+    low = line.lower()
+    for n, term in enumerate(terms, 1):
+        if term in low:
+            # A path that holds the term would repeat it: say so instead.
+            hits.add((n, commit, "a file whose path contains it" if term in where.lower() else where))
+    if line.startswith("@@who "):
+        where = "message"
+out.write(f"# {len(terms)} terms from the local list, scanned case-insensitively\n")
+out.writelines(f"term {n}: commit {c}, {w}\n" for n, c, w in sorted(hits)) if hits else out.write("(no hits)\n")
+' "$TERMS" "$OUT/sensitive-terms.txt"
+else
+    echo "NOT RUN: no terms in $TERMS (one term per line; the file is never committed)" \
+        >"$OUT/sensitive-terms.txt"
+fi
+
 # Dependencies: known vulnerabilities in the locked set.
 uv export --frozen --no-dev --no-hashes --no-emit-project -q >"$OUT/requirements.txt"
 uvx pip-audit -r "$OUT/requirements.txt" --no-deps --disable-pip --progress-spinner off \

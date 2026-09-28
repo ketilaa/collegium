@@ -378,9 +378,12 @@ def new_entities(conn: Connection, since: datetime, limit: int = 50) -> list[dic
 
 
 def jobs(conn: Connection, limit: int = 20) -> list[dict]:
+    """Recent jobs, the latest activity first: a job queued yesterday that
+    is running now, or finished a minute ago, belongs at the top."""
     return conn.execute(
-        "SELECT j.*, r.notes FROM jobs j LEFT JOIN runs r ON r.id = j.run_id "
-        "ORDER BY j.created_at DESC LIMIT %s",
+        "SELECT j.*, r.notes, greatest(j.created_at, j.started_at, j.finished_at) AS changed_at "
+        "FROM jobs j LEFT JOIN runs r ON r.id = j.run_id "
+        "ORDER BY changed_at DESC, j.created_at DESC LIMIT %s",
         (limit,),
     ).fetchall()
 

@@ -24,6 +24,16 @@ The caller names a bundle directory, `.review/<short-hash>/`:
   the range (including lines later deleted), tracked files that usually
   hold secrets, and the author identities that will become public. Most
   matches are variable names; judge each.
+- `all-paths.txt`: every path any commit in the range touched, including
+  files added and later deleted (they are public too once pushed).
+- `binary-files.txt`: every binary file in the range, with its size and
+  readable text: `git log -p` does not show what is inside them.
+- `sensitive-terms.txt`: a case-insensitive scan of the range (contents,
+  messages, identities) for the owner's sensitive terms, kept in a local
+  file you cannot see. Hits name the term by number only, and a location
+  that itself contains the term is not named. Report hits by term number,
+  commit and location exactly as given; never guess or spell out a term.
+  If it says NOT RUN, say so under "Not checked".
 - `pip-audit.txt`: known vulnerabilities in the locked dependencies.
 - `direct-dependencies.txt`: each direct dependency's presence, age,
   release count and source on PyPI.
