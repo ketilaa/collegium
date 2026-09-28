@@ -8,6 +8,7 @@ import pytest
 from conftest import FakeProvider
 
 from collegium.acquisition.hackernews import HackerNewsDiscovery
+from collegium.acquisition.nva import NVADiscovery
 from collegium.acquisition.tavily import TavilyProvider
 from collegium.llm import LLMError, OpenAICompatibleLLM
 from collegium.roles.base import SearchPlan
@@ -180,6 +181,162 @@ def test_hacker_news_without_window_filters_only_on_points():
 
     HackerNewsDiscovery(min_points=100, transport=httpx.MockTransport(handler)).discover("q", 3)
     assert requests[0]["numericFilters"] == "points>=100"
+
+
+# A journal article, shaped like a real /search/resources hit.
+NVA_ARTICLE = {
+    "identifier": "0198cc7a6ea4-2b698e72-c4bf-4cd4-9e94-27d6658617fd",
+    "type": "Publication",
+    "entityDescription": {
+        "mainTitle": "AI agents for a person-centered healthcare system",
+        "contributors": [
+            {"identity": {"name": "Gro Berntsen"}},
+            {"identity": {"name": "Anne Moen"}},
+        ],
+        "publicationDate": {"year": "2025", "month": "3", "day": "25"},
+        "reference": {
+            "doi": "https://doi.org/10.1007/s00146-020-00984-2",
+            "publicationContext": {
+                "type": "Journal",
+                "name": "AI & Society: Knowledge, Culture and Communication",
+            },
+            "publicationInstance": {"type": "AcademicArticle"},
+        },
+    },
+}
+# An event talk: fewer fields, no DOI, the venue only under "agent".
+NVA_TALK = {
+    "identifier": "019fdbf9b6e7-f2585741-5d5e-4c79-bb2f-9ecb6e4bd51d",
+    "type": "Publication",
+    "entityDescription": {
+        "mainTitle": "Generative AI Agents in Central Banks",
+        "contributors": [{"identity": {"name": "Jarle Hallingstad"}}],
+        "publicationDate": {"year": "2025"},
+        "reference": {
+            "publicationContext": {"type": "Event", "agent": {"name": "Norges Bank"}},
+            "publicationInstance": {"type": "OtherPresentation"},
+        },
+    },
+}
+
+
+def test_nva_leads_carry_the_publication_metadata():
+    requests = []
+
+    def handler(request):
+        requests.append(request.url.params)
+        return httpx.Response(200, json={"totalHits": 2, "hits": [NVA_ARTICLE, NVA_TALK]})
+
+    article, talk = NVADiscovery(transport=httpx.MockTransport(handler)).discover(
+        "AI agents", 5, recent_days=30
+    )
+
+    params = requests[0]
+    assert params["query"] == "AI agents" and params["size"] == "5"
+    assert params["published_since"]  # a date, server-side: fewer stale results to discard
+
+    assert article.url == (
+        "https://nva.sikt.no/registration/0198cc7a6ea4-2b698e72-c4bf-4cd4-9e94-27d6658617fd"
+    )
+    assert article.title == "AI agents for a person-centered healthcare system"
+    assert article.snippet == (
+        "Gro Berntsen, Anne Moen. AI & Society: Knowledge, Culture and Communication. "
+        "journal article"
+    )
+    assert article.published_at == "2025-03-25"
+    assert article.metadata == {
+        "nva_identifier": "0198cc7a6ea4-2b698e72-c4bf-4cd4-9e94-27d6658617fd",
+        "doi": "https://doi.org/10.1007/s00146-020-00984-2",
+    }
+
+    # No DOI, a venue only under "agent", and a partial date.
+    assert talk.snippet == "Jarle Hallingstad. Norges Bank. presentation"
+    assert talk.published_at == "2025-01-01"
+    assert "doi" not in talk.metadata
+
+
+def test_nva_without_a_window_asks_for_no_date_filter():
+    requests = []
+
+    def handler(request):
+        requests.append(request.url.params)
+        return httpx.Response(200, json={"hits": []})
+
+    NVADiscovery(transport=httpx.MockTransport(handler)).discover("q", 3)
+    assert "published_since" not in requests[0]
+
+
+def test_nva_fetches_the_abstract_instead_of_the_pdf():
+    """Grounding rests on the author's own summary, fetched as a small JSON
+    call; the (often large) PDF is never requested by the adapter."""
+    paths = []
+
+    def handler(request):
+        paths.append(request.url.path)
+        if request.url.path.startswith("/publication/"):
+            return httpx.Response(
+                200,
+                json={
+                    "entityDescription": {
+                        "abstract": "  We measure   how agents change developer workflows. " * 3
+                    }
+                },
+            )
+        return httpx.Response(200, json={"hits": [NVA_ARTICLE]})
+
+    [lead] = NVADiscovery(transport=httpx.MockTransport(handler)).discover("q", 1)
+    assert paths == [
+        "/search/resources",
+        "/publication/0198cc7a6ea4-2b698e72-c4bf-4cd4-9e94-27d6658617fd",
+    ]
+    assert not any(p.endswith(".pdf") or "download" in p for p in paths)
+    assert lead.snippet.startswith("We measure how agents change developer workflows.")
+    # Whitespace collapsed, and the metadata line kept after it.
+    assert "  " not in lead.snippet.split("\n")[0]
+    assert lead.snippet.endswith("journal article")
+
+
+def test_no_abstract_or_a_failed_lookup_falls_back_to_the_metadata_line():
+    for handler in (
+        lambda r: (
+            httpx.Response(200, json={"hits": [NVA_ARTICLE], "entityDescription": {}})
+            if r.url.path == "/search/resources"
+            else httpx.Response(200, json={"entityDescription": {}})
+        ),
+        lambda r: (
+            httpx.Response(200, json={"hits": [NVA_ARTICLE]})
+            if r.url.path == "/search/resources"
+            else httpx.Response(500)
+        ),
+    ):
+        [lead] = NVADiscovery(transport=httpx.MockTransport(handler)).discover("q", 1)
+        assert lead.snippet == (
+            "Gro Berntsen, Anne Moen. AI & Society: Knowledge, Culture and Communication. "
+            "journal article"
+        )
+
+
+def test_a_hit_missing_its_title_or_id_is_skipped():
+    incomplete = [
+        {"identifier": "x", "entityDescription": {}},  # no title
+        {"entityDescription": {"mainTitle": "No id"}},  # no identifier
+    ]
+
+    def handler(request):
+        return httpx.Response(200, json={"hits": incomplete})
+
+    assert NVADiscovery(transport=httpx.MockTransport(handler)).discover("q", 5) == []
+
+
+def test_a_publication_with_no_venue_or_contributors_gets_a_plain_snippet():
+    bare = {"identifier": "x", "entityDescription": {"mainTitle": "Untitled work"}}
+
+    def handler(request):
+        return httpx.Response(200, json={"hits": [bare]})
+
+    [lead] = NVADiscovery(transport=httpx.MockTransport(handler)).discover("q", 5)
+    assert lead.snippet == "A publication in NVA, Norway's archive of publicly funded research."
+    assert lead.published_at is None
 
 
 def test_llm_asks_again_briefly_when_a_reply_is_cut_off():
@@ -412,13 +569,14 @@ def test_every_adapter_says_who_it_is():
     SearXNGDiscovery("http://s", transport=t, pause=0).discover("q", 1)
     HackerNewsDiscovery(transport=t).discover("q", 1)
     MoltbookDiscovery(transport=t).discover("q", 1)
+    NVADiscovery(transport=t).discover("q", 1)
     TavilyProvider("key", transport=t).discover("q", 1)
     with contextlib.suppress(Exception):  # not a feed; only the request matters
         FeedReader(transport=t, resolver=lambda host: ["93.184.216.34"]).crawl(
             "https://feed.example/rss", 1
         )
-    # The feed reader asks for robots.txt first, so six requests from five adapters.
-    assert set(agents) == {USER_AGENT} and len(agents) == 6
+    # The feed reader asks for robots.txt first, so seven requests from six adapters.
+    assert set(agents) == {USER_AGENT} and len(agents) == 7
     MoltbookClient("key", transport=t)._client.get("/x")
     assert agents[-1].startswith("Collegium/0.1 (+https://github.com/ketilaa/collegium;")
 

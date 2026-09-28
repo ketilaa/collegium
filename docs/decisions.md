@@ -1307,3 +1307,49 @@ This trades throughput for headroom: fewer jobs a day, and a weaker model
 for the Researcher and Skeptic. Grounding and the critique loop still
 apply, so nothing ungrounded is accepted; the organization is simply
 slower until it moves to a proper host.
+
+## 2026-09-28 · NVA as a discovery source
+
+The owner pointed at nva.sikt.no, Norway's archive of publicly funded
+research (Sikt/Cristin), asking whether it could be a source. Its page is
+a client-rendered app, but the free-text search behind it
+(`api.nva.unit.no/search/resources`, confirmed against
+BIBSYSDEV/nva-api-documentation) is free, keyless, structured JSON, and
+supports a real server-side date filter (`published_since`). A new
+`Discovery` adapter, `acquisition/nva.py`, registered like Hacker News
+(free, keyless, opt-in per domain via `discovery_sources`).
+
+Each hit's own abstract is fetched directly, one small JSON call to
+`/publication/{id}` per lead, rather than pointing the Scout at the
+landing page (a JS shell trafilatura gets little from) or a PDF (often
+several megabytes, and the API gives no stable, keyless download link for
+one). The owner asked specifically that a large PDF not be the way this
+source is read; the abstract is the author's own summary and is exactly
+the size a lead should be. A hit with no abstract falls back to a
+metadata line (contributors, venue, publication type); this is the same
+snippet used for every hit, following it. Not built: reading the PDF
+itself, since no stable download URL was found without a browser to trace
+what the frontend calls; reconsider if abstracts prove too thin in
+practice.
+
+## 2026-09-28 · A failed Moltbook post can be retried
+
+A post's verification failed once (an obfuscated arithmetic challenge,
+solved by the local model); the content was created on Moltbook but
+never became visible (unlisted, not returned by search, though a direct
+link to it still resolves). The outbox had no way back from `failed`:
+approving a decision only ever inserts one `community_posts` row, so a
+genuine retry could not be a second row.
+
+Migration 0015 extends the outbox's rule trigger to allow the owner to
+move a post, reply or vote from `failed` back to `approved`
+(`owner.retry_post`, `collegium retry <id>`, a "Try again" button on the
+Community page where "Withdraw" is otherwise shown). Moltbook's own
+guidance for a failed challenge is to send the content again, not to
+re-verify the same one, so a retry is a fresh publish attempt with a
+fresh challenge; the text itself stays exactly what was approved (the
+rule trigger already forbids changing it). The owner's write grant covers
+only `status` and `error`, so `retry_post` clears `error` but leaves the
+failed attempt's `external_id`, `url` and `verification` in place until
+the publisher's next attempt overwrites them, whatever it finds this
+time.

@@ -483,6 +483,7 @@ def acquisition_from_settings(settings: Settings) -> Acquisition:
     from collegium.acquisition.feeds import FeedReader
     from collegium.acquisition.hackernews import HackerNewsDiscovery
     from collegium.acquisition.moltbook import MoltbookDiscovery
+    from collegium.acquisition.nva import NVADiscovery
     from collegium.acquisition.tavily import TavilyProvider
     from collegium.acquisition.web import WebExtractor
 
@@ -490,6 +491,7 @@ def acquisition_from_settings(settings: Settings) -> Acquisition:
     discovery: dict[str, Discovery] = {
         "hackernews": HackerNewsDiscovery(),
         "moltbook": MoltbookDiscovery(),
+        "nva": NVADiscovery(),
     }
     if settings.searxng_url:
         from collegium.acquisition.searxng import SearXNGDiscovery
@@ -514,7 +516,7 @@ def acquisition_from_settings(settings: Settings) -> Acquisition:
 def discovery_source_names(settings: Settings) -> list[str]:
     """The discovery sources `acquisition_from_settings` registers, known
     without their keys, so the board can offer them without holding keys."""
-    names = {"hackernews", "moltbook", "tavily", settings.search_provider}
+    names = {"hackernews", "moltbook", "nva", "tavily", settings.search_provider}
     if settings.searxng_url:
         names.add("searxng")
     return sorted(names)
