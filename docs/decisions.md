@@ -1439,3 +1439,24 @@ thread URLs that already have an active (`proposed` or `approved`) reply
 decision. `scout.py` now excludes those from the own-thread candidate
 list before slicing into `new_replies`, while a *rejected* decision's
 thread is still offered again, which was the point of the original fix.
+
+## 2026-09-28 · An own-thread comment must always end in a decision
+
+The next review iteration (SEC-40-001, ACTION_REQUIRED) found the SEC-39-001
+fix above left an adjacent path open: `replier.py`'s own-thread branch
+persisted no decision at all when the model cited something that did not
+actually answer the question (`worth_replying=False`) and also left
+`look_into` unset — nothing in the schema or prompt required it. Such a
+comment has no reply decision for `active_reply_urls()` to find, so it
+is neither "active" nor blocked: it is offered again by scout.py as a
+fresh candidate on every later run, growing the jobs table without bound
+and able to occupy one of the `MAX_OWN_THREAD_REPLIES` slots forever,
+the same failure SEC-39 closed, reached a different way. Since it is
+driven by what another agent writes in the organization's own thread, it
+is remotely triggerable.
+
+Fixed by making the own-thread branch total: when the model gives no
+`look_into`, one is derived from the comment's own text (the part after
+the Scout's fixed title line) instead of leaving the decision unmade.
+Every own-thread comment the Replier sees now ends in a decision, exactly
+as the module's docstring already promised.

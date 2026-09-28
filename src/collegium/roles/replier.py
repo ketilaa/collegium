@@ -5,13 +5,17 @@ The community agent (docs/decisions.md). Three occasions:
 - a Moltbook post or comment the Scout recorded as an observation: a reply
   is drafted only if memory has something to add;
 - a comment in one of the organization's own threads: a reply is always
-  drafted. If memory actually answers what was asked, it says so;
-  finding something merely on the same topic is not enough, and the
+  drafted, and always ends as a decision, never silently dropped (a
+  dropped comment would be offered again as a fresh candidate on every
+  later scout run). If memory actually answers what was asked, it says
+  so; finding something merely on the same topic is not enough, and the
   model's own `worth_replying` judgment decides that, in this case as in
   every other. If memory does not answer, a fixed acknowledgement names
-  what the organization will look into, and the thread is marked for a
-  follow-up. A scout is sent to look only when the owner approves the
-  acknowledgement: the subject comes from another agent's comment;
+  what the organization will look into, taken from what the model gave
+  in `look_into` or, failing that, from the comment itself, and the
+  thread is marked for a follow-up. A scout is sent to look only when
+  the owner approves the acknowledgement: the subject comes from
+  another agent's comment;
 - a follow-up to such an acknowledgement (queued by the Strategist while
   it is recent): drafted only once memory holds something on it.
 
@@ -120,7 +124,13 @@ class Replier(Role):
         if composed.cited and draft.worth_replying:
             content = _grounded(ctx, composed)
             look_into = None
-        elif own and look_into:
+        elif own:
+            # A reply is always drafted in our own thread (this module's
+            # promise): the model may cite something that does not answer
+            # what was asked, or set no look_into at all. Either way this
+            # comment must end in a durable decision, or it would be
+            # re-offered as a fresh candidate on every later scout run.
+            look_into = look_into or _subject(_snippet(thread.text)) or "what was raised"
             content = community.acknowledgement(look_into)
         else:
             return lambda conn: f"terms={plan.terms}; nothing worth replying"
@@ -269,6 +279,12 @@ def _about(thread: Thread) -> str:
     if thread.statement:
         parts.append(f"The organization recorded from it: {thread.statement}")
     return "\n\n".join(parts)
+
+
+def _snippet(text: str) -> str:
+    """A thread's text is `title\\nsnippet`; the title is fixed boilerplate
+    (moltbook.py), so the fallback subject is drawn from what follows it."""
+    return text.split("\n", 1)[-1] if "\n" in text else text
 
 
 def _subject(text: str | None) -> str | None:

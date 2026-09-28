@@ -675,6 +675,35 @@ def test_a_citation_that_does_not_answer_the_question_is_not_sent_as_a_reply(
     assert "We are investigating" not in d["details"]["content"]
 
 
+def test_an_own_thread_comment_still_gets_a_decision_with_no_look_into(
+    researched, board_db, worker_db, publisher_db, llm, make_context
+):
+    """When the model cites something that does not answer the question
+    (worth_replying=False, as in the test above) but also gives no
+    look_into, the comment must not be silently dropped: that would leave
+    it with no decision at all, so scout.py's active-reply check (fixed
+    for SEC-39-001) would not recognise it either, and it would be
+    re-offered as a fresh candidate forever (SEC-40-001). A fallback
+    subject, drawn from the comment itself, keeps the promise that every
+    own-thread comment ends in a decision."""
+    a_comment_in_our_thread(researched, board_db, worker_db, publisher_db, llm, make_context)
+    llm.add(SearchTerms, SearchTerms(terms=["inference costs"]))
+    llm.add(
+        ReplyDraft,
+        ReplyDraft(
+            worth_replying=False,
+            points=[
+                AnswerPoint(statement="We are investigating whether costs halve.", sources=["H1"])
+            ],
+        ),
+    )
+    worker.drain(make_context(PAGES))
+    [d] = reply_decision(worker_db)
+    assert d["details"]["look_into"]
+    assert d["details"]["content"] == community.acknowledgement(d["details"]["look_into"])
+    assert "We are investigating" not in d["details"]["content"]
+
+
 def test_a_follow_up_is_drafted_once_memory_holds_something(
     researched, board_db, worker_db, publisher_db, llm, make_context
 ):
