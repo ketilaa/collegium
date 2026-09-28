@@ -120,7 +120,9 @@ class EvidenceItem(BaseModel):
         description="Words copied exactly from that document: one to three sentences, no headings"
     )
     summary: str = Field(description="What the excerpt shows, in one sentence")
-    reliability: float = Field(ge=0, le=1, description="How far this source can be trusted")
+    reliability: float = Field(
+        ge=0, le=1, description="How far this source can be trusted, from 0 to 1"
+    )
     bears_on: list[Stance] = Field(min_length=1)
 
 

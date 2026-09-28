@@ -1405,3 +1405,20 @@ is that program's own work.
 The three live developers-ai goals that already match the approved
 program's charter ("AI Impact on Software Development") were linked by
 hand as a one-time correction, as the strategist actor.
+
+## 2026-09-28 · Reliability needed the same explicit 0-1 guidance as confidence
+
+A review job failed all three of its internal retries with the same
+Pydantic error: the model gave a piece of evidence `reliability: 2`,
+outside the field's `ge=0, le=1` range. Confidence already has explicit
+prose ("Be calibrated... a probability between 0 and 1") in the shared
+prompt; reliability had only the field's own one-line description, which
+did not say it is a 0-1 score at all, let alone the same scale as
+confidence. A weaker model (the 7B one now in use under the hold-back)
+was more likely to guess a 1-5 or 1-10 rating instead.
+
+Fixed by making both places say so explicitly: `organization.md`'s
+calibration bullet now covers reliability as well as confidence, and
+`EvidenceItem.reliability`'s own description says "from 0 to 1". The
+`ge=0, le=1` constraint itself was correct and stays: it is why this
+failed loudly instead of storing a wrong number.
