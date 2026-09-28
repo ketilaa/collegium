@@ -30,6 +30,14 @@ pushed with the code they cleared.
    back to what the remote already has. Enable it in each clone with
    `git config core.hooksPath .githooks`. Never push with `--no-verify`.
 
+## Before that: every commit
+
+`.githooks/pre-commit` and `.githooks/commit-msg` refuse a commit that adds
+a home or temporary directory path, an email address other than example
+or noreply ones, or one of the owner's sensitive terms (names of people,
+the employer, machines), kept in `~/.collegium/review-terms.txt` and never
+committed. The same term list feeds the review bundle's history scan.
+
 ## Findings
 
 Each finding is `SEC-n-i`:

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Refuses a commit that adds out-of-repository paths, non-example email
+# addresses or the owner's sensitive terms (see sensitive-check.py).
+exec python3 "$(git rev-parse --show-toplevel)/.githooks/sensitive-check.py" staged
