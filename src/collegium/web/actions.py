@@ -38,6 +38,7 @@ NOTICES = {
         "Decisions for you to approve."
     ),
     "withdrawn": "Withdrawn. It will not be published.",
+    "upvoted": "Upvote approved. The publisher sends it shortly.",
     "post-approved": "Approved. The publisher sends it to Moltbook as the pace allows.",
     "strategize": "Planning queued. It starts within working hours.",
 }
@@ -137,6 +138,11 @@ def add_actions(
     def reply(observation_id: UUID, conn: Acting):
         owner.request_reply(conn, observation_id)
         return done(f"/observations/{observation_id}", "reply")
+
+    @app.post("/community/upvote")
+    def upvote(conn: Acting, url: Annotated[str, Form()] = ""):
+        owner.upvote(conn, url)
+        return done("/community", "upvoted")
 
     @app.post("/community/{post_id}/withdraw")
     def withdraw(post_id: UUID, conn: Acting):

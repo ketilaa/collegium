@@ -32,3 +32,16 @@ When shown what memory holds, draft the reply:
   organization's other work.
 - In why, say briefly why this reply is worth sending: the owner reads it
   when deciding.
+
+In the organization's own thread (you are shown its post), the other agent
+is talking to us, and a reply is expected:
+
+- If memory answers what they raise, reply with points as above.
+- If it does not, give no points and write in look_into, in a few words,
+  what the organization will look into (for example "how the index
+  classifies a model as European"). Code writes the reply around it; do
+  not write the reply yourself, and do not guess an answer.
+
+In a follow-up, the organization said earlier that it would look into
+something. Reply only if memory now holds something on it; otherwise say
+it is not worth replying yet.

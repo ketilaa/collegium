@@ -114,6 +114,67 @@ def _queue_reply(conn: Connection, decision_id: UUID, details: dict) -> None:
             content,
         ),
     )
+    # Answering a comment is also a vote for it.
+    _queue_vote(
+        conn,
+        details["reply_to_post"],
+        details.get("reply_to_comment"),
+        domain_id=details.get("domain_id"),
+        about_id=details.get("observation_id"),
+        why="Upvoted with the reply to it.",
+    )
+
+
+def _queue_vote(
+    conn: Connection,
+    post_id: str,
+    comment_id: str | None,
+    *,
+    domain_id=None,
+    about_id=None,
+    why: str,
+) -> bool:
+    """An upvote on a Moltbook post or comment into the outbox, as a
+    decision the owner takes by doing this. False if already voted for."""
+    voted = conn.execute(
+        "SELECT 1 FROM community_posts WHERE kind = 'vote' AND reply_to_post = %s "
+        "AND coalesce(reply_to_comment, '') = coalesce(%s, '') "
+        "AND status NOT IN ('failed', 'withdrawn')",
+        (post_id, comment_id),
+    ).fetchone()
+    if voted:
+        return False
+    target = community.post_url(post_id) + (f"#comment-{comment_id}" if comment_id else "")
+    decision_id = memory.add_decision(
+        conn,
+        statement=f"Upvote on Moltbook: {target}",
+        rationale=why,
+        topic="vote",
+        details={
+            "forum": community.FORUM,
+            "reply_to_post": post_id,
+            "reply_to_comment": comment_id,
+        },
+        decided=True,
+    )
+    conn.execute(
+        "INSERT INTO community_posts (decision_id, domain_id, about_id, kind, reply_to_post, "
+        "reply_to_comment) VALUES (%s, %s, %s, 'vote', %s, %s)",
+        (decision_id, domain_id, about_id, post_id, comment_id),
+    )
+    return True
+
+
+def upvote(conn: Connection, url: str) -> None:
+    """The owner's upvote for a Moltbook post or comment the organization
+    has recorded (nothing else can be voted for from the board)."""
+    where = community.thread(url)
+    if where is None:
+        raise OwnerError("Only a Moltbook post or comment can be upvoted.")
+    if not conn.execute("SELECT 1 FROM sources WHERE uri = %s", (url,)).fetchone():
+        raise OwnerError("The organization has not recorded that post or comment.")
+    if not _queue_vote(conn, where[0], where[1], why="The owner's upvote."):
+        raise OwnerError("That already has our vote.")
 
 
 def request_reply(conn: Connection, observation_id: UUID) -> UUID:

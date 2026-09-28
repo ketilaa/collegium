@@ -13,11 +13,12 @@ import pytest
 from test_pipeline import HYPOTHESIS, PAGES
 from test_web import client, crawler, researched  # noqa: F401 (fixtures)
 
-from collegium import community, jobs, memory, owner, publisher, strategy, worker
+from collegium import board, community, jobs, memory, owner, publisher, strategy, worker
 from collegium.acquisition.moltbook import MoltbookDiscovery
 from collegium.db import Database
 from collegium.publisher import Arithmetic, MoltbookClient
 from collegium.roles.answerer import AnswerPoint, SearchTerms
+from collegium.roles.base import SearchPlan
 from collegium.roles.drafter import PostDraft
 from collegium.roles.replier import ReplyDraft
 
@@ -352,8 +353,13 @@ def test_a_reply_is_drafted_from_memory_held_as_firmly_as_memory_holds_it(
     [request] = forum.requests
     assert str(request.url) == "https://www.moltbook.com/api/v1/posts/p-123/comments"
     assert json.loads(request.content) == {"content": content, "parent_id": "c-9"}
-    [post] = outbox(worker_db)
+    post, vote = sorted(outbox(worker_db), key=lambda p: p["kind"] == "vote")
     assert post["kind"] == "comment" and post["url"].endswith("/post/p-123#comment-new-1")
+    # Answering the comment also upvotes it, at the votes' own pace.
+    assert (vote["kind"], vote["reply_to_comment"], vote["status"]) == ("vote", "c-9", "approved")
+    assert "upvoted" in publisher.publish_next(publisher_db, forum.client(), llm)
+    assert str(forum.requests[-1].url) == "https://www.moltbook.com/api/v1/comments/c-9/upvote"
+    assert {p["kind"]: p["status"] for p in outbox(worker_db)}["vote"] == "published"
 
 
 def test_firmness_is_corrected_in_replies(researched, worker_db, board_db, llm, make_context):
@@ -458,3 +464,200 @@ def test_drafts_and_replies_are_taken_at_any_hour(board_db, worker_db, add_domai
         jobs.enqueue(conn, "reply", {"observation_id": domain_id}, priority=2)
     with worker_db.reading() as conn:
         assert jobs.claim(conn, worker.ANY_HOUR).kind == "reply"
+
+
+# ---------------------------------------------------------------------------
+# Our own threads: always answered, followed up, and upvoted
+# ---------------------------------------------------------------------------
+
+QUESTION = (
+    "Does the Artificial Analysis index classify a model as European by where its "
+    "developer is based, or by where the training data comes from?"
+)
+
+
+def a_comment_in_our_thread(researched, board_db, worker_db, publisher_db, llm, make_context):
+    """Our post, published as new-1, and a comment on it the Scout read."""
+    approved_post(researched, board_db, worker_db, llm, make_context)
+    publisher.publish_next(publisher_db, Forum(challenge=False).client(), llm)
+    url = "https://www.moltbook.com/post/new-1#comment-c-1"
+    with worker_db.acting_as("scout") as conn:
+        source = memory.record_source(
+            conn,
+            uri=url,
+            title="Reply by agent vina to Collegium's question",
+            metadata={
+                "snippet": QUESTION,
+                "moltbook_author": "vina",
+                "reply_to": "https://www.moltbook.com/post/new-1",
+            },
+        )
+        jobs.enqueue(conn, "reply", {"source_id": source})
+    return url
+
+
+def reply_decision(worker_db):
+    with worker_db.reading() as conn:
+        return conn.execute(
+            "SELECT * FROM decisions WHERE topic = 'reply' ORDER BY resolved_at NULLS LAST"
+        ).fetchall()
+
+
+def test_a_question_in_our_thread_is_acknowledged_and_looked_into(
+    researched, board_db, worker_db, publisher_db, llm, make_context
+):
+    url = a_comment_in_our_thread(researched, board_db, worker_db, publisher_db, llm, make_context)
+    llm.add(SearchTerms, SearchTerms(terms=["European model classification"]))
+    llm.add(
+        ReplyDraft,
+        ReplyDraft(
+            worth_replying=False,
+            look_into="how the index classifies a model as European. See https://x.example",
+        ),
+    )
+    worker.drain(make_context(PAGES))
+
+    prompt = llm.prompts_for(ReplyDraft)[0]
+    assert "The organization's own post on Moltbook" in prompt and "own thread" in prompt
+    [d] = reply_decision(worker_db)
+    details = d["details"]
+    assert details["thread_url"] == url and details["reply_to_comment"] == "c-1"
+    assert details["look_into"] == "how the index classifies a model as European"
+    # The reply is fixed by code around the subject; nothing ungrounded.
+    assert details["content"] == community.acknowledgement(details["look_into"])
+    with worker_db.reading() as conn:
+        scout = conn.execute(
+            "SELECT payload FROM jobs WHERE kind = 'scout' AND payload ? 'focus'"
+        ).fetchall()
+    assert [j["payload"]["focus"] for j in scout] == [details["look_into"]]
+
+    # The same comment is never drafted for twice.
+    with worker_db.acting_as("scout") as conn:
+        source = memory.record_source(conn, uri=url)
+        jobs.enqueue(conn, "reply", {"source_id": source})
+    worker.drain(make_context(PAGES))
+    assert len(reply_decision(worker_db)) == 1
+
+
+def test_our_thread_is_answered_from_memory_when_it_can_be(
+    researched, board_db, worker_db, publisher_db, llm, make_context
+):
+    a_comment_in_our_thread(researched, board_db, worker_db, publisher_db, llm, make_context)
+    llm.add(SearchTerms, SearchTerms(terms=["inference costs"]))
+    llm.add(
+        ReplyDraft,
+        ReplyDraft(
+            worth_replying=False,  # in our own thread a grounded answer is sent regardless
+            points=[AnswerPoint(statement="We have concluded that costs halve.", sources=["H1"])],
+        ),
+    )
+    worker.drain(make_context(PAGES))
+    [d] = reply_decision(worker_db)
+    assert "look_into" not in d["details"]
+    assert d["details"]["content"].startswith("We have concluded that costs halve.")
+
+
+def test_a_follow_up_is_drafted_once_memory_holds_something(
+    researched, board_db, worker_db, publisher_db, llm, make_context
+):
+    a_comment_in_our_thread(researched, board_db, worker_db, publisher_db, llm, make_context)
+    llm.add(SearchTerms, SearchTerms(terms=["nothing"]))
+    llm.add(ReplyDraft, ReplyDraft(worth_replying=False, look_into="inference costs"))
+    worker.drain(make_context(PAGES))
+    [ack] = reply_decision(worker_db)
+    with board_db.acting_as("owner") as conn:
+        owner.resolve_decision(conn, ack["id"], "approved")
+    forum = Forum(challenge=False)
+    later = datetime.now(UTC) + timedelta(hours=2)
+    publisher.publish_next(publisher_db, forum.client(), llm, now=later)
+    with worker_db.reading() as conn:
+        assert memory.follow_ups_due(conn, researched) == []  # published just now
+    with publisher_db.acting_as("publisher") as conn:
+        conn.execute(
+            "UPDATE community_posts SET published_at = now() - interval '2 days' "
+            "WHERE kind = 'comment'"
+        )
+    with worker_db.reading() as conn:
+        assert memory.follow_ups_due(conn, researched) == [ack["id"]]
+    with worker_db.acting_as("strategist") as conn:
+        jobs.enqueue(conn, "reply", {"follows": ack["id"]})
+
+    llm.add(SearchTerms, SearchTerms(terms=["inference costs"]))
+    llm.add(
+        ReplyDraft,
+        ReplyDraft(
+            worth_replying=True,
+            points=[AnswerPoint(statement="We have concluded that costs halve.", sources=["H1"])],
+        ),
+    )
+    worker.drain(make_context(PAGES))
+    follow_up = next(d for d in reply_decision(worker_db) if d["details"].get("follows"))
+    assert follow_up["details"]["follows"] == str(ack["id"])
+    assert follow_up["details"]["reply_to_comment"] == "c-1"
+    assert follow_up["statement"].startswith("Follow up on Moltbook with agent vina")
+    with worker_db.reading() as conn:
+        assert memory.follow_ups_due(conn, researched) == []
+
+
+def test_the_owner_upvotes_what_the_organization_has_recorded(
+    researched, board_db, worker_db, publisher_db, llm, make_context, client
+):
+    url = a_comment_in_our_thread(researched, board_db, worker_db, publisher_db, llm, make_context)
+    page = client.get("/community").text
+    assert "Suggested upvotes" in page and "in our thread" in page and "vina" in page
+    response = client.post("/community/upvote", data={"url": url})
+    assert "Upvote approved" in response.text
+    [vote] = [p for p in outbox(worker_db) if p["kind"] == "vote"]
+    assert (vote["reply_to_post"], vote["reply_to_comment"]) == ("new-1", "c-1")
+    with worker_db.reading() as conn:
+        assert board.suggested_upvotes(conn) == []
+    # Never twice, and never for something the organization has not recorded.
+    with board_db.acting_as("owner") as conn, pytest.raises(owner.OwnerError, match="already"):
+        owner.upvote(conn, url)
+    with board_db.acting_as("owner") as conn, pytest.raises(owner.OwnerError, match="recorded"):
+        owner.upvote(conn, "https://www.moltbook.com/post/p-999")
+
+
+class FakeMoltbook:
+    """Moltbook as the Scout reads it: no posts found, one reply to ours."""
+
+    name = "moltbook"
+
+    def discover(self, query, max_results, *, recent_days=None):
+        return []
+
+    def replies(self, post_id, max_items):
+        from collegium.acquisition import SearchResult
+
+        return [
+            SearchResult(
+                url=f"https://www.moltbook.com/post/{post_id}#comment-c-7",
+                title="Reply by agent vina to Collegium's question",
+                snippet=QUESTION,
+                metadata={"moltbook_author": "vina", "moltbook_reply_to": post_id},
+            )
+        ]
+
+
+def test_the_scout_answers_every_new_comment_in_our_threads(
+    researched, board_db, worker_db, publisher_db, llm, make_context
+):
+    from collegium.roles.scout import ScoutReport
+
+    approved_post(researched, board_db, worker_db, llm, make_context)
+    publisher.publish_next(publisher_db, Forum(challenge=False).client(), llm)
+    with board_db.acting_as("owner") as conn:
+        conn.execute(
+            "UPDATE domains SET discovery_sources = '{fake,moltbook}' WHERE id = %s", (researched,)
+        )
+        jobs.enqueue(conn, "scout", {"domain_id": researched}, priority=1)
+    llm.add(SearchPlan, SearchPlan(queries=["agents"]))
+    llm.add(ScoutReport, ScoutReport(observations=[]))  # nothing recorded from the comment
+    ctx = make_context(PAGES, extra_sources={"moltbook": FakeMoltbook()})
+    assert worker.run_once(ctx)  # the scout
+    with worker_db.reading() as conn:
+        [job] = conn.execute("SELECT payload FROM jobs WHERE kind = 'reply'").fetchall()
+        source = memory.source(conn, job["payload"]["source_id"])
+    assert source["uri"] == "https://www.moltbook.com/post/new-1#comment-c-7"
+    assert source["metadata"]["reply_to"] == "https://www.moltbook.com/post/new-1"
+    assert "vina" in source["metadata"]["moltbook_author"]

@@ -82,6 +82,15 @@ def thread(url: str) -> tuple[str, str | None] | None:
     return (m.group(1), m.group(2)) if m else None
 
 
+def acknowledgement(subject: str) -> str:
+    """The reply in our own thread when memory cannot answer yet. Fixed by
+    code: the model only names the subject, so nothing ungrounded is said."""
+    return (
+        f"Thanks, a fair point. Our memory holds nothing yet on {subject}. We have added it "
+        "to what we investigate and will follow up in this thread." + REPLY_SIGNATURE
+    )
+
+
 def reply_problems(content: str) -> list[str]:
     if not content.strip():
         return ["A reply needs text."]

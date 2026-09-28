@@ -172,6 +172,7 @@ def create_app(settings: Settings, database: Callable[[], Database], crawler=Non
             request,
             "community.html",
             posts=board.community_posts(conn, 50),
+            upvotes=board.suggested_upvotes(conn),
             waiting=len(waiting),
             publishing=settings.moltbook_publishing,
         )

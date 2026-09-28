@@ -99,6 +99,7 @@ class Strategist(Role):
             abandoned = memory.closed_goals(conn, [domain_id], "abandoned")
             candidates = strategy.source_candidates(conn, domain_id)[:MAX_SOURCE_PROPOSALS]
             gaps = strategy.find_gaps(conn, domain_id)
+            follow_ups = memory.follow_ups_due(conn, domain_id)
             ask_community = (
                 strategy.post_candidate(conn, domain_id, gaps)
                 if "moltbook" in (domain["discovery_sources"] or [])
@@ -223,6 +224,13 @@ class Strategist(Role):
                     conn, subject_id=decision_id, predicate="concerns", object_id=program_id
                 )
                 notes.append(f"proposed program for the owner: {plan.program.name}")
+
+            # Threads where the organization said it would look into
+            # something: a follow-up is drafted once memory holds more.
+            for acknowledged in follow_ups:
+                jobs.enqueue(conn, "reply", {"follows": acknowledged}, parent_job_id=job.id)
+            if follow_ups:
+                notes.append(f"{len(follow_ups)} Moltbook follow-ups to consider")
 
             # Outside feedback where its own research has stalled: drafted
             # from memory, and posted only if the owner approves the draft.

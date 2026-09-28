@@ -1218,3 +1218,59 @@ which the free reader skipped. The owner approved six measures:
    from files up to 10 MB.
 6. **At most 3 paid calls per job** when free search and reading come
    first (`MAX_PAID_PER_RUN`), so no job spends the day's budget.
+
+## 2026-09-28 · The published term list, removed from history
+
+A review report pushed on 2026-09-25 (`docs/reviews/2026-09-25-aeb2000-003.md`)
+quoted the full pattern of the first push's manual scan for sensitive
+terms, among them a person's full name and a machine name, and, as an
+example, the retired project's name. On the owner's instruction the
+history was rewritten with git filter-repo (two replacements in that one
+file; nothing else changed), reviewed twice (2026-09-28-eae50cb-001 and
+b51893e-002, both PASS), and force-pushed, with the "Protect main" ruleset
+disabled for that push only and enabled again at once. GitHub still
+serves the old commits by hash until GitHub Support purges them; that is
+the owner's to request (SEC-31). No forks existed.
+
+Instead of relying on the review's term list alone, the owner wanted
+commits themselves checked. `.githooks/pre-commit` and `commit-msg` run
+`.githooks/sensitive-check.py`: every added line, staged path, the
+readable text of staged binary files and the commit message are refused
+if they contain a home directory (`/Users/<name>`, `/home/<name>`) or the
+system's temporary folders (the patterns are in the script), an email address other
+than example, GitHub noreply or anthropic.com addresses, or a term from
+the owner's local list (`~/.collegium/review-terms.txt`, never committed;
+names of people, the employer, machines), matched case-insensitively as
+whole words. Hits name the term by number. Names cannot be recognized by
+pattern, so the list stays; the hook applies it at every commit, not only
+before a push. Commit identities are not checked (the owner's address on
+commits is accepted, SEC-3).
+
+## 2026-09-28 · Moltbook: taking part in our own threads, and upvotes
+
+The owner wants activity that draws out useful knowledge, and approved
+voting and, later, following agents as new write actions on Moltbook, each
+approved by the owner like posts and replies (VISION.md).
+
+- **Our own threads are always answered.** The Scout reads comments on the
+  organization's posts; each new one is recorded as a source and gets a
+  `reply` job directly, whatever the Scout makes of it (before, only a
+  comment the Scout recorded an observation from got a reply; a question
+  put to us did not). The Replier sees our post and the comment. If memory
+  answers, the reply is grounded as always. If not, the reply is a fixed
+  acknowledgement naming what we will look into (the model writes only
+  the subject, one phrase, no links), a scout is queued with that focus,
+  and the thread is marked (`look_into`).
+- **Follow-ups.** Each daily plan queues a follow-up for acknowledgements
+  published between 20 hours and 7 days ago and not yet followed up
+  (`memory.follow_ups_due`); the Replier drafts one, grounded, only once
+  memory holds something on it.
+- **Upvotes.** Approving a reply also upvotes the comment it answers. The
+  Community page suggests upvotes (comments in our threads, and Moltbook
+  posts the Scout recorded something from), one click each; only what the
+  organization has recorded can be voted for, never our own account, and
+  never twice (a unique index). Votes are outbox rows of kind `vote`
+  (migration 0014), sent by the publisher, one every 2 minutes at most.
+- **Next, not built:** following agents, and a per-agent credibility built
+  from our own verdicts on their contributions (ceiling 0.3 rising to at
+  most 0.6; Moltbook stays one site for the Historian's independence rule).

@@ -321,12 +321,19 @@ def add_decision(
     rationale: str,
     topic: str | None = None,
     details: dict[str, Any] | None = None,
+    decided: bool = False,
 ) -> UUID:
+    """A decision, proposed; or, with `decided`, taken at once by the actor
+    (the database lets only the owner do that)."""
     values: dict[str, Any] = {"statement": statement, "rationale": rationale}
     if topic:
         values["topic"] = topic
     if details:
         values["details"] = Jsonb(details)
+    if decided:
+        values["status"] = "approved"
+        values["resolved_by"] = conn.execute("SELECT current_actor() AS a").fetchone()["a"]
+        values["resolved_at"] = datetime.now(UTC)
     return _insert_node(conn, "decision", "decisions", values)
 
 
@@ -855,3 +862,49 @@ def source_uris_of(conn: Connection, node_ids: list[UUID]) -> list[str]:
         found = [r["uri"] for r in rows if r["uri"]] or supporting_source_uris(conn, node_id)
         uris += [u for u in found if u not in uris]
     return uris
+
+
+def source(conn: Connection, source_id: UUID) -> dict | None:
+    return conn.execute("SELECT * FROM sources WHERE id = %s", (source_id,)).fetchone()
+
+
+def reply_decision(conn: Connection, thread_url: str) -> dict | None:
+    """A reply already drafted to this post or comment, in any state (a
+    rejected one is not drafted again); follow-ups do not count."""
+    return conn.execute(
+        "SELECT * FROM decisions WHERE topic = 'reply' AND details ->> 'thread_url' = %s "
+        "AND details ->> 'follows' IS NULL LIMIT 1",
+        (thread_url,),
+    ).fetchone()
+
+
+def follow_up_decision(conn: Connection, acknowledged: UUID) -> dict | None:
+    return conn.execute(
+        "SELECT * FROM decisions WHERE topic = 'reply' AND details ->> 'follows' = %s LIMIT 1",
+        (str(acknowledged),),
+    ).fetchone()
+
+
+def own_post(conn: Connection, external_id: str) -> dict | None:
+    """The organization's own published post with this forum id, if it is one."""
+    return conn.execute(
+        "SELECT * FROM community_posts WHERE kind = 'post' AND external_id = %s",
+        (external_id,),
+    ).fetchone()
+
+
+def follow_ups_due(conn: Connection, domain_id: UUID, days: int = 7) -> list[UUID]:
+    """Acknowledgements the organization published in its own threads in
+    the last `days` ("we will look into ..."), not yet followed up, and
+    published at least a day ago, so research has had time to find more."""
+    rows = conn.execute(
+        "SELECT d.id FROM decisions d JOIN community_posts p ON p.decision_id = d.id "
+        "JOIN node_domains nd ON nd.node_id = d.id "
+        "WHERE d.topic = 'reply' AND d.details ? 'look_into' AND nd.domain_id = %s "
+        "AND p.status = 'published' AND p.published_at < now() - interval '20 hours' "
+        "AND p.published_at > now() - make_interval(days => %s) "
+        "AND NOT EXISTS (SELECT 1 FROM decisions f WHERE f.topic = 'reply' "
+        "                AND f.details ->> 'follows' = d.id::text)",
+        (domain_id, days),
+    ).fetchall()
+    return [r["id"] for r in rows]

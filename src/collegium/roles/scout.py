@@ -28,6 +28,9 @@ from collegium.untrusted import fence, warning
 # to, per run, and at most this many drafts waiting for the owner.
 MAX_REPLY_DRAFTS = 2
 MAX_REPLIES_WAITING = 5
+# New comments in the organization's own threads answered per run (all of
+# them, normally; this only bounds a flood).
+MAX_OWN_THREAD_REPLIES = 5
 # Leads per request to the model, and at most 5 observations from each.
 LEADS_PER_BATCH = 15
 # What the model is told about leads from weaker kinds of source.
@@ -139,6 +142,8 @@ class Scout(Role):
             # Feeds repeat their items run after run; skip what is already known.
             seen = memory.known_source_uris(conn, [r.url for r in crawled])
         crawled = [r for r in crawled if r.url not in seen and r.url not in found]
+        # New comments in the organization's own threads: each gets a reply.
+        new_replies = [r for r in crawled if r.url in replied_to][:MAX_OWN_THREAD_REPLIES]
         found |= crawled_from
         results = interleave([searched, crawled])
         if not results:
@@ -170,6 +175,23 @@ class Scout(Role):
         def persist(conn: Connection) -> str:
             recorded = investigating = skipped = social = 0
             conversations: list[tuple[bool, UUID]] = []  # (reply to us, observation)
+            # Comments in our own threads are answered whatever the Scout
+            # makes of them: the reply is drafted from their source.
+            for r in new_replies:
+                source_id = memory.record_source(
+                    conn,
+                    uri=r.url,
+                    title=r.title,
+                    published_at=r.published_at,
+                    metadata={
+                        "provider": r.provider,
+                        **replied_to[r.url],
+                        "snippet": r.snippet,
+                        **r.metadata,
+                    },
+                    acquisition_id=r.acquisition_id,
+                )
+                jobs.enqueue(conn, "reply", {"source_id": source_id}, parent_job_id=job.id)
             for g in grounded:
                 obs, result = g.proposal, g.result
                 if _key(obs.statement) in known:
@@ -217,7 +239,11 @@ class Scout(Role):
                 )
                 recorded += 1
                 social += obs.investigate and not _worth_research(g)
-                if obs.investigate and community.thread(result.url):
+                if (
+                    obs.investigate
+                    and community.thread(result.url)
+                    and result.url not in replied_to  # our own threads: answered above
+                ):
                     conversations.append((result.url in replied_to, observation_id))
                 if _worth_research(g):
                     jobs.enqueue(
@@ -242,7 +268,10 @@ class Scout(Role):
             examples = "".join(f" [{why}] {statement[:90]}" for why, statement in rejected[:6])
             feed_note = f"; {len(crawled)} new feed items from {len(feeds)} feeds" if feeds else ""
             if posts:
-                feed_note += f"; replies read on {len(posts)} of our Moltbook posts"
+                feed_note += (
+                    f"; replies read on {len(posts)} of our Moltbook posts, "
+                    f"{len(new_replies)} new ones to answer"
+                )
             if feed_errors:
                 feed_note += f" ({feed_errors} feeds failed)"
             return (

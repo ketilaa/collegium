@@ -6,6 +6,7 @@ from datetime import datetime
 from uuid import UUID
 
 from collegium import memory
+from collegium.acquisition.moltbook import OWN_ACCOUNT
 from collegium.db import Connection
 from collegium.roles.historian import ACCEPT_AT, BLOCKING_SEVERITY
 from collegium.roles.resolver import MAX_ROUNDS
@@ -418,4 +419,27 @@ def community_posts(conn: Connection, limit: int = 30) -> list[dict]:
         "ORDER BY p.status IN ('approved', 'publishing') DESC, "
         "coalesce(p.published_at, p.attempted_at, p.created_at) DESC LIMIT %s",
         (limit,),
+    ).fetchall()
+
+
+def suggested_upvotes(conn: Connection, days: int = 14, limit: int = 20) -> list[dict]:
+    """Moltbook posts and comments worth an upvote: comments in the
+    organization's own threads, and posts the Scout recorded something from,
+    in the last `days`, not written by our own account and not voted for."""
+    return conn.execute(
+        "SELECT * FROM (SELECT DISTINCT ON (s.uri) s.uri, s.title, s.retrieved_at, "
+        "s.metadata ->> 'moltbook_author' AS author, "
+        "left(s.metadata ->> 'snippet', 400) AS snippet, s.metadata ? 'reply_to' AS in_our_thread "
+        "FROM sources s WHERE s.uri LIKE 'https://www.moltbook.com/post/%%' "
+        "AND s.retrieved_at > now() - make_interval(days => %s) "
+        "AND (s.metadata ? 'reply_to' OR EXISTS (SELECT 1 FROM observations o "
+        "     WHERE o.source_id = s.id)) "
+        "AND coalesce(s.metadata ->> 'moltbook_author', '') <> %s "
+        "AND NOT EXISTS (SELECT 1 FROM community_posts v WHERE v.kind = 'vote' "
+        "     AND v.status NOT IN ('failed', 'withdrawn') "
+        "     AND 'https://www.moltbook.com/post/' || v.reply_to_post "
+        "         || coalesce('#comment-' || v.reply_to_comment, '') = s.uri) "
+        "ORDER BY s.uri, s.retrieved_at DESC) t "
+        "ORDER BY in_our_thread DESC, retrieved_at DESC LIMIT %s",
+        (days, OWN_ACCOUNT, limit),
     ).fetchall()

@@ -1,4 +1,4 @@
-"""The publisher: sends the posts and replies the owner approved to Moltbook.
+"""The publisher: sends the posts, replies and votes the owner approved to Moltbook.
 
 A separate process (the `publisher` Compose service) and the only holder of
 the Moltbook key. It connects as its own database login, which can read the
@@ -42,7 +42,11 @@ log = logging.getLogger(__name__)
 API = "https://www.moltbook.com/api/v1"
 # At most one post an hour and one comment every ten minutes; the forum
 # allows one post per 30 minutes and one comment per 20 seconds.
-MIN_INTERVAL = {"post": timedelta(hours=1), "comment": timedelta(minutes=10)}
+MIN_INTERVAL = {
+    "post": timedelta(hours=1),
+    "comment": timedelta(minutes=10),
+    "vote": timedelta(minutes=2),
+}
 MAX_FAILED_VERIFICATIONS = 3
 
 
@@ -98,6 +102,15 @@ class MoltbookClient:
         if response.status_code not in (200, 201) or not body.get("success", True):
             raise PublishError(f"{response.status_code}: {_message(body)}")
         return {**body, **(body.get("comment") or {})}
+
+    def upvote(self, post_id: str, comment_id: str | None) -> None:
+        path = f"/comments/{comment_id}/upvote" if comment_id else f"/posts/{post_id}/upvote"
+        response = self._client.post(path)
+        body = _json(response)
+        if response.status_code == 429:
+            raise RateLimited(f"{response.status_code}: {_message(body)}")
+        if response.status_code not in (200, 201) or not body.get("success", True):
+            raise PublishError(f"{response.status_code}: {_message(body)}")
 
     def verify(self, code: str, answer: str) -> bool:
         response = self._client.post("/verify", json={"verification_code": code, "answer": answer})
@@ -209,6 +222,9 @@ def publish_next(
             (now, post["id"]),
         )
 
+    if post["kind"] == "vote":
+        return _vote(db, client, post)
+
     try:
         if post["kind"] == "post":
             created = client.create_post(post["submolt"], post["title"], post["content"])
@@ -264,6 +280,24 @@ def publish_next(
         published_at=datetime.now(UTC),
     )
     return f"post {post['id']}: published at {url}"
+
+
+def _vote(db: Database, client: MoltbookClient, vote: dict) -> str:
+    """An upvote: no text, no verification; each target at most once (the
+    outbox refuses a second live vote for the same post or comment)."""
+    target = community.post_url(vote["reply_to_post"]) + (
+        f"#comment-{vote['reply_to_comment']}" if vote["reply_to_comment"] else ""
+    )
+    try:
+        client.upvote(vote["reply_to_post"], vote["reply_to_comment"])
+    except RateLimited as e:
+        _record(db, vote["id"], status="approved", error=f"rate limited: {e}")
+        return f"vote {vote['id']}: rate limited, will retry"
+    except Exception as e:
+        _record(db, vote["id"], status="failed", error=f"{type(e).__name__}: {e}")
+        return f"vote {vote['id']}: failed: {e}"
+    _record(db, vote["id"], status="published", url=target, published_at=datetime.now(UTC))
+    return f"vote {vote['id']}: upvoted {target}"
 
 
 def _record(db: Database, post_id, **values) -> None:

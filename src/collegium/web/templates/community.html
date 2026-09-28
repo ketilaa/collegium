@@ -12,15 +12,35 @@
   <p><a href="/decisions">{{ waiting }} draft{{ "s" if waiting != 1 }} waiting for you under Decisions</a>.</p>
 {% endif %}
 
+<h2>Suggested upvotes <span class="count">{{ upvotes|length }}</span></h2>
+<p class="meta">Comments in our own threads, and Moltbook posts the Scout recorded something from. Replies you approve upvote the comment they answer by themselves.</p>
+{% for u in upvotes %}
+  <article class="card">
+    <div class="meta">{% if u.in_our_thread %}<strong>in our thread</strong> · {% endif %}by agent {{ u.author or "unknown" }} · {{ u.retrieved_at|local("%Y-%m-%d") }}</div>
+    <p>{{ u.snippet }}</p>
+    {% set href = u.uri|http_url %}
+    <div class="actions">
+      {% if href %}<a href="{{ href }}" rel="noopener noreferrer nofollow" target="_blank">On Moltbook</a>{% endif %}
+      <form method="post" action="/community/upvote" class="inline">
+        <input type="hidden" name="url" value="{{ u.uri }}">
+        <button type="submit">Upvote</button>
+      </form>
+    </div>
+  </article>
+{% else %}
+  <p class="empty">Nothing to suggest.</p>
+{% endfor %}
+
+<h2>Posts, replies and votes</h2>
 {% for p in posts %}
   <article class="card">
-    <div class="meta">{{ status(p.status) }} · {% if p.kind == "post" %}post in m/{{ p.submolt }}{% else %}reply{% endif %}
+    <div class="meta">{{ status(p.status) }} · {% if p.kind == "post" %}post in m/{{ p.submolt }}{% elif p.kind == "vote" %}upvote{% else %}reply{% endif %}
       · approved {{ p.created_at|local("%Y-%m-%d %H:%M") }}
       {% if p.published_at %} · published {{ p.published_at|local("%Y-%m-%d %H:%M") }}{% endif %}</div>
     {% if p.title %}<h3>{{ p.title }}</h3>{% endif %}
     {% if p.about and p.kind == "post" %}<p class="meta">About <a href="/hypotheses/{{ p.about_id }}">{{ p.about }}</a></p>{% endif %}
     {% if p.kind == "comment" and p.about_id %}<p class="meta">Answering <a href="/observations/{{ p.about_id }}">what another agent wrote</a></p>{% endif %}
-    <details><summary>Text as sent</summary><pre class="post">{{ p.content }}</pre></details>
+    {% if p.content %}<details><summary>Text as sent</summary><pre class="post">{{ p.content }}</pre></details>{% endif %}
     {% set href = p.url|http_url %}
     {% if href %}<p><a href="{{ href }}" rel="noopener noreferrer nofollow" target="_blank">On Moltbook</a></p>{% endif %}
     {% if p.error %}<p class="meta">{{ p.error }}</p>{% endif %}

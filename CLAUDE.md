@@ -14,7 +14,11 @@ Where to look, and how much to read:
 - The owner's secrets live in `~/.collegium/.env`: never read or print that file, only pass it to commands (`docker compose --env-file ...`, or `set -a; . file; set +a` in a command).
 
 Open threads (update this list as they close):
-- **The owner fills in `~/.collegium/review-terms.txt`** (sensitive terms for the review's history scan); until then bundles say the scan did NOT RUN.
+- **Migration 0014 (Moltbook votes) waits for the owner's approval**; the code for answering our own threads, follow-ups and upvotes is written and tested but not committed or deployed.
+- **The owner asks GitHub Support to purge the old commits** that held the leaked term list (SEC-31; old 3eadef4, 49dbe25, 1eadb81, c9bd644, 94a1b26 and the other old successors of aeb2000).
+- **The owner completes `~/.collegium/review-terms.txt`**, now used by the pre-commit hook as well as the review (names of people, the employer and its email domain, machine names, the retired project's name).
+- **To propose, from review 2026-09-28-49dbe25-001** (all LOW): SEC-26 (the pre-push hook checks the net diff, not each commit after the review), SEC-27 (the terms scan skips binary contents and merges), SEC-28 (the per-run paid cap defers a job whose only discovery source is paid, hourly; no live domain is set up that way), SEC-29 (keep 3 MB for HTML, 10 MB only for PDFs; `pypdf>=6.19`; a time limit on parsing).
+- **Moltbook, next batch (approved in principle):** following agents, and per-agent credibility from our own verdicts (ceiling 0.3 rising to at most 0.6).
 - **Offered, not yet approved:** an adapter for NAV/SSB (Norwegian statistics); Milestone 5.
 
 ## Working with the owner
@@ -26,7 +30,7 @@ Open threads (update this list as they close):
 
 ## Pushing
 
-Nothing is pushed without a PASS from the `security-reviewer` subagent: run `scripts/security-review-bundle.sh`, give the subagent the bundle directory it prints, save its report under `docs/reviews/` with the file name from the bundle's `meta.txt`, and commit it. On FAIL, fix and repeat (the next iteration). The pre-push hook in `.githooks/` enforces it (`git config core.hooksPath .githooks` in each clone); never bypass it. Process, finding IDs (`SEC-n-i`), severities and dispositions: `docs/reviews/README.md`.
+Commits are checked by `.githooks/pre-commit` and `commit-msg` (`sensitive-check.py`): no home or temporary paths, no email addresses but example/noreply ones, and none of the owner's sensitive terms from `~/.collegium/review-terms.txt`. Nothing is pushed without a PASS from the `security-reviewer` subagent: run `scripts/security-review-bundle.sh`, give the subagent the bundle directory it prints, save its report under `docs/reviews/` with the file name from the bundle's `meta.txt`, and commit it. On FAIL, fix and repeat (the next iteration). The pre-push hook in `.githooks/` enforces it (`git config core.hooksPath .githooks` in each clone); never bypass it. Process, finding IDs (`SEC-n-i`), severities and dispositions: `docs/reviews/README.md`.
 
 ## Stack
 
