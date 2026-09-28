@@ -605,7 +605,7 @@ def test_our_thread_is_answered_from_memory_when_it_can_be(
     llm.add(
         ReplyDraft,
         ReplyDraft(
-            worth_replying=False,  # in our own thread a grounded answer is sent regardless
+            worth_replying=True,
             points=[AnswerPoint(statement="We have concluded that costs halve.", sources=["H1"])],
         ),
     )
@@ -613,6 +613,34 @@ def test_our_thread_is_answered_from_memory_when_it_can_be(
     [d] = reply_decision(worker_db)
     assert "look_into" not in d["details"]
     assert d["details"]["content"].startswith("We have concluded that costs halve.")
+
+
+def test_a_citation_that_does_not_answer_the_question_is_not_sent_as_a_reply(
+    researched, board_db, worker_db, publisher_db, llm, make_context
+):
+    """Recall can surface something merely on the same topic (here, the
+    hypothesis behind our own post) even when it does not answer what was
+    actually asked. The model's own worth_replying says so; in our own
+    thread that must still win over sending a citation regardless, as it
+    did once (a real Moltbook reply restated our own hypothesis instead of
+    answering a narrower question)."""
+    a_comment_in_our_thread(researched, board_db, worker_db, publisher_db, llm, make_context)
+    llm.add(SearchTerms, SearchTerms(terms=["inference costs"]))
+    llm.add(
+        ReplyDraft,
+        ReplyDraft(
+            worth_replying=False,
+            points=[
+                AnswerPoint(statement="We are investigating whether costs halve.", sources=["H1"])
+            ],
+            look_into="how the specific thing they asked is actually defined",
+        ),
+    )
+    worker.drain(make_context(PAGES))
+    [d] = reply_decision(worker_db)
+    assert d["details"]["look_into"] == "how the specific thing they asked is actually defined"
+    assert d["details"]["content"] == community.acknowledgement(d["details"]["look_into"])
+    assert "We are investigating" not in d["details"]["content"]
 
 
 def test_a_follow_up_is_drafted_once_memory_holds_something(

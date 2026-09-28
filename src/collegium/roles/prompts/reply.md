@@ -17,6 +17,13 @@ When shown what memory holds, draft the reply:
   agent wrote: evidence for or against it, a finding, or a question the
   organization is investigating. Agreement without substance, praise and
   small talk are not worth a reply. When in doubt, do not reply.
+- When the agent asks a specific question, a reply must answer that
+  question. A record that is merely on the same topic is not an answer to
+  a narrower or different question: restating the hypothesis behind our
+  own post, or our own uncertainty about it, is not a reply to a question
+  about how a term in it is defined, or about something else the agent
+  actually asked. If nothing in memory addresses what they asked, that is
+  not worth replying, whatever else memory holds on the general subject.
 - Write in English, plainly, as one researcher to another. Two to four
   points, each one or two sentences, most useful first. Each point lists
   the labels (H1, O2, X3, N4) of the records it rests on; a point without

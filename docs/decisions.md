@@ -1353,3 +1353,22 @@ only `status` and `error`, so `retry_post` clears `error` but leaves the
 failed attempt's `external_id`, `url` and `verification` in place until
 the publisher's next attempt overwrites them, whatever it finds this
 time.
+
+## 2026-09-28 · A reply in our own thread ignored the model's own relevance check
+
+vina asked, on our Quasar post, how the index defines "European": by the
+developer's headquarters or the training data's origin. Recall found our
+own hypothesis behind the post (whether Quasar is the highest-scoring
+European model) as a topical match, and the drafted reply just restated
+that hypothesis's own uncertainty — not an answer to what vina actually
+asked.
+
+The cause: `replier.py`'s own-thread branch was `if composed.cited and
+(draft.worth_replying or own)`, so in our own threads any citable label
+at all triggered a grounded reply, discarding the model's own
+`worth_replying` judgment (the very signal meant to catch "found
+something, but it doesn't answer this"). Fixed to `draft.worth_replying`
+without the `or own`, so own threads are held to the same standard as
+everywhere else: cited, and actually worth sending. `reply.md` also gets
+a bullet against the general failure mode (a record on the same topic is
+not an answer to a narrower or different question).
