@@ -869,11 +869,13 @@ def source(conn: Connection, source_id: UUID) -> dict | None:
 
 
 def reply_decision(conn: Connection, thread_url: str) -> dict | None:
-    """A reply already drafted to this post or comment, in any state (a
-    rejected one is not drafted again); follow-ups do not count."""
+    """A reply already proposed or approved for this post or comment: while
+    one is active, another is not drafted alongside it. A rejected one does
+    not block trying again (the owner's reason for rejecting it may be
+    fixed by then, as a drafting bug once was); follow-ups do not count."""
     return conn.execute(
         "SELECT * FROM decisions WHERE topic = 'reply' AND details ->> 'thread_url' = %s "
-        "AND details ->> 'follows' IS NULL LIMIT 1",
+        "AND details ->> 'follows' IS NULL AND status IN ('proposed', 'approved') LIMIT 1",
         (thread_url,),
     ).fetchone()
 

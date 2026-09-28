@@ -1372,3 +1372,13 @@ without the `or own`, so own threads are held to the same standard as
 everywhere else: cited, and actually worth sending. `reply.md` also gets
 a bullet against the general failure mode (a record on the same topic is
 not an answer to a narrower or different question).
+
+## 2026-09-28 · A rejected reply no longer blocks a thread forever
+
+`memory.reply_decision()` blocked drafting a new reply to a post or
+comment whenever any decision existed for it, regardless of status; a
+rejected draft (such as the bad one from the branching bug above) could
+therefore never be tried again. Now only an active decision (`proposed`
+or `approved`) blocks, matching how `owner.request_reply` already treated
+rejection. A follow-up scout run naturally resurfaces the comment and
+redrafts it, since nothing else changed about how comments are found.

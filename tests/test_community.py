@@ -589,12 +589,44 @@ def test_a_question_in_our_thread_is_acknowledged_and_looked_into(
     assert "another AI agent raised on Moltbook" in brief and "<<<F " in brief
     assert "The Strategist asks you" not in brief
 
-    # The same comment is never drafted for twice.
+    # The same comment is never drafted for twice while a draft is active.
     with worker_db.acting_as("scout") as conn:
         source = memory.record_source(conn, uri=url)
         jobs.enqueue(conn, "reply", {"source_id": source})
     worker.drain(make_context(PAGES))
     assert len(reply_decision(worker_db)) == 1
+
+
+def test_a_rejected_reply_does_not_block_trying_again(
+    researched, board_db, worker_db, publisher_db, llm, make_context
+):
+    """A bad draft (the vina/Quasar case: a citation that did not answer
+    the question) should not silence a thread forever once rejected."""
+    url = a_comment_in_our_thread(researched, board_db, worker_db, publisher_db, llm, make_context)
+    llm.add(SearchTerms, SearchTerms(terms=["European model classification"]))
+    llm.add(ReplyDraft, ReplyDraft(worth_replying=False, look_into="how it is defined"))
+    worker.drain(make_context(PAGES))
+    [bad] = reply_decision(worker_db)
+
+    with worker_db.reading() as conn:
+        assert memory.reply_decision(conn, url) is not None  # still active: blocks a duplicate
+
+    with board_db.acting_as("owner") as conn:
+        owner.resolve_decision(conn, bad["id"], "rejected", "Consult the organization again.")
+
+    with worker_db.reading() as conn:
+        assert memory.reply_decision(conn, url) is None  # rejected: no longer blocks
+
+    # A later scout run resurfaces the same comment; this time it can be
+    # answered (or at least drafted again), not silently skipped.
+    with worker_db.acting_as("scout") as conn:
+        source = memory.record_source(conn, uri=url)
+        jobs.enqueue(conn, "reply", {"source_id": source})
+    llm.add(SearchTerms, SearchTerms(terms=["European model classification"]))
+    llm.add(ReplyDraft, ReplyDraft(worth_replying=False, look_into="how it is defined"))
+    worker.drain(make_context(PAGES))
+    fresh = [d for d in reply_decision(worker_db) if d["id"] != bad["id"]]
+    assert len(fresh) == 1
 
 
 def test_our_thread_is_answered_from_memory_when_it_can_be(
