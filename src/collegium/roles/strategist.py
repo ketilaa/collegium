@@ -14,7 +14,9 @@ then applies the rules that are not the model's to decide:
   budget when search is paid, or up to MAX_FREE_ACTIONS a plan when search
   and reading are free (the local model's time is then the limit);
   first, and one scout per day is always kept;
-- a program is only ever proposed, as a decision for the owner;
+- a program is only ever proposed, as a decision for the owner; a new
+  goal may be linked to a program (its `program_id`), the one just
+  proposed or an existing one, when the model says it serves it;
 - sites that keep producing what the organization records, and have a
   working feed, are proposed as sources: the owner decides;
 - in domains that read Moltbook, a hypothesis its own research has stalled
@@ -55,6 +57,11 @@ class PlannedGoal(BaseModel):
     success_criteria: str
     priority: int = Field(ge=1, le=5, description="1 is most important")
     about: list[str] = Field(default_factory=list, description="H and N labels")
+    program: str | None = Field(
+        None,
+        description="P label of the research program this goal serves, if any; "
+        "'new' for the program proposed in this same plan",
+    )
     actions: list[Action] = Field(default_factory=list, max_length=3)
 
 
@@ -116,6 +123,7 @@ class Strategist(Role):
         labels |= {f"H{i}": h["id"] for i, h in enumerate(hypotheses, 1)}
         labels |= {f"N{i}": e["id"] for i, e in enumerate(entities, 1)}
         labels |= {f"G{i}": g["id"] for i, g in enumerate(goals, 1)}
+        labels |= {f"P{i}": p["id"] for i, p in enumerate(programs, 1)}
         label_of = {v: k for k, v in labels.items()}
 
         brief = _brief(
@@ -146,6 +154,14 @@ class Strategist(Role):
             notes += [f"abandoned goal: {s} ({reason})" for s, reason in abandoned_now.values()]
             closed = achieved | set(abandoned_now)
 
+            # A program a goal can be linked to as it is created, so the
+            # new program (if proposed) exists before any goal needs it.
+            program_ids = {p["id"] for p in programs}
+            new_program_id = _propose_program(conn, plan, programs, domain, domain_id)
+            if new_program_id:
+                notes.append(f"proposed program for the owner: {plan.program.name}")
+                program_ids.add(new_program_id)
+
             # In paid calls when search is paid, otherwise in actions.
             allowance = budget - RESERVE if budget is not None else MAX_FREE_ACTIONS
 
@@ -163,15 +179,20 @@ class Strategist(Role):
                 if goal_id in closed:
                     continue  # closed in this run; nothing more to do for it
                 if goal_id is None:
+                    program_id = _program_for(planned.program, labels, new_program_id, program_ids)
                     goal_id = memory.add_goal(
                         conn,
                         statement=planned.statement,
                         success_criteria=planned.success_criteria,
                         priority=planned.priority,
+                        program_id=program_id,
                     )
                     memory.tag_domains(conn, goal_id, [domain_id])
                     existing_goals[memory.statement_key(planned.statement)] = goal_id
-                    notes.append(f"new goal: {planned.statement}")
+                    notes.append(
+                        f"new goal: {planned.statement}"
+                        + (" (for the program)" if program_id else "")
+                    )
                 for label in planned.about:
                     target = labels.get(label.strip().upper())
                     if (
@@ -205,25 +226,6 @@ class Strategist(Role):
                     queued.append("scout")
                 else:
                     skipped += 1
-
-            if plan.program and not any(
-                memory.statement_key(p["name"]) == memory.statement_key(plan.program.name)
-                for p in programs
-            ):
-                program_id = memory.add_program(
-                    conn, name=plan.program.name, charter=plan.program.charter
-                )
-                memory.tag_domains(conn, program_id, [domain_id])
-                decision_id = memory.add_decision(
-                    conn,
-                    statement=f"Open research program: {plan.program.name}",
-                    rationale=plan.program.rationale,
-                )
-                memory.tag_domains(conn, decision_id, [domain_id])
-                memory.add_relationship(
-                    conn, subject_id=decision_id, predicate="concerns", object_id=program_id
-                )
-                notes.append(f"proposed program for the owner: {plan.program.name}")
 
             # Threads where the organization said it would look into
             # something: a follow-up is drafted once memory holds more.
@@ -268,6 +270,55 @@ class Strategist(Role):
             return "; ".join(notes)
 
         return persist
+
+
+def _propose_program(
+    conn: Connection, plan: StrategyPlan, programs: list[dict], domain: dict, domain_id: UUID
+) -> UUID | None:
+    """The program the plan proposes, created now so a goal can be linked
+    to it in the same run; the id of the matching existing program instead
+    if one already has this name, so "new" still resolves for a goal even
+    when the program itself is not created again."""
+    if not plan.program:
+        return None
+    existing = next(
+        (
+            p["id"]
+            for p in programs
+            if memory.statement_key(p["name"]) == memory.statement_key(plan.program.name)
+        ),
+        None,
+    )
+    if existing:
+        return existing
+    program_id = memory.add_program(conn, name=plan.program.name, charter=plan.program.charter)
+    memory.tag_domains(conn, program_id, [domain_id])
+    decision_id = memory.add_decision(
+        conn,
+        statement=f"Open research program: {plan.program.name}",
+        rationale=plan.program.rationale,
+    )
+    memory.tag_domains(conn, decision_id, [domain_id])
+    memory.add_relationship(
+        conn, subject_id=decision_id, predicate="concerns", object_id=program_id
+    )
+    return program_id
+
+
+def _program_for(
+    label: str | None, labels: dict[str, UUID], new_program_id: UUID | None, program_ids: set[UUID]
+) -> UUID | None:
+    """The program a new goal serves, from its `program` label: "new" for
+    the one just proposed (if any), or a P label naming an existing one.
+    Anything else, including a label the model used for something other
+    than a program, resolves to no program rather than risk linking a
+    goal to the wrong kind of record."""
+    if not label:
+        return None
+    if label.strip().lower() == "new":
+        return new_program_id
+    program_id = labels.get(label.strip().upper())
+    return program_id if program_id in program_ids else None
 
 
 def _find_sources(ctx: Context, candidates: list) -> list:
@@ -387,7 +438,9 @@ def _brief(
         lines.append("\nRecently abandoned goals (do not set them again unless something changed):")
         lines += [f"- {g['statement']} Reason: {g['outcome']}" for g in abandoned]
     lines.append("\nResearch programs:")
-    lines += [f"- ({p['status']}) {p['name']}: {p['charter']}" for p in programs] or ["- none"]
+    lines += [
+        f"[{label_of[p['id']]}] ({p['status']}) {p['name']}: {p['charter']}" for p in programs
+    ] or ["- none"]
     lines.append("\nKnowledge gaps found:")
     for gap in gaps:
         about = f"[{label_of[gap.about]}] " if gap.about in label_of else ""

@@ -172,6 +172,116 @@ def test_plan_sets_goals_queues_work_within_budget_and_proposes_programs(
         assert conn.execute("SELECT count(*) AS n FROM programs").fetchone()["n"] == 1
 
 
+def test_a_goal_can_be_linked_to_the_program_proposed_in_the_same_plan(
+    domain_with_weak_hypothesis, llm, board_db, worker_db
+):
+    """A program used to be proposed with no goal ever linked to it,
+    whatever its priority: the model had no way to say a goal was that
+    program's work, and the code never asked."""
+    domain_id, ctx = domain_with_weak_hypothesis
+    llm.add(
+        StrategyPlan,
+        StrategyPlan(
+            assessment="One weakly supported hypothesis about prices.",
+            goals=[
+                PlannedGoal(
+                    statement="Track how frontier inference prices move",
+                    success_criteria="A year of price data collected",
+                    priority=1,
+                    about=["H1"],
+                    program="new",
+                ),
+                PlannedGoal(
+                    statement="Watch for new entrants to the market",
+                    success_criteria="A quarterly scan",
+                    priority=3,
+                    # No program: most goals are not a program's own work.
+                ),
+            ],
+            program=ProgramProposal(
+                name="Economics of AI inference",
+                charter="Track prices and costs of running models.",
+                rationale="Most observations so far concern prices.",
+            ),
+        ),
+    )
+    _strategize(board_db, domain_id)
+    assert worker.run_once(ctx)  # just the planning job
+
+    brief = llm.prompts_for(StrategyPlan)[-1]
+    assert "Research programs" in brief  # shown even with none yet
+
+    with worker_db.reading() as conn:
+        program = conn.execute("SELECT id FROM programs").fetchone()
+        goals = {
+            g["statement"]: g["program_id"] for g in conn.execute("SELECT * FROM goals").fetchall()
+        }
+    assert goals["Track how frontier inference prices move"] == program["id"]
+    assert goals["Watch for new entrants to the market"] is None
+
+
+def test_a_goal_can_be_linked_to_an_existing_program(
+    domain_with_weak_hypothesis, llm, board_db, worker_db
+):
+    domain_id, ctx = domain_with_weak_hypothesis
+    with worker_db.acting_as("strategist") as conn:
+        program_id = memory.add_program(conn, name="Economics of AI inference", charter="c")
+        memory.tag_domains(conn, program_id, [domain_id])
+
+    llm.add(
+        StrategyPlan,
+        StrategyPlan(
+            assessment="a",
+            goals=[
+                PlannedGoal(
+                    statement="Track how frontier inference prices move",
+                    success_criteria="A year of price data collected",
+                    priority=1,
+                    program="P1",
+                )
+            ],
+        ),
+    )
+    _strategize(board_db, domain_id)
+    assert worker.run_once(ctx)
+
+    brief = llm.prompts_for(StrategyPlan)[-1]
+    assert "[P1] (proposed) Economics of AI inference: c" in brief
+
+    with worker_db.reading() as conn:
+        goal = conn.execute("SELECT * FROM goals").fetchone()
+    assert goal["program_id"] == program_id
+
+
+def test_a_label_that_is_not_a_program_does_not_link_the_goal(
+    domain_with_weak_hypothesis, llm, board_db, worker_db
+):
+    """A goal is only ever linked by a real P label or "new"; anything
+    else (the model naming an H or G label by mistake, say) must not risk
+    a foreign-key error or a wrong link."""
+    domain_id, ctx = domain_with_weak_hypothesis
+    llm.add(
+        StrategyPlan,
+        StrategyPlan(
+            assessment="a",
+            goals=[
+                PlannedGoal(
+                    statement="Track how frontier inference prices move",
+                    success_criteria="A year of price data collected",
+                    priority=1,
+                    about=["H1"],
+                    program="H1",  # not a program label
+                )
+            ],
+        ),
+    )
+    _strategize(board_db, domain_id)
+    assert worker.run_once(ctx)
+    with worker_db.reading() as conn:
+        goal = conn.execute("SELECT * FROM goals").fetchone()
+    assert goal["program_id"] is None
+
+
 def _goal(statement, existing=None, priority=2):
     return PlannedGoal(
         existing=existing,

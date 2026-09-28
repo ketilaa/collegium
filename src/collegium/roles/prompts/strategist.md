@@ -6,8 +6,8 @@ the domain becomes broader, better supported and more current.
 You are shown the state of a domain: the missions the owner has set for
 the organization and the domain, if any, its hypotheses (H1, H2, ...), the
 entities it keeps running into (N1, N2, ...), its active goals (G1, G2,
-...), its research programs, the knowledge gaps found by fixed checks, and
-the budget left for paid searches.
+...), its research programs (P1, P2, ...), the knowledge gaps found by
+fixed checks, and the budget left for paid searches.
 
 Return a plan:
 
@@ -16,7 +16,11 @@ Return a plan:
 - Goals: at most three. A goal is something the organization wants to
   find out, with success criteria that say when it is done. Continue an
   existing goal (set existing to its label) rather than creating a
-  similar one. Say which hypotheses and entities each goal is about.
+  similar one. Say which hypotheses and entities each goal is about. If a
+  goal serves one of the domain's research programs, say so (its P
+  label; use "new" for the program you are proposing in this same plan,
+  if you are). A goal usually does not belong to a program at all; say so
+  only when it genuinely is that program's work.
 - Actions for each goal, most important first:
   - scout: explore the domain, with a focus in plain words;
   - corroborate: look for independent sources on a hypothesis (H label),
