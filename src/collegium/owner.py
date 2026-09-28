@@ -221,6 +221,22 @@ def withdraw_post(conn: Connection, post_id: UUID) -> None:
         raise OwnerError("That post is no longer waiting to be published.")
 
 
+def retry_post(conn: Connection, post_id: UUID) -> None:
+    """Send a failed post, reply or vote back for another attempt: often a
+    one-off verification miss, not a reason to give up on approved
+    content. Moltbook's own advice on a failed challenge is to send the
+    content again, so this is a fresh attempt, not a re-verification of
+    the old one; the record of what the failed attempt did stays until the
+    publisher overwrites it with the new outcome."""
+    updated = conn.execute(
+        "UPDATE community_posts SET status = 'approved', error = NULL "
+        "WHERE id = %s AND status = 'failed'",
+        (post_id,),
+    ).rowcount
+    if not updated:
+        raise OwnerError("That post has not failed, or no longer exists.")
+
+
 def request_draft(conn: Connection, hypothesis_id: UUID) -> UUID:
     """Ask the Researcher to draft a Moltbook post about a hypothesis. It
     comes back as a decision: nothing is posted without the owner."""

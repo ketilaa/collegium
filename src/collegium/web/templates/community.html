@@ -48,6 +48,10 @@
       <form method="post" action="/community/{{ p.id }}/withdraw" class="inline">
         <button type="submit" class="secondary">Withdraw</button>
       </form>
+    {% elif p.status == "failed" %}
+      <form method="post" action="/community/{{ p.id }}/retry" class="inline">
+        <button type="submit">Try again</button>
+      </form>
     {% endif %}
   </article>
 {% else %}

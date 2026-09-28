@@ -38,6 +38,7 @@ NOTICES = {
         "Decisions for you to approve."
     ),
     "withdrawn": "Withdrawn. It will not be published.",
+    "retried": "Queued for another attempt. The publisher sends it shortly.",
     "upvoted": "Upvote approved. The publisher sends it shortly.",
     "post-approved": "Approved. The publisher sends it to Moltbook as the pace allows.",
     "strategize": "Planning queued. It starts within working hours.",
@@ -148,6 +149,11 @@ def add_actions(
     def withdraw(post_id: UUID, conn: Acting):
         owner.withdraw_post(conn, post_id)
         return done("/community", "withdrawn")
+
+    @app.post("/community/{post_id}/retry")
+    def retry(post_id: UUID, conn: Acting):
+        owner.retry_post(conn, post_id)
+        return done("/community", "retried")
 
     @app.post("/domains")
     def add_domain(

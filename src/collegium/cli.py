@@ -98,6 +98,9 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("withdraw", help="withdraw an approved post before it is published (owner)")
     p.add_argument("post", help="post id or unique prefix")
 
+    p = sub.add_parser("retry", help="send a failed post back for another attempt (owner)")
+    p.add_argument("post", help="post id or unique prefix")
+
     p = sub.add_parser("challenge", help="critique a hypothesis; it goes through the loop (owner)")
     p.add_argument("hypothesis", help="id or unique prefix")
     p.add_argument("argument", help="what you object to")
@@ -481,6 +484,17 @@ def _withdraw(args, settings: Settings) -> None:
     print("withdrawn; it will not be published")
 
 
+def _retry(args, settings: Settings) -> None:
+    with _board(settings).acting_as("owner") as conn:
+        rows = conn.execute(
+            "SELECT id FROM community_posts WHERE id::text LIKE %s", (args.post + "%",)
+        ).fetchall()
+        if len(rows) != 1:
+            raise SystemExit(f"{len(rows)} posts match {args.post!r}")
+        owner.retry_post(conn, rows[0]["id"])
+    print("queued for another attempt")
+
+
 def _hypotheses(args, settings: Settings) -> None:
     with _reader(settings).reading() as conn:
         rows = board.hypotheses(conn, include_all=args.all)
@@ -597,6 +611,7 @@ COMMANDS = {
     "draft": _draft,
     "posts": _posts,
     "withdraw": _withdraw,
+    "retry": _retry,
     "scheduler": _scheduler,
     "web": _web,
     "domain": _domain,

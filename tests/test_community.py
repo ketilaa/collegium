@@ -6,6 +6,7 @@ approval, and the publisher that alone holds the key."""
 
 import json
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 import httpx
 import psycopg
@@ -237,6 +238,44 @@ def test_a_failed_verification_is_recorded_and_repeated_failures_halt(
         publisher.publish_next(publisher_db, forum.client(), llm, now=later)
     assert publisher.halted(publisher_db)
     assert publisher.publish_next(publisher_db, forum.client(), llm).startswith("halted")
+
+
+def test_the_owner_sends_a_failed_post_back_for_another_attempt(
+    researched, board_db, worker_db, publisher_db, llm, make_context, client
+):
+    approved_post(researched, board_db, worker_db, llm, make_context)
+    forum = Forum(verify_ok=False)
+    llm.add(Arithmetic, Arithmetic(first=20, operation="-", second=5))
+    publisher.publish_next(publisher_db, forum.client(), llm)
+    [failed] = outbox(worker_db)
+    assert failed["status"] == "failed" and failed["error"]
+
+    page = client.get("/community").text
+    assert "Try again" in page and "Withdraw" not in page
+
+    # Only a failed post can be retried.
+    with board_db.acting_as("owner") as conn, pytest.raises(owner.OwnerError, match="failed"):
+        owner.retry_post(conn, uuid4())
+
+    response = client.post(f"/community/{failed['id']}/retry")
+    assert "another attempt" in response.text
+    [retried] = outbox(worker_db)
+    assert retried["status"] == "approved" and retried["error"] is None
+    # The text is exactly what was approved before: unchanged by the retry.
+    assert retried["content"] == failed["content"]
+
+    # A fresh challenge, a fresh attempt: this one succeeds.
+    ok_forum = Forum(verify_ok=True)
+    later = datetime.now(UTC) + timedelta(hours=2)
+    llm.add(Arithmetic, Arithmetic(first=20, operation="-", second=5))
+    outcome = publisher.publish_next(publisher_db, ok_forum.client(), llm, now=later)
+    assert "published" in outcome
+    [published] = outbox(worker_db)
+    assert (published["status"], published["verification"]) == ("published", "passed")
+
+    # Once published, it is no longer a candidate for another retry.
+    with board_db.acting_as("owner") as conn, pytest.raises(owner.OwnerError, match="failed"):
+        owner.retry_post(conn, published["id"])
 
 
 def test_the_publisher_keeps_its_pace_and_retries_only_when_turned_away(
