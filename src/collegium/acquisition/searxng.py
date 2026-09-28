@@ -52,7 +52,8 @@ class SearXNGDiscovery:
     def discover(
         self, query: str, max_results: int, *, recent_days: int | None = None
     ) -> list[SearchResult]:
-        params = {"q": query, "format": "json", "language": "all", "safesearch": 0}
+        # Strict safe search, whatever the instance's default.
+        params = {"q": query, "format": "json", "language": "all", "safesearch": 2}
         if window := time_range(recent_days):
             params["time_range"] = window
         wait = self._last + self._pause - time.monotonic()

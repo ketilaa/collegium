@@ -171,23 +171,23 @@ def acquisition(free, paid, *, budget=10, default="free", searches=None):
 
 def test_the_paid_reader_only_reads_what_the_free_one_could_not():
     free = Reader("web", {"https://a.example": "free text"})
-    paid = Reader("tavily", {"https://b.example": "paid text"}, metered=True)
+    paid = Reader("tavily", {"https://b.example/story": "paid text"}, metered=True)
     acq, calls = acquisition(free, paid)
-    docs = acq.extract(["https://a.example", "https://b.example"])
+    docs = acq.extract(["https://a.example", "https://b.example/story"])
     assert {d.url: d.content for d in docs} == {
         "https://a.example": "free text",
-        "https://b.example": "paid text",
+        "https://b.example/story": "paid text",
     }
-    assert paid.asked == [["https://b.example"]]
+    assert paid.asked == [["https://b.example/story"]]
     assert calls == [("extract", "web", 1), ("extract", "tavily", 1)]
     assert not acq.paid_first
 
 
 def test_a_spent_budget_leaves_pages_unread_instead_of_stopping_free_work():
     free = Reader("web", {"https://a.example": "free text"})
-    paid = Reader("tavily", {"https://b.example": "paid text"}, metered=True)
+    paid = Reader("tavily", {"https://b.example/story": "paid text"}, metered=True)
     acq, _ = acquisition(free, paid, budget=0)
-    docs = acq.extract(["https://a.example", "https://b.example"])
+    docs = acq.extract(["https://a.example", "https://b.example/story"])
     assert [d.url for d in docs] == ["https://a.example"]
     assert paid.asked == []
 
@@ -195,7 +195,7 @@ def test_a_spent_budget_leaves_pages_unread_instead_of_stopping_free_work():
     paid_first, _ = acquisition(paid, None, budget=0)
     assert paid_first.paid_first
     with pytest.raises(BudgetExhausted):
-        paid_first.extract(["https://b.example"])
+        paid_first.extract(["https://b.example/story"])
 
 
 def test_the_fallback_search_answers_when_the_default_fails_or_finds_nothing():
@@ -220,12 +220,12 @@ def test_a_paid_source_with_no_budget_is_skipped_among_free_ones():
 
 def test_a_page_is_read_at_most_once_per_run():
     free = Reader("web", {"https://a.example": "free text"})
-    paid = Reader("tavily", {"https://b.example": "paid text"}, metered=True)
+    paid = Reader("tavily", {"https://b.example/story": "paid text"}, metered=True)
     acq, calls = acquisition(free, paid)
     for _ in range(3):  # e.g. the same lead found by three queries
-        acq.extract(["https://a.example", "https://b.example"])
-    assert free.asked == [["https://a.example", "https://b.example"]]
-    assert paid.asked == [["https://b.example"]]
+        acq.extract(["https://a.example", "https://b.example/story"])
+    assert free.asked == [["https://a.example", "https://b.example/story"]]
+    assert paid.asked == [["https://b.example/story"]]
     assert len(calls) == 2
 
 
@@ -567,3 +567,133 @@ def test_a_robots_txt_that_moves_is_followed_and_obeyed():
     with pytest.raises(Refused, match="robots.txt"):
         fetcher.fetch("http://news.example/private/page", TEXT_TYPES)
     assert network.connected == ["93.184.216.34", "93.184.216.36"]
+
+
+# ---------------------------------------------------------------------------
+# What is never read, and what is never paid for
+# ---------------------------------------------------------------------------
+
+
+def test_adult_sites_are_never_read_or_led_to():
+    from collegium.reliability import is_blocked
+
+    assert is_blocked("https://zoo-xnxx.com/latesthits/")
+    assert is_blocked("https://en.luxuretv.com/search/videos/x")
+    assert not is_blocked("https://www.essex.ac.uk/research")
+    assert not is_blocked("https://news.example/sexism-in-tech")
+
+    searches = {
+        "free": Search("free", [lead("https://www.xvideos.com/a"), lead("https://a.example/b")])
+    }
+    free = Reader("web", {"https://pornhub.com/x": "no", "https://a.example/b": "text"})
+    acq, _ = acquisition(free, None, searches=searches)
+    assert [r.url for r in acq.discover("q", max_results=5)] == ["https://a.example/b"]
+    assert [d.url for d in acq.extract(["https://pornhub.com/x", "https://a.example/b"])] == [
+        "https://a.example/b"
+    ]
+    assert free.asked == [["https://a.example/b"]]
+
+
+def test_apps_and_front_pages_are_not_worth_a_paid_read():
+    urls = [
+        "https://chatgpt.com/",
+        "https://claude.ai/new",
+        "https://www.nsa.gov/",
+        "https://n.example/a",
+    ]
+    paid = Reader("tavily", {u: "text" for u in urls}, metered=True)
+    acq, _ = acquisition(Reader("web", {}), paid)
+    assert [d.url for d in acq.extract(urls)] == ["https://n.example/a"]
+    assert paid.asked == [["https://n.example/a"]]
+
+
+def test_pages_paid_for_before_and_closed_sites_are_not_paid_for_again():
+    urls = ["https://old.example/a", "https://walled.example/b", "https://new.example/c"]
+    paid = Reader("tavily", {u: "text" for u in urls}, metered=True)
+    acq = Acquisition(
+        {"free": Search("free", [])},
+        Reader("web", {}),
+        default="free",
+        fallback_extractor=paid,
+        paid_history=lambda asked: ({"https://old.example/a"}, {"walled.example"}),
+    )
+    assert [d.url for d in acq.extract(urls)] == ["https://new.example/c"]
+    assert paid.asked == [["https://new.example/c"]]
+
+
+def test_one_job_makes_at_most_a_few_paid_calls():
+    from collegium.acquisition import MAX_PAID_PER_RUN
+
+    paid = Reader("tavily", {f"https://n.example/{i}": "t" for i in range(10)}, metered=True)
+    acq, _ = acquisition(Reader("web", {}), paid)
+    for i in range(10):
+        acq.extract([f"https://n.example/{i}"])
+    assert len(paid.asked) == MAX_PAID_PER_RUN
+
+
+def test_the_call_log_says_what_was_paid_for_and_where_it_found_nothing(worker_db):
+    from collegium import memory
+
+    with worker_db.acting_as("researcher") as conn:
+        for urls, found, error in [
+            (["https://walled.example/1"], 0, None),
+            (["https://walled.example/2", "https://walled.example/3"], 0, None),
+            (["https://ok.example/1"], 1, None),
+            (["https://down.example/1"], 0, "ConnectError: refused"),  # cost nothing
+        ]:
+            memory.record_acquisition(
+                conn,
+                capability="extract",
+                provider="tavily",
+                request={"urls": urls},
+                result_count=found,
+                error=error,
+            )
+    with worker_db.reading() as conn:
+        already, empty = memory.paid_reads(
+            conn,
+            ["tavily"],
+            ["https://ok.example/1", "https://down.example/1", "https://x.example/1"],
+        )
+    assert already == {"https://ok.example/1"}
+    assert sorted(empty) == [
+        "https://walled.example/1",
+        "https://walled.example/2",
+        "https://walled.example/3",
+    ]
+
+
+def test_pdfs_are_read_for_free():
+    from collegium.acquisition.web import _pdf
+
+    assert _pdf("https://p.example/paper.pdf", "https://p.example/paper.pdf", PDF) is not None
+    doc = _pdf("https://p.example/paper.pdf", "https://p.example/paper.pdf", PDF)
+    assert "agents" in doc.content and doc.metadata["format"] == "pdf"
+
+
+def _minimal_pdf(text: str) -> bytes:
+    """A one-page PDF with `text`, written by hand (no PDF writer needed)."""
+    stream = f"BT /F1 10 Tf 20 700 Td ({text}) Tj ET".encode()
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R "
+        b"/Resources << /Font << /F1 5 0 R >> >> >>",
+        b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    out, offsets = b"%PDF-1.4\n", []
+    for n, body in enumerate(objects, 1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n" % n + body + b"\nendobj\n"
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
+    out += b"".join(b"%010d 00000 n \n" % o for o in offsets)
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (
+        len(objects) + 1,
+        xref,
+    )
+    return out
+
+
+PDF = _minimal_pdf("Software agents " * 30 + "agents at work in organizations " * 10)

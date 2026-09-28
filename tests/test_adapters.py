@@ -253,7 +253,7 @@ def test_searxng_returns_web_leads_within_the_time_window():
         "q": "juniorutviklere KI",
         "format": "json",
         "language": "all",
-        "safesearch": "0",
+        "safesearch": "2",
         "time_range": "month",
     }
     assert [time_range(d) for d in (None, 1, 7, 30, 90)] == [None, "day", "week", "month", "year"]

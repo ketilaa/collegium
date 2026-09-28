@@ -9,15 +9,23 @@ import logging
 import signal
 import threading
 import traceback
+from collections import Counter
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
 from collegium import jobs, memory
-from collegium.acquisition import Budget, BudgetExhausted, Recorder, SearchUnavailable
+from collegium.acquisition import (
+    Budget,
+    BudgetExhausted,
+    PaidHistory,
+    Recorder,
+    SearchUnavailable,
+)
 from collegium.db import Database
 from collegium.hours import WorkingHours
+from collegium.reliability import site
 from collegium.roles import ROLES
 from collegium.roles.base import Context
 
@@ -61,7 +69,9 @@ def run_once(ctx: Context, kinds: tuple[str, ...] | None = None) -> bool:
     if ctx.acquisition is not None:
         ctx = replace(
             ctx,
-            acquisition=ctx.acquisition.for_run(_recorder(ctx.db, role.name, run_id), _budget(ctx)),
+            acquisition=ctx.acquisition.for_run(
+                _recorder(ctx.db, role.name, run_id), _budget(ctx), _paid_history(ctx)
+            ),
         )
     try:
         persist = role.prepare(ctx, job)
@@ -149,6 +159,23 @@ def _budget(ctx: Context) -> Budget:
         return ctx.settings.daily_call_budget - used
 
     return remaining
+
+
+# A site where paid reading found nothing this many times (in 30 days) is
+# not paid for again: paywalls and blocks do not lift from one day to the next.
+CLOSED_AFTER = 2
+
+
+def _paid_history(ctx: Context) -> PaidHistory:
+    providers = ctx.acquisition.metered_providers
+
+    def history(urls: list[str]) -> tuple[set[str], set[str]]:
+        with ctx.db.reading() as conn:
+            already, empty = memory.paid_reads(conn, providers, urls)
+        misses = Counter(site(u) for u in empty)
+        return already, {s for s, n in misses.items() if n >= CLOSED_AFTER}
+
+    return history
 
 
 def _budget_reopens(ctx: Context, needed: int) -> datetime | None:

@@ -1,19 +1,21 @@
 """Reading web pages directly, free: fetch the page, keep the article text.
 
 The first extractor tried; pages it cannot read (blocked, built by
-JavaScript, PDFs, too little text) are left to a fallback extractor such as
-Tavily.
+JavaScript, too little text) are left to a fallback extractor such as
+Tavily. PDFs (research papers, reports) are read here too, with pypdf.
 
 Pages are fetched through `fetching.SafeFetcher`: never inside the
 organization, checked at every redirect, and only where robots.txt allows.
 """
 
+import io
 import logging
 import re
 import time
 from urllib.parse import urljoin, urlsplit
 
 import httpx
+import pypdf
 import trafilatura
 
 from collegium.acquisition import Document, SearchResult
@@ -26,6 +28,13 @@ log = logging.getLogger(__name__)
 # a cookie wall; better read by the fallback.
 MIN_TEXT_CHARS = 400
 TEXT_TYPES = ("text/html", "application/xhtml+xml", "text/plain")
+PDF_TYPE = "application/pdf"
+READ_TYPES = TEXT_TYPES + (PDF_TYPE,)
+# Papers are larger than pages; a PDF is read no further than its first
+# pages (the abstract, introduction and findings), which bounds the work.
+READ_MAX_BYTES = 10_000_000
+PDF_MAX_PAGES = 30
+PDF_MAX_CHARS = 200_000
 FEED_TYPES = (
     "application/rss+xml",
     "application/atom+xml",
@@ -74,7 +83,9 @@ class WebExtractor:
         return documents
 
     def _read(self, url: str) -> Document | None:
-        final_url, kind, body = self._fetch(url)
+        final_url, kind, body = self._fetcher.fetch(url, READ_TYPES, READ_MAX_BYTES)
+        if kind == PDF_TYPE:
+            return _pdf(url, final_url, body)
         if kind not in TEXT_TYPES:
             return None
         # trafilatura detects the page's encoding itself.
@@ -137,6 +148,29 @@ class WebExtractor:
 
     def _fetch(self, url: str, types: tuple[str, ...] = TEXT_TYPES) -> tuple[str, str, bytes]:
         return self._fetcher.fetch(url, types)
+
+
+def _pdf(url: str, final_url: str, body: bytes) -> Document | None:
+    """The text of a PDF's first PDF_MAX_PAGES pages, or None if it has
+    too little (a scanned document, say)."""
+    reader = pypdf.PdfReader(io.BytesIO(body))
+    parts, size = [], 0
+    for page in reader.pages[:PDF_MAX_PAGES]:
+        text = page.extract_text() or ""
+        parts.append(text)
+        size += len(text)
+        if size > PDF_MAX_CHARS:
+            break
+    text = "\n\n".join(parts)[:PDF_MAX_CHARS].strip()
+    if len(text) < MIN_TEXT_CHARS:
+        return None
+    title = (reader.metadata.title if reader.metadata else None) or url
+    return Document(
+        url=url,
+        title=str(title),
+        content=text,
+        metadata={"format": "pdf", **({"fetched_from": final_url} if final_url != url else {})},
+    )
 
 
 def _link_tags(page: str) -> list[str]:

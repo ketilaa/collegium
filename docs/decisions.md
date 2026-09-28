@@ -1194,3 +1194,27 @@ Proposed on 2026-09-27 and approved by the owner.
 Also: the operations page and `collegium jobs` list jobs by their latest
 activity (queued, started or finished), not by when they were queued, so a
 job queued yesterday and running now is at the top.
+
+## 2026-09-28 · Paid reading, only where it can pay off
+
+The daily budget of 30 paid calls was spent in 41 minutes on 2026-09-28,
+all of it on Tavily reading pages the free reader could not. Search itself
+cost nothing (SearXNG answered all of it). What was paid for: two adult
+sites a search had returned (safe search was off), chat apps and front
+pages with no article (chatgpt.com five times), the same page again in
+later jobs, paywalled sites where Tavily found nothing either, and PDFs,
+which the free reader skipped. The owner approved six measures:
+
+1. **Safe search strict** in SearXNG and in every query, and adult sites
+   are never read or kept as leads, free or paid (`reliability.is_blocked`).
+2. **Not worth paying** (`reliability.worth_paying`): besides social media,
+   forums and Moltbook, chat apps (`APP_HOSTS`) and a site's front page.
+3. **No page paid for twice in 7 days**, whichever job asks: the call log
+   says what was sent to a paid reader (`memory.paid_reads`).
+4. **Closed sites:** a site where paid reading found nothing twice in 30
+   days is not paid for again (paywalls and blocks do not lift overnight).
+5. **PDFs are read for free** with pypdf (a new dependency, pure Python, no
+   dependencies of its own): the first 30 pages, up to 200,000 characters,
+   from files up to 10 MB.
+6. **At most 3 paid calls per job** when free search and reading come
+   first (`MAX_PAID_PER_RUN`), so no job spends the day's budget.

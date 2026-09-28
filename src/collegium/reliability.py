@@ -7,6 +7,7 @@ Anyone can post on a forum or a blog platform, a press release is the
 claimant's own word, and a video or social post is rarely checkable.
 """
 
+import re
 from urllib.parse import urlsplit
 
 # (source type, ceiling) by host; checked in order, most specific first.
@@ -98,3 +99,57 @@ NOT_WORTH_PAYING = NOT_WORTH_RESEARCH | {"forum"}
 
 def ceiling_for(uri: str) -> float:
     return classify(uri)[1]
+
+
+def _host(uri: str) -> str:
+    return (urlsplit(uri).hostname or "").lower().removeprefix("www.")
+
+
+def site(uri: str) -> str:
+    """The site a page belongs to: its host without www."""
+    return _host(uri) or uri
+
+
+# Sites never read at all, free or paid: adult content has no place in the
+# organization's research, whatever a search engine returns (search runs
+# with safe search on; this catches what gets through).
+_ADULT = re.compile(
+    r"porn|xnxx|xvideo|xhamster|redtube|youporn|luxuretv|brazzers|onlyfans"
+    r"|(?:^|[.-])(?:xxx|sex)(?:[.-]|$)"
+)
+
+
+def is_blocked(uri: str) -> bool:
+    return bool(_ADULT.search(_host(uri)))
+
+
+# Chat apps and the like: pages built in the browser around a login, with
+# no article to read, which search results often point to because a text
+# mentions the product.
+APP_HOSTS = (
+    "chatgpt.com",
+    "chat.openai.com",
+    "claude.ai",
+    "gemini.google.com",
+    "copilot.microsoft.com",
+    "perplexity.ai",
+    "poe.com",
+    "character.ai",
+    "grok.com",
+    "chat.deepseek.com",
+    "chat.mistral.ai",
+)
+
+
+def worth_paying(uri: str) -> bool:
+    """Whether a page the free reader could not read is worth a paid read.
+    Not for sources whose evidence is capped low (NOT_WORTH_PAYING), for apps
+    (APP_HOSTS), or for a site's front page, which is navigation, not an
+    article."""
+    if classify(uri)[0] in NOT_WORTH_PAYING or is_blocked(uri):
+        return False
+    host = _host(uri)
+    if any(host == h or host.endswith("." + h) for h in APP_HOSTS):
+        return False
+    parts = urlsplit(uri)
+    return not (parts.path in ("", "/") and not parts.query)

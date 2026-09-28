@@ -233,6 +233,33 @@ def paid_calls_in_window(
     return row["n"], row["oldest"]
 
 
+def paid_reads(
+    conn: Connection,
+    providers: list[str],
+    urls: list[str],
+    *,
+    days: int = 7,
+    closed_days: int = 30,
+) -> tuple[set[str], list[str]]:
+    """Which of these pages were sent to a paid reader in the last `days`,
+    and every page a paid read found nothing for in the last `closed_days`
+    (calls that returned no document; failed calls cost nothing and are not
+    counted). The caller decides which sites that closes."""
+    already = conn.execute(
+        "SELECT DISTINCT u FROM acquisitions a, jsonb_array_elements_text(a.request -> 'urls') u "
+        "WHERE a.capability = 'extract' AND a.provider = ANY(%s) AND a.error IS NULL "
+        "AND a.requested_at > now() - make_interval(days => %s) AND u = ANY(%s)",
+        (providers, days, urls),
+    ).fetchall()
+    empty = conn.execute(
+        "SELECT u FROM acquisitions a, jsonb_array_elements_text(a.request -> 'urls') u "
+        "WHERE a.capability = 'extract' AND a.provider = ANY(%s) AND a.error IS NULL "
+        "AND a.result_count = 0 AND a.requested_at > now() - make_interval(days => %s)",
+        (providers, closed_days),
+    ).fetchall()
+    return {r["u"] for r in already}, [r["u"] for r in empty]
+
+
 def add_goal(
     conn: Connection,
     *,

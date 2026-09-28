@@ -26,6 +26,7 @@ from typing import Any, Protocol
 from uuid import UUID
 
 from collegium.config import Settings, require
+from collegium.reliability import is_blocked, site, worth_paying
 from collegium.untrusted import sanitize
 
 
@@ -98,6 +99,15 @@ Recorder = Callable[[str, str, dict[str, Any], int, str | None], UUID | None]
 # () -> paid calls still allowed now
 Budget = Callable[[], int]
 
+# urls -> (those already read with a paid provider lately, sites where paid
+# reading lately found nothing): what the organization has paid for before,
+# from the call log, so no job pays for it again.
+PaidHistory = Callable[[list[str]], tuple[set[str], set[str]]]
+
+# Paid calls one job may make when the main route is free: paid reading is a
+# fallback, and no single job should spend the day's budget.
+MAX_PAID_PER_RUN = 3
+
 
 class UnknownSource(ValueError):
     pass
@@ -125,6 +135,7 @@ class Acquisition:
         fallback_search: str | None = None,
         recorder: Recorder | None = None,
         budget: Budget | None = None,
+        paid_history: PaidHistory | None = None,
     ):
         for name in (default, fallback_search):
             if name is not None and name not in discovery:
@@ -137,6 +148,8 @@ class Acquisition:
         self._fallback_search = fallback_search if fallback_search != default else None
         self._recorder = recorder
         self._budget = budget
+        self._paid_history = paid_history
+        self._paid_calls = 0
         # Pages read (or found unreadable) during this run, so the same page
         # is never fetched, or paid for, twice. `for_run` starts afresh.
         self._pages: dict[str, Document | None] = {}
@@ -167,7 +180,12 @@ class Acquisition:
             self._extractor, "metered", False
         )
 
-    def for_run(self, recorder: Recorder, budget: Budget | None = None) -> "Acquisition":
+    def for_run(
+        self,
+        recorder: Recorder,
+        budget: Budget | None = None,
+        paid_history: PaidHistory | None = None,
+    ) -> "Acquisition":
         """This acquisition, recording every call and enforcing a budget."""
         return Acquisition(
             self._discovery,
@@ -178,6 +196,7 @@ class Acquisition:
             fallback_search=self._fallback_search,
             recorder=recorder,
             budget=budget,
+            paid_history=paid_history,
         )
 
     def discover(
@@ -218,7 +237,7 @@ class Acquisition:
                     if self.paid_first:
                         raise
             per_source.append(results)
-        return interleave(per_source)
+        return [r for r in interleave(per_source) if not is_blocked(r.url)]
 
     def _discover_from(
         self, name: str, query: str, max_results: int, recent_days: int | None
@@ -253,6 +272,7 @@ class Acquisition:
         results = [
             _clean_lead(replace(r, provider=crawler.name, acquisition_id=acquisition_id))
             for r in results
+            if not is_blocked(r.url)
         ]
         return self._enrich(results) if getattr(crawler, "thin_leads", False) else results
 
@@ -299,19 +319,22 @@ class Acquisition:
 
     def extract(self, urls: list[str]) -> list[Document]:
         """Read these pages: first with the extractor, then whatever it could
-        not read with the fallback, except pages not worth paying for. Each
-        page is read at most once per run. With free reading first, a spent
-        budget leaves the rest unread instead of stopping the work."""
-        from collegium.reliability import NOT_WORTH_PAYING, classify
-
-        urls = list(dict.fromkeys(urls))
+        not read with the fallback, except pages not worth paying for
+        (`worth_paying`), pages paid for lately, and sites where paying
+        lately found nothing. Blocked sites are not read at all. Each page is
+        read at most once per run. With free reading first, a spent budget
+        leaves the rest unread instead of stopping the work."""
+        urls = [u for u in dict.fromkeys(urls) if not is_blocked(u)]
         todo = [u for u in urls if u not in self._pages]
         if todo:
             documents = self._extract_with(self._extractor, todo)
             read = {d.url for d in documents if d.content.strip()}
             rest = [u for u in todo if u not in read]
             if self._fallback_extractor is not None:
-                rest = [u for u in rest if classify(u)[0] not in NOT_WORTH_PAYING]
+                rest = [u for u in rest if worth_paying(u)]
+            if rest and self._fallback_extractor is not None and self._paid_history is not None:
+                paid_before, closed_sites = self._paid_history(rest)
+                rest = [u for u in rest if u not in paid_before and site(u) not in closed_sites]
             if rest and self._fallback_extractor is not None:
                 try:
                     documents += self._extract_with(self._fallback_extractor, rest)
@@ -396,6 +419,12 @@ class Acquisition:
     ):
         if metered and self._budget is not None and self._budget() <= 0:
             raise BudgetExhausted(f"daily budget for paid calls is spent ({provider})")
+        if metered and not self.paid_first and self._paid_calls >= MAX_PAID_PER_RUN:
+            raise BudgetExhausted(
+                f"this job's {MAX_PAID_PER_RUN} paid calls are spent ({provider})"
+            )
+        if metered:
+            self._paid_calls += 1
         try:
             result = fn()
         except Exception as e:

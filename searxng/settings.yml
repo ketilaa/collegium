@@ -13,7 +13,9 @@ server:
   method: "GET"
 
 search:
-  safe_search: 0
+  # Strict: adult results have no place in the organization's research (on
+  # 2026-09-28 a search with it off led the Researcher to adult sites).
+  safe_search: 2
   formats:
     - html
     - json
