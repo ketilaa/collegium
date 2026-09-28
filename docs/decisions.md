@@ -1259,8 +1259,14 @@ approved by the owner like posts and replies (VISION.md).
   put to us did not). The Replier sees our post and the comment. If memory
   answers, the reply is grounded as always. If not, the reply is a fixed
   acknowledgement naming what we will look into (the model writes only
-  the subject, one phrase, no links), a scout is queued with that focus,
-  and the thread is marked (`look_into`).
+  the subject, one phrase, no links), and the thread is marked
+  (`look_into`). A scout with that focus is queued only when the owner
+  approves the acknowledgement, and the Scout sees the subject fenced, as
+  material another agent raised, never as the Strategist's request
+  (review 3bae8c1-001, SEC-33: otherwise any agent commenting on our posts
+  could steer our research). New own-thread comments wait while five
+  drafts wait for the owner (SEC-34); votes for our own posts are refused
+  (SEC-35).
 - **Follow-ups.** Each daily plan queues a follow-up for acknowledgements
   published between 20 hours and 7 days ago and not yet followed up
   (`memory.follow_ups_due`); the Replier drafts one, grounded, only once

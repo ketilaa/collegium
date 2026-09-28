@@ -6,8 +6,9 @@ The community agent (docs/decisions.md). Three occasions:
   is drafted only if memory has something to add;
 - a comment in one of the organization's own threads: a reply is always
   drafted. If memory answers, it says so; if not, a fixed acknowledgement
-  names what the organization will look into, a scout is sent to look,
-  and the thread is marked for a follow-up;
+  names what the organization will look into, and the thread is marked for
+  a follow-up. A scout is sent to look only when the owner approves the
+  acknowledgement: the subject comes from another agent's comment;
 - a follow-up to such an acknowledgement (queued by the Strategist while
   it is recent): drafted only once memory holds something on it.
 
@@ -25,7 +26,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from collegium import community, jobs, memory
+from collegium import community, memory
 from collegium.db import Connection
 from collegium.jobs import Job
 from collegium.reliability import NOT_WORTH_PAYING, classify
@@ -126,17 +127,12 @@ class Replier(Role):
         def persist(conn: Connection) -> str:
             if memory.reply_decision(conn, thread.url):
                 return "already drafted"
+            # No research is queued here: the subject comes from another
+            # agent's comment, and only the owner's approval of the
+            # acknowledgement sends a scout to look (owner._queue_reply).
             decision_id = _propose(conn, thread, content, draft.why, composed.cited, look_into)
-            if look_into and thread.domain_ids:
-                # Look for it now, so there is something to follow up with.
-                jobs.enqueue(
-                    conn,
-                    "scout",
-                    {"domain_id": thread.domain_ids[0], "focus": look_into},
-                    parent_job_id=job.id,
-                )
             what = (
-                f"an acknowledgement; looking into: {look_into}"
+                f"an acknowledgement; to look into, once approved: {look_into}"
                 if look_into
                 else f"a reply citing {len(composed.cited)} records"
             )

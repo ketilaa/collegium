@@ -11,6 +11,7 @@ from uuid import UUID
 import psycopg
 
 from collegium import community, jobs, memory
+from collegium.acquisition.moltbook import OWN_ACCOUNT
 from collegium.db import Connection
 
 DOMAIN_STATUSES = ("active", "paused", "retired")
@@ -114,6 +115,21 @@ def _queue_reply(conn: Connection, decision_id: UUID, details: dict) -> None:
             content,
         ),
     )
+    # An acknowledgement ("we will look into ...") becomes research only now,
+    # with the owner's approval: the subject was raised by another agent.
+    subject = details.get("look_into")
+    if subject and details.get("domain_id"):
+        queued = conn.execute(
+            "SELECT 1 FROM jobs WHERE kind = 'scout' AND status IN ('pending', 'running') "
+            "AND payload ->> 'focus' = %s",
+            (subject,),
+        ).fetchone()
+        if not queued:
+            jobs.enqueue(
+                conn,
+                "scout",
+                {"domain_id": details["domain_id"], "focus": subject, "focus_from": "moltbook"},
+            )
     # Answering a comment is also a vote for it.
     _queue_vote(
         conn,
@@ -171,8 +187,12 @@ def upvote(conn: Connection, url: str) -> None:
     where = community.thread(url)
     if where is None:
         raise OwnerError("Only a Moltbook post or comment can be upvoted.")
-    if not conn.execute("SELECT 1 FROM sources WHERE uri = %s", (url,)).fetchone():
+    source = conn.execute("SELECT metadata FROM sources WHERE uri = %s LIMIT 1", (url,)).fetchone()
+    if source is None:
         raise OwnerError("The organization has not recorded that post or comment.")
+    own = (source["metadata"] or {}).get("moltbook_author") == OWN_ACCOUNT
+    if own or (where[1] is None and memory.own_post(conn, where[0])):
+        raise OwnerError("The organization does not vote for its own posts or comments.")
     if not _queue_vote(conn, where[0], where[1], why="The owner's upvote."):
         raise OwnerError("That already has our vote.")
 

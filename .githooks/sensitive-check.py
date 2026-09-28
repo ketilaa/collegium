@@ -21,11 +21,12 @@ from pathlib import Path
 
 PATTERNS = {
     "a home directory": re.compile(
-        r"/Users/[A-Za-z0-9._-]+|/home/[a-z_][a-z0-9_-]*|[A-Z]:\\Users\\"
+        r"/Users/[A-Za-z0-9._-]+|/home/[a-z_][a-z0-9_-]*|/root/|[A-Za-z]:\\[Uu]sers\\"
     ),
     "a temporary folder": re.compile(r"/private/(?:tmp|var)/|/var/folders/"),
     "an email address": re.compile(
-        r"[A-Za-z0-9._%+-]+@(?!example\.|users\.noreply\.github\.com|anthropic\.com)"
+        r"[A-Za-z0-9._%+-]+@"
+        r"(?!(?:example\.(?:com|org|net)|users\.noreply\.github\.com|anthropic\.com)\b(?!\.))"
         r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}"
     ),
 }
@@ -45,8 +46,16 @@ def terms() -> list[re.Pattern]:
     ]
 
 
-def problems(where: str, text: str, listed: list[re.Pattern]) -> list[str]:
-    found = [f"{where}: {what}" for what, p in PATTERNS.items() if p.search(text)]
+# This script names the patterns it looks for, so its own lines are checked
+# for addresses and listed terms only.
+SELF = ".githooks/sensitive-check.py"
+
+
+def problems(
+    where: str, text: str, listed: list[re.Pattern], patterns: dict | None = None
+) -> list[str]:
+    patterns = PATTERNS if patterns is None else patterns
+    found = [f"{where}: {what}" for what, p in patterns.items() if p.search(text)]
     found += [
         f"{where}: term {n} of the local list" for n, p in enumerate(listed, 1) if p.search(text)
     ]
@@ -60,8 +69,9 @@ def git(*args: str) -> str:
 def staged(listed: list[re.Pattern]) -> list[str]:
     found: list[str] = []
     for path in git("diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z").split("\0"):
-        if not path or path == ".githooks/sensitive-check.py":
+        if not path:
             continue
+        patterns = {"an email address": PATTERNS["an email address"]} if path == SELF else None
         found += problems(f"{path} (its path)", path, listed)
         blob = subprocess.run(["git", "show", f":{path}"], capture_output=True).stdout
         if b"\0" in blob[:8000]:
@@ -69,12 +79,12 @@ def staged(listed: list[re.Pattern]) -> list[str]:
             found += problems(f"{path} (binary)", text, listed)
             continue
         diff = git("diff", "--cached", "-U0", "--no-color", "--", path)
-        number = 0
+        number, in_hunk = 0, False
         for line in diff.splitlines():
             if line.startswith("@@"):
-                number = int(re.search(r"\+(\d+)", line).group(1))
-            elif line.startswith("+") and not line.startswith("+++"):
-                found += problems(f"{path}:{number}", line[1:], listed)
+                number, in_hunk = int(re.search(r"\+(\d+)", line).group(1)), True
+            elif in_hunk and line.startswith("+"):  # the file header comes before any @@
+                found += problems(f"{path}:{number}", line[1:], listed, patterns)
                 number += 1
     return found
 

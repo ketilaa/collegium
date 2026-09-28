@@ -21,6 +21,7 @@ from collegium.roles.answerer import AnswerPoint, SearchTerms
 from collegium.roles.base import SearchPlan
 from collegium.roles.drafter import PostDraft
 from collegium.roles.replier import ReplyDraft
+from collegium.roles.scout import ScoutReport
 
 THREAD = "https://www.moltbook.com/post/p-123#comment-c-9"
 # The forum's own example: twenty minus five.
@@ -525,11 +526,29 @@ def test_a_question_in_our_thread_is_acknowledged_and_looked_into(
     assert details["look_into"] == "how the index classifies a model as European"
     # The reply is fixed by code around the subject; nothing ungrounded.
     assert details["content"] == community.acknowledgement(details["look_into"])
-    with worker_db.reading() as conn:
-        scout = conn.execute(
-            "SELECT payload FROM jobs WHERE kind = 'scout' AND payload ? 'focus'"
-        ).fetchall()
-    assert [j["payload"]["focus"] for j in scout] == [details["look_into"]]
+
+    def focused_scouts():
+        with worker_db.reading() as conn:
+            return conn.execute(
+                "SELECT payload FROM jobs WHERE kind = 'scout' AND payload ? 'focus'"
+            ).fetchall()
+
+    # Another agent's comment steers nothing by itself: research on it
+    # starts only when the owner approves the acknowledgement.
+    assert focused_scouts() == []
+    with board_db.acting_as("owner") as conn:
+        owner.resolve_decision(conn, d["id"], "approved")
+    [scout] = focused_scouts()
+    assert scout["payload"]["focus"] == details["look_into"]
+    assert scout["payload"]["focus_from"] == "moltbook"
+
+    # The Scout sees the subject fenced, as material another agent raised.
+    llm.add(SearchPlan, SearchPlan(queries=["European AI models"]))
+    llm.add(ScoutReport, ScoutReport(observations=[]))
+    worker.drain(make_context(PAGES))
+    brief = llm.prompts_for(SearchPlan)[-1]
+    assert "another AI agent raised on Moltbook" in brief and "<<<F " in brief
+    assert "The Strategist asks you" not in brief
 
     # The same comment is never drafted for twice.
     with worker_db.acting_as("scout") as conn:
@@ -616,6 +635,11 @@ def test_the_owner_upvotes_what_the_organization_has_recorded(
         owner.upvote(conn, url)
     with board_db.acting_as("owner") as conn, pytest.raises(owner.OwnerError, match="recorded"):
         owner.upvote(conn, "https://www.moltbook.com/post/p-999")
+    # Nor for the organization's own posts.
+    with worker_db.acting_as("scout") as conn:
+        memory.record_source(conn, uri="https://www.moltbook.com/post/new-1")
+    with board_db.acting_as("owner") as conn, pytest.raises(owner.OwnerError, match="own"):
+        owner.upvote(conn, "https://www.moltbook.com/post/new-1")
 
 
 class FakeMoltbook:
@@ -642,8 +666,6 @@ class FakeMoltbook:
 def test_the_scout_answers_every_new_comment_in_our_threads(
     researched, board_db, worker_db, publisher_db, llm, make_context
 ):
-    from collegium.roles.scout import ScoutReport
-
     approved_post(researched, board_db, worker_db, llm, make_context)
     publisher.publish_next(publisher_db, Forum(challenge=False).client(), llm)
     with board_db.acting_as("owner") as conn:
@@ -661,3 +683,31 @@ def test_the_scout_answers_every_new_comment_in_our_threads(
     assert source["uri"] == "https://www.moltbook.com/post/new-1#comment-c-7"
     assert source["metadata"]["reply_to"] == "https://www.moltbook.com/post/new-1"
     assert "vina" in source["metadata"]["moltbook_author"]
+
+
+def test_comments_wait_while_many_drafts_wait_for_the_owner(
+    researched, board_db, worker_db, publisher_db, llm, make_context
+):
+    from collegium.roles.scout import MAX_REPLIES_WAITING
+
+    approved_post(researched, board_db, worker_db, llm, make_context)
+    publisher.publish_next(publisher_db, Forum(challenge=False).client(), llm)
+    with worker_db.acting_as("researcher") as conn:
+        for i in range(MAX_REPLIES_WAITING):
+            d = memory.add_decision(conn, statement=f"Reply {i}", rationale="r", topic="reply")
+            memory.tag_domains(conn, d, [researched])
+    with board_db.acting_as("owner") as conn:
+        conn.execute(
+            "UPDATE domains SET discovery_sources = '{fake,moltbook}' WHERE id = %s", (researched,)
+        )
+        jobs.enqueue(conn, "scout", {"domain_id": researched}, priority=1)
+    llm.add(SearchPlan, SearchPlan(queries=["agents"]))
+    llm.add(ScoutReport, ScoutReport(observations=[]))
+    assert worker.run_once(make_context(PAGES, extra_sources={"moltbook": FakeMoltbook()}))
+    comment = "https://www.moltbook.com/post/new-1#comment-c-7"
+    with worker_db.reading() as conn:
+        assert conn.execute("SELECT 1 FROM jobs WHERE kind = 'reply'").fetchone() is None
+        # Not recorded either, so a later run still answers it.
+        assert memory.known_source_uris(conn, [comment]) == set()
+        notes = conn.execute("SELECT notes FROM runs ORDER BY started_at DESC").fetchone()
+    assert "1 held back for later" in notes["notes"]
