@@ -810,6 +810,55 @@ def test_a_comment_already_recorded_is_still_offered_again(
     assert len(replies) == 1
 
 
+def test_an_active_reply_is_not_re_queued_but_a_rejected_one_is(
+    researched, board_db, worker_db, publisher_db, llm, make_context
+):
+    """An approved (or still-proposed) reply must not keep occupying a
+    reply slot on every scout run forever: that starves genuinely new
+    comments out of MAX_OWN_THREAD_REPLIES. A rejected one still should be
+    offered again, which is the point of the fix above."""
+    url = "https://www.moltbook.com/post/new-1#comment-c-7"
+    approved_post(researched, board_db, worker_db, llm, make_context)
+    publisher.publish_next(publisher_db, Forum(challenge=False).client(), llm)
+    with board_db.acting_as("owner") as conn:
+        conn.execute(
+            "UPDATE domains SET discovery_sources = '{fake,moltbook}' WHERE id = %s", (researched,)
+        )
+    with worker_db.acting_as("scout") as conn:
+        memory.record_source(conn, uri=url)
+    with worker_db.acting_as("researcher") as conn:
+        decision_id = memory.add_decision(
+            conn,
+            statement="Reply on Moltbook to agent vina: test",
+            rationale="r",
+            topic="reply",
+            details={
+                "thread_url": url,
+                "reply_to_post": "new-1",
+                "reply_to_comment": "c-7",
+                "content": "c",
+            },
+        )
+
+    def scout_once():
+        with board_db.acting_as("owner") as conn:
+            jobs.enqueue(conn, "scout", {"domain_id": researched}, priority=1)
+        llm.add(SearchPlan, SearchPlan(queries=["agents"]))
+        llm.add(ScoutReport, ScoutReport(observations=[]))
+        ctx = make_context(PAGES, extra_sources={"moltbook": FakeMoltbook()})
+        assert worker.run_once(ctx)
+        with worker_db.reading() as conn:
+            return conn.execute("SELECT count(*) AS n FROM jobs WHERE kind = 'reply'").fetchone()[
+                "n"
+            ]
+
+    assert scout_once() == 0  # proposed: settled for now, not re-queued
+
+    with board_db.acting_as("owner") as conn:
+        owner.resolve_decision(conn, decision_id, "rejected", "not good enough")
+    assert scout_once() == 1  # rejected: offered again
+
+
 def test_comments_wait_while_many_drafts_wait_for_the_owner(
     researched, board_db, worker_db, publisher_db, llm, make_context
 ):

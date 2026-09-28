@@ -1422,3 +1422,20 @@ calibration bullet now covers reliability as well as confidence, and
 `EvidenceItem.reliability`'s own description says "from 0 to 1". The
 `ge=0, le=1` constraint itself was correct and stays: it is why this
 failed loudly instead of storing a wrong number.
+
+## 2026-09-28 · An active reply must not keep re-claiming a reply slot
+
+The security-reviewer subagent found (SEC-39-001, ACTION_REQUIRED) that the
+scout.py fix reordering own-thread comment selection ahead of the
+"already known" filter, earlier in this batch, was too broad: it let a
+comment whose reply decision was already `proposed` or `approved` keep
+being reselected into `new_replies` on every subsequent scout run, forever.
+That could grow the jobs table without bound and, worse, could starve
+genuinely new comments out of the fixed `MAX_OWN_THREAD_REPLIES` slots,
+silently breaking the guarantee that every new comment gets a reply.
+
+Fixed with `memory.active_reply_urls()`, which returns the subset of
+thread URLs that already have an active (`proposed` or `approved`) reply
+decision. `scout.py` now excludes those from the own-thread candidate
+list before slicing into `new_replies`, while a *rejected* decision's
+thread is still offered again, which was the point of the original fix.

@@ -149,12 +149,14 @@ class Scout(Role):
         # New comments in the organization's own threads: each gets a reply,
         # as long as few drafts wait for the owner. Chosen before "already
         # known" below: a comment recorded once, from an earlier attempt
-        # that was since rejected, is still worth a fresh look — the
-        # Replier's own guard (an active decision for the thread) is what
-        # actually stops a duplicate, not whether this URL was seen before.
+        # that was since rejected, is still worth a fresh look. But one with
+        # an active (proposed or approved) decision is settled for now and
+        # must not keep occupying a slot every run — that would starve
+        # genuinely new comments out of MAX_OWN_THREAD_REPLIES forever.
         with ctx.db.reading() as conn:
             room = MAX_REPLIES_WAITING - memory.reply_decisions_waiting(conn, domain_id)
-        comments = [r for r in crawled if r.url in replied_to]
+            active = memory.active_reply_urls(conn, [r.url for r in crawled if r.url in replied_to])
+        comments = [r for r in crawled if r.url in replied_to and r.url not in active]
         new_replies = comments[: max(0, min(room, MAX_OWN_THREAD_REPLIES))]
         held = {r.url for r in comments[len(new_replies) :]}
         with ctx.db.reading() as conn:

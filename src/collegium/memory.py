@@ -868,6 +868,21 @@ def source(conn: Connection, source_id: UUID) -> dict | None:
     return conn.execute("SELECT * FROM sources WHERE id = %s", (source_id,)).fetchone()
 
 
+def active_reply_urls(conn: Connection, thread_urls: list[str]) -> set[str]:
+    """Which of these threads already have an active (proposed or
+    approved) reply decision: not offered again as a candidate while one
+    is; a rejected or never-drafted thread is not held back this way."""
+    if not thread_urls:
+        return set()
+    rows = conn.execute(
+        "SELECT details ->> 'thread_url' AS url FROM decisions WHERE topic = 'reply' "
+        "AND status IN ('proposed', 'approved') AND details ->> 'follows' IS NULL "
+        "AND details ->> 'thread_url' = ANY(%s)",
+        (thread_urls,),
+    ).fetchall()
+    return {r["url"] for r in rows}
+
+
 def reply_decision(conn: Connection, thread_url: str) -> dict | None:
     """A reply already proposed or approved for this post or comment: while
     one is active, another is not drafted alongside it. A rejected one does
