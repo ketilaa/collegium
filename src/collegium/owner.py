@@ -211,6 +211,21 @@ def request_reply(conn: Connection, observation_id: UUID) -> UUID:
     return jobs.enqueue(conn, "reply", {"observation_id": observation_id}, priority=2)
 
 
+def withdraw_program(conn: Connection, program_id: UUID) -> str:
+    """Close a program the owner already opened: it stops guiding new
+    goals, but its history (decisions and goals already linked to it)
+    stays on record. For a program that turns out to duplicate another,
+    or no longer deserves the attention."""
+    program = conn.execute(
+        "UPDATE programs SET status = 'closed' WHERE id = %s AND status IN ('active', 'paused') "
+        "RETURNING name",
+        (program_id,),
+    ).fetchone()
+    if not program:
+        raise OwnerError("That program is not open.")
+    return program["name"]
+
+
 def withdraw_post(conn: Connection, post_id: UUID) -> None:
     """Take an approved post back before the publisher sends it."""
     updated = conn.execute(

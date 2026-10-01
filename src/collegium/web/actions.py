@@ -42,6 +42,7 @@ NOTICES = {
     "upvoted": "Upvote approved. The publisher sends it shortly.",
     "post-approved": "Approved. The publisher sends it to Moltbook as the pace allows.",
     "strategize": "Planning queued. It starts within working hours.",
+    "program-withdrawn": "Program closed. It no longer guides new goals.",
 }
 
 
@@ -118,6 +119,11 @@ def add_actions(
     def reject(decision_id: UUID, conn: Acting, reason: Annotated[str, Form()] = ""):
         owner.resolve_decision(conn, decision_id, "rejected", reason)
         return done("/decisions", "rejected")
+
+    @app.post("/programs/{program_id}/withdraw")
+    def withdraw_program(program_id: UUID, conn: Acting):
+        owner.withdraw_program(conn, program_id)
+        return done("/programs", "program-withdrawn")
 
     @app.post("/hypotheses/{hypothesis_id}/challenge")
     def challenge(

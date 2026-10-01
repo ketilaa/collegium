@@ -172,6 +172,34 @@ def test_plan_sets_goals_queues_work_within_budget_and_proposes_programs(
         assert conn.execute("SELECT count(*) AS n FROM programs").fetchone()["n"] == 1
 
 
+def test_a_label_like_program_name_is_not_created(
+    domain_with_weak_hypothesis, llm, board_db, worker_db
+):
+    """A model sometimes echoes the sentinel word "new", or an existing
+    program's own [P2]/(status) label, into the name of the program it is
+    proposing, instead of writing a real title (a real incident: two
+    programs ended up named literally "new" and "P2 (active)"). Such a
+    name is unusable and must not become a program row or a decision."""
+    domain_id, ctx = domain_with_weak_hypothesis
+    for bad_name in ("new", "P2 (active)", " P12 "):
+        llm.add(
+            StrategyPlan,
+            StrategyPlan(
+                assessment="a",
+                goals=[],
+                program=ProgramProposal(name=bad_name, charter="c", rationale="r"),
+            ),
+        )
+        _strategize(board_db, domain_id)
+        assert worker.run_once(ctx)
+    with worker_db.reading() as conn:
+        assert conn.execute("SELECT count(*) AS n FROM programs").fetchone()["n"] == 0
+        n = conn.execute(
+            "SELECT count(*) AS n FROM decisions WHERE statement LIKE 'Open research program:%%'"
+        ).fetchone()["n"]
+        assert n == 0
+
+
 def test_a_goal_can_be_linked_to_the_program_proposed_in_the_same_plan(
     domain_with_weak_hypothesis, llm, board_db, worker_db
 ):

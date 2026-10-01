@@ -1460,3 +1460,38 @@ Fixed by making the own-thread branch total: when the model gives no
 the Scout's fixed title line) instead of leaving the decision unmade.
 Every own-thread comment the Replier sees now ends in a decision, exactly
 as the module's docstring already promised.
+
+## 2026-10-01 · Program names, and withdrawing a program
+
+Two programs ended up named literally "new" and "P2 (active)" — not a
+display bug, the `programs.name` column itself held those strings. The
+Strategist's `ProgramProposal.name` field had no description, unlike
+`charter`, and the prompt shows existing programs to the model as
+`[P2] (active) Name: charter` while also using the word "new" as a
+sentinel elsewhere in the same plan (a goal's `program` field, for "the
+one I am proposing now"). With nothing telling the model what `name`
+should actually contain, it echoed one of those two fragments into it
+instead of writing a title — happening with both the 7B and the 8B model
+now in use, so not particular to one model's size. The duplicate program
+also showed the deeper issue: the Strategist proposed a program covering
+ground the already-active "AI Impact on Software Development" program
+already covers, on two separate days, because nothing prompted it to
+check the existing programs' charters for overlap.
+
+Fixed in three places: `ProgramProposal.name` now has a description
+saying what it is for and explicitly warning against a P label or the
+word "new"; the prompt tells the model to check existing programs'
+charters before proposing one; and `_propose_program` now recognises a
+label-like name (`new`, or `P<n>` with an optional parenthesized status)
+on sight and skips creating the program rather than trust it, the same
+defensive stance already taken for a goal's bad `program` label.
+
+This also exposed a gap: once a program is approved, there was no way
+for the owner to close it again except through the original decision
+(which, once resolved, cannot be revisited). Added `owner.withdraw_program`
+(`collegium program withdraw <id>`, and a "Withdraw" button on the board),
+paralleling `withdraw_post` for Moltbook posts: closes an active or
+paused program, keeping its history (decisions, any goals already linked
+to it) on record. Used it to close the live "new" program, which
+duplicated the active one; the "P2 (active)" one was still only proposed
+and was rejected outright instead.

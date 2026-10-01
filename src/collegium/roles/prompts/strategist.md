@@ -31,8 +31,12 @@ Return a plan:
   short reason. Abandoned goals stay on record with your reason. Do not
   both continue and abandon the same goal.
 - At most one new research program, only if the domain has a lasting
-  direction worth sustained attention that no program covers. The owner
-  decides whether it opens; propose one rarely.
+  direction worth sustained attention that no existing program (P1, P2,
+  ...), proposed or active, already covers; check their charters first.
+  Give it a real, descriptive name of its own: never a P label or the
+  word "new", which are just how the programs already listed to you are
+  shown, not names. The owner decides whether it opens; propose one
+  rarely.
 
 Questions the owner asked that memory could not answer are gaps too, and
 usually worth a goal: they show what the owner wants to know.

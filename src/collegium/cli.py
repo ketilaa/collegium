@@ -81,6 +81,11 @@ def main(argv: list[str] | None = None) -> None:
 
     sub.add_parser("programs", help="research programs, proposed and open")
 
+    p = sub.add_parser("program", help="manage a research program (owner)")
+    psub = p.add_subparsers(dest="action", required=True)
+    w = psub.add_parser("withdraw", help="close an open program")
+    w.add_argument("program", help="program id or unique prefix")
+
     sub.add_parser("decisions", help="decisions waiting for the owner")
 
     p = sub.add_parser("approve", help="approve a proposed decision (owner)")
@@ -385,6 +390,17 @@ def _programs(args, settings: Settings) -> None:
         print(f"{str(p['id'])[:8]}  {p['status']:9} {p['name']}\n{'':20}{p['charter']}")
 
 
+def _program(args, settings: Settings) -> None:
+    with _board(settings).acting_as("owner") as conn:
+        rows = conn.execute(
+            "SELECT id FROM programs WHERE id::text LIKE %s", (args.program + "%",)
+        ).fetchall()
+        if len(rows) != 1:
+            raise SystemExit(f"{len(rows)} programs match {args.program!r}")
+        name = owner.withdraw_program(conn, rows[0]["id"])
+    print(f"{name}: closed")
+
+
 def _decisions(args, settings: Settings) -> None:
     with _reader(settings).reading() as conn:
         rows = board.decisions_waiting(conn)
@@ -623,6 +639,7 @@ COMMANDS = {
     "strategize": _strategize,
     "goals": _goals,
     "programs": _programs,
+    "program": _program,
     "mission": _mission,
     "ask": _ask,
     "questions": _questions,

@@ -24,6 +24,7 @@ then applies the rules that are not the model's to decide:
   which the owner approves or not.
 """
 
+import re
 from typing import Literal
 from uuid import UUID
 
@@ -43,6 +44,10 @@ RESERVE = 5
 MAX_FREE_ACTIONS = 6
 # Sources proposed per plan; each needs a look at the site for its feed.
 MAX_SOURCE_PROPOSALS = 2
+# A model sometimes echoes the label it was shown (the word "new", or an
+# existing program's "P2"/"P2 (active)") into the name of the program it
+# is proposing, instead of writing one. Such a name is not usable.
+_LABEL_LIKE_NAME = re.compile(r"^(new|p\d+(\s*\([^)]*\))?)$", re.IGNORECASE)
 
 
 class Action(BaseModel):
@@ -71,7 +76,11 @@ class GoalAbandonment(BaseModel):
 
 
 class ProgramProposal(BaseModel):
-    name: str
+    name: str = Field(
+        description="A short, descriptive title for the program. Never a P label "
+        "(e.g. 'P2') or the word 'new': those are how existing programs are shown "
+        "to you, not names of their own."
+    )
     charter: str = Field(description="Why this deserves sustained attention, and its scope")
     rationale: str
 
@@ -279,7 +288,7 @@ def _propose_program(
     to it in the same run; the id of the matching existing program instead
     if one already has this name, so "new" still resolves for a goal even
     when the program itself is not created again."""
-    if not plan.program:
+    if not plan.program or _LABEL_LIKE_NAME.match(plan.program.name.strip()):
         return None
     existing = next(
         (

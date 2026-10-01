@@ -68,6 +68,7 @@ uv run collegium entities [slug]         # entities mentioned most
 uv run collegium resolve --all           # send hypotheses with open critiques through the loop
 uv run collegium strategize ai-agents    # plan now (otherwise daily)
 uv run collegium goals | programs | decisions
+uv run collegium program withdraw <id>                        # close an open program (owner)
 uv run collegium approve <id> | reject <id> --reason "..."   # the owner's decisions
 uv run collegium challenge <id> "objection" --severity 3      # the owner's critique; goes through the loop
 uv run collegium domain pause|resume|retire ai-agents

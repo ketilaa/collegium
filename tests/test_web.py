@@ -188,6 +188,29 @@ def test_approving_a_decision_opens_its_program(client, worker_db, add_domain):
     assert again.status_code == 400 and "no longer waiting" in again.text
 
 
+def test_withdrawing_a_program_closes_it(client, worker_db, add_domain):
+    program, decision = _proposed_program(worker_db, add_domain())
+    client.post(f"/decisions/{decision}/approve")
+    response = client.post(f"/programs/{program}/withdraw")
+    assert response.status_code == 200 and "Program closed." in response.text
+    with worker_db.reading() as conn:
+        assert (
+            conn.execute("SELECT status FROM programs WHERE id = %s", (program,)).fetchone()[
+                "status"
+            ]
+            == "closed"
+        )
+    # Withdrawing again, or a program never opened, is refused.
+    again = client.post(f"/programs/{program}/withdraw")
+    assert again.status_code == 400 and "not open" in again.text
+
+
+def test_a_proposed_program_cannot_be_withdrawn(client, worker_db, add_domain):
+    program, _decision = _proposed_program(worker_db, add_domain())  # still 'proposed'
+    response = client.post(f"/programs/{program}/withdraw")
+    assert response.status_code == 400 and "not open" in response.text
+
+
 def test_rejecting_keeps_the_reason(client, worker_db, add_domain):
     program, decision = _proposed_program(worker_db, add_domain())
     client.post(f"/decisions/{decision}/reject", data={"reason": "Too early for this."})
