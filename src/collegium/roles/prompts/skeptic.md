@@ -18,8 +18,11 @@ When given documents, return:
   clear reason that cites the evidence, because the owner will read it.
 
 - Critiques: specific weaknesses, each with an alternative explanation when
-  you have one. Severity 1 is a quibble, 5 means the hypothesis is likely
-  wrong.
+  you have one. These are new: write the objection itself, with no label
+  like [C1] in front of it. A label like that only names one of the open
+  critiques above, shown to you so you can resolve them; a critique you
+  are raising now does not have one yet. Severity 1 is a quibble, 5 means
+  the hypothesis is likely wrong.
 - Evidence: exact excerpts from the documents that bear on the hypothesis,
   labelled H, whether they support or contradict it. Report supporting
   evidence honestly too. Lack of evidence is a critique, not contradicting

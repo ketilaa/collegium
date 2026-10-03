@@ -1539,3 +1539,24 @@ a malformed or missing one is simply skipped rather than trusted.
 Queued but not built: the Swedish (Bolagsverket), Danish (CVR) and
 Finnish (PRH) equivalents, for the same domain's Nordic scope beyond
 Norway.
+
+## 2026-10-03 · A new critique's stray "[C1]" label
+
+The owner noticed a title "often includes the string [C1], and sometimes
+only that," and asked if it could be a bug. Checked the live database
+directly: 67 of 252 stored critiques started with a literal `"[C1] "`,
+3 of them nothing else. The brief shown to the Skeptic labels the open
+critiques it is resolving `C1, C2, ...`; a brand-new critique it raises
+in the same response has no label of its own, but the model sometimes
+echoes one onto it anyway, apparently pattern-matching the labelling
+convention it was just shown for a different purpose. The same root
+cause as the program-naming bug two days earlier (`ProgramProposal.name`
+coming back "new" or "P2 (active)"): a labelling scheme shown to the
+model for one field bleeding into a free-text field with no label of
+its own.
+
+Fixed the same way: the prompt (`skeptic.md`) now says explicitly that a
+critique being raised now has no label, and `ProposedCritique.argument`
+has a stray `[C1]`-style prefix stripped before it is stored; if nothing
+is left after stripping, the critique is not stored at all rather than
+kept as an empty, meaningless record.

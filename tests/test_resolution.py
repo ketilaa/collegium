@@ -60,6 +60,34 @@ def resolve(llm, stance="contradicts"):
     )
 
 
+def test_a_stray_label_on_a_new_critique_is_stripped_or_dropped(
+    make_context, llm, board_db, worker_db, add_domain
+):
+    """The brief labels the open critiques C1, C2, ... for resolving; a
+    model sometimes echoes one onto a brand-new critique too, which has no
+    label of its own (a real incident: 67 of 252 stored critiques started
+    with a stray "[C1]", 3 of them nothing else)."""
+    domain_id = add_domain()
+    ctx = make_context(PAGES)
+    script_scout(llm)
+    script_research(llm)
+    review(
+        llm,
+        critiques=[
+            ProposedCritique(argument=f"[C1] {OBJECTION}", severity=4),
+            ProposedCritique(argument="[C2]", severity=2),  # nothing left once stripped
+        ],
+    )
+    enqueue_scout(board_db, domain_id)
+    worker.drain(ctx)
+
+    with worker_db.reading() as conn:
+        arguments = [
+            r["argument"] for r in conn.execute("SELECT argument FROM critiques").fetchall()
+        ]
+    assert arguments == [OBJECTION]  # the label-only one was dropped, not stored
+
+
 def test_answered_critique_lets_the_hypothesis_be_accepted(
     make_context, llm, board_db, worker_db, add_domain
 ):

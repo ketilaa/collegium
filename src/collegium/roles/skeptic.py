@@ -10,6 +10,7 @@ gathered the evidence on exactly these critiques, and memory is consulted
 before the outside world.
 """
 
+import re
 from typing import Literal
 from uuid import UUID
 
@@ -19,6 +20,7 @@ from collegium import jobs, memory
 from collegium.db import Connection
 from collegium.jobs import Job
 from collegium.roles.base import (
+    QUICK,
     Context,
     EvidenceItem,
     Persist,
@@ -39,6 +41,13 @@ class ProposedCritique(BaseModel):
     argument: str
     alternative_explanation: str | None = None
     severity: int = Field(ge=1, le=5)
+
+
+# The brief labels the open critiques C1, C2, ... for resolving; a new
+# critique has no label of its own, but the model sometimes echoes one
+# anyway (a real incident: 67 of 252 stored critiques started with a
+# stray "[C1]", 3 of them nothing else).
+_STRAY_LABEL = re.compile(r"^\[C\d+\]\s*", re.IGNORECASE)
 
 
 class CritiqueResolution(BaseModel):
@@ -95,6 +104,7 @@ class Skeptic(Role):
                 system,
                 brief + "\n\nWhich web searches would find counter-evidence or alternatives?",
                 SearchPlan,
+                **QUICK,
             )
             queries = plan.queries
             # The Skeptic can still reason about existing evidence when search
@@ -111,6 +121,7 @@ class Skeptic(Role):
             )
             + "\n\nWhat is your review of hypothesis H?",
             SkepticReview,
+            max_tokens=3072,
         )
         grounding = ground_evidence(review.evidence, documents)
         # Settling critiques is the point of later rounds; new objections are
@@ -124,14 +135,19 @@ class Skeptic(Role):
                 if critique_id and r.status != "open":
                     memory.set_critique_status(conn, critique_id, r.status, r.resolution)
                     settled += 1
+            added = 0
             for c in new_critiques:
+                argument = _STRAY_LABEL.sub("", c.argument, count=1).strip()
+                if not argument:
+                    continue  # the label with nothing else: not a real critique
                 memory.add_critique(
                     conn,
                     target_id=hypothesis_id,
-                    argument=c.argument,
+                    argument=argument,
                     alternative_explanation=c.alternative_explanation,
                     severity=c.severity,
                 )
+                added += 1
             outcome = store_evidence(conn, grounding.grounded, {"H": hypothesis_id}, domain_ids)
             memory.assess_confidence(
                 conn,
@@ -150,7 +166,7 @@ class Skeptic(Role):
                 f"round {round_}: queries={queries or 'none, memory only'}; "
                 f"verdict {review.verdict} at "
                 f"{review.confidence:.2f}; {settled} of {len(open_)} open critiques settled, "
-                f"{len(new_critiques)} new critiques, "
+                f"{added} new critiques, "
                 f"{outcome.stored} evidence stored, {len(grounding.dropped)} ungrounded dropped."
                 f"{grounding.describe_dropped()}" + _flag_note(documents)
             )
