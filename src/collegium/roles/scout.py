@@ -15,6 +15,7 @@ from collegium.grounding import locate_excerpt, unsupported_terms
 from collegium.jobs import Job
 from collegium.reliability import NOT_WORTH_RESEARCH, classify
 from collegium.roles.base import (
+    QUICK,
     Context,
     NothingToWorkWith,
     Persist,
@@ -137,7 +138,7 @@ class Scout(Role):
             brief += f"\n\nThe Strategist asks you to look into: {job.payload['focus']}"
         system = self.system_prompt()
         plan = ctx.llm.generate(
-            system, brief + "\n\nWhich web searches should you run now?", SearchPlan
+            system, brief + "\n\nWhich web searches should you run now?", SearchPlan, **QUICK
         )
         if ctx.acquisition is None:
             raise NothingToWorkWith("no acquisition provider configured")
@@ -185,6 +186,7 @@ class Scout(Role):
                 + _render_results(batch)
                 + "\n\nWhich observations should the organization record from this batch?",
                 ScoutReport,
+                max_tokens=3072,
             )
             kept, lost = ground_observations(report.observations, batch)
             grounded += kept
@@ -340,6 +342,8 @@ def _verify(
         "the quote itself says it: every name, role, organisation, number and date "
         "must match, and nothing may be added.\n\n" + listing,
         ObservationChecks,
+        max_tokens=1024,
+        enable_thinking=False,
     )
     supported = {c.number for c in checks.checks if c.supported}
     kept = [g for i, g in enumerate(grounded, 1) if i in supported]

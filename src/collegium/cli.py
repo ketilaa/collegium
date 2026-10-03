@@ -159,6 +159,7 @@ def _llm(settings: Settings) -> OpenAICompatibleLLM:
         api_key=settings.llm_api_key,
         timeout=settings.llm_timeout_seconds,
         max_tokens=settings.llm_max_tokens,
+        temperature=settings.llm_temperature,
     )
 
 

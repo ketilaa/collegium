@@ -14,31 +14,63 @@ changed. For what the code does, see CLAUDE.md; for why, docs/decisions.md.
   services (see `compose.override.example.yaml`). On the host, Python tools
   that fail with certificate errors need
   `SSL_CERT_FILE=$HOME/.collegium/ca-bundle.pem`.
+- **The machine is a Mac M1, 32GB unified RAM.** `llama-server` runs
+  natively on the host, not in Colima: its memory and CPU come out of the
+  host's 32GB directly, separate from whatever `colima start --cpu/--memory`
+  gives the Docker VM.
 - **The model** runs on the host outside Docker: llama.cpp's `llama-server`
   at `http://localhost:8080/v1` (`host.docker.internal:8080` from the
-  containers). **Under the hold-back** (see below), it serves
-  `Qwen/Qwen2.5-7B-Instruct-GGUF` with 4 threads:
+  containers). As of 2026-10-03 it serves `Qwen/Qwen3-8B-GGUF:q4_K_M`, a
+  reasoning model (see "Recommended startup settings" below for why the
+  command looks the way it does):
 
   ```sh
-  llama-server -hf Qwen/Qwen2.5-7B-Instruct-GGUF --offline -c 8192 -ctk q8_0 \
+  llama-server -hf Qwen/Qwen3-8B-GGUF:q4_K_M --offline -c 16384 -ctk q8_0 \
     -ctv q8_0 -fa on -t 4 -to 3600 --jinja -n 2048 -np 1 \
+    --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0 \
     --repeat-penalty 1.15 --repeat-last-n 256 --port 8080
   ```
 
   `COLLEGIUM_LLM_MODEL` in the env file must match the model actually
-  running, since every run records it. The normal setup is the 14B model
-  (`Qwen/Qwen2.5-14B-Instruct-GGUF:Q4_K_M`) with more threads.
+  running, since every run records it.
+- **Recommended startup settings (2026-10-03) — always start the model
+  this way, including for local testing, not just the live instance:**
+  - `--temp 0.6 --top-p 0.95 --top-k 20 --min-p 0`: Qwen3's own model card
+    for thinking mode (the `--jinja` chat template's default). Its card
+    warns that greedy (near-0 temperature) decoding "can lead to
+    performance degradation and endless repetitions" — the client
+    (`collegium.llm.OpenAICompatibleLLM`) also sends `temperature: 0.6`
+    itself (`COLLEGIUM_LLM_TEMPERATURE`), so these server-side flags are a
+    second line of defence for anything that calls the server directly.
+  - `-c 16384`, not 8192: raised once the host turned out to have 32GB to
+    spare. A multi-document Research/Review prompt (up to 3 documents) plus
+    a reasoning model's own "thinking" tokens can otherwise get close to
+    the old ceiling.
+  - `-t 4`, `-np 1`: unchanged by this round of tuning. Thread count is
+    tied to the hold-back below, not this; `-np 1` is correct as long as
+    only one worker process ever calls the server at a time.
+  - Per-call tuning (temperature aside) lives in code, not here: see
+    `collegium.roles.base.QUICK` and each role's `ctx.llm.generate(...,
+    max_tokens=..., enable_thinking=...)` call. Mechanical, extractive
+    calls (turning a question into search terms, the Moltbook verification
+    solver) skip thinking mode and get a small reply budget; the calls
+    that actually judge or compose (`StrategyPlan`, `ScoutReport`,
+    `SkepticReview`) keep thinking on and get a larger one (3072, not the
+    default 2048), since those are the ones a cut-off reply costs the most
+    (a wasted call, then a retry).
 - **The hold-back (2026-09-28):** running everything on this laptop —
   Postgres, the board, the worker, SearXNG, the publisher and the model —
   forced a reboot under load. Until the organization has a proper host:
   Colima runs smaller (`colima start --cpu 3 --memory 6`, not the default
-  6/12), the model is the 7B one above, and
+  6/12), `-t 4` (not more) on `llama-server`, and
   `COLLEGIUM_WORKER_REST_SECONDS=120` in the env file pauses the worker
   after each job so the model server is not driven back to back. See
   `docs/decisions.md`, 2026-09-28. Lifting it: set Colima back to
-  `--cpu 6 --memory 12` (or more, on a real host), restart `llama-server`
-  with the 14B model and more threads, update `COLLEGIUM_LLM_MODEL`, and
-  remove or lower `COLLEGIUM_WORKER_REST_SECONDS`.
+  `--cpu 6 --memory 12` (or more, on a real host), raise `-t` on
+  `llama-server`, and remove or lower `COLLEGIUM_WORKER_REST_SECONDS`. The
+  rest of the startup command (sampling settings, `-c`, the model itself)
+  is independent of the hold-back; see "Recommended startup settings"
+  above.
 - **No opening-hours restriction (2026-10-03, the owner's decision):**
   `COLLEGIUM_WORK_HOURS=always` in the env file, so the worker and
   scheduler now work around the clock rather than only Mon-Fri 08:00-16:00

@@ -84,6 +84,12 @@ class Role:
 # ---------------------------------------------------------------------------
 
 
+# Turning a question into search queries or terms is mechanical and
+# extractive, not a judgment call: no need for the model to think, and the
+# short, bounded output needs only a small reply budget. Passed as
+# ctx.llm.generate(..., **QUICK) wherever a role does this.
+QUICK = {"max_tokens": 512, "enable_thinking": False}
+
 _QUERY_LABEL = re.compile(r"^\s*(web\s+)?search(\s+query)?\s*:\s*", re.IGNORECASE)
 _QUERY_EXCLUSION = re.compile(r"\s-\s*(['\"]).*?\1|\s-\S+")
 

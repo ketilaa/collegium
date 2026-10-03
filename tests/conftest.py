@@ -117,7 +117,7 @@ class ScriptedLLM:
     def add(self, schema: type[BaseModel], response: BaseModel | Callable | Exception):
         self._queue[schema].append(response)
 
-    def generate(self, system, user, schema):
+    def generate(self, system, user, schema, *, max_tokens=None, enable_thinking=True):
         self.calls.append((schema, user))
         if not self._queue[schema] and schema.__name__ in DEFAULTS:
             return DEFAULTS[schema.__name__](user)

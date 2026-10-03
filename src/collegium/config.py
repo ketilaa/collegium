@@ -40,6 +40,11 @@ class Settings:
     llm_max_tokens: int = field(
         default_factory=lambda: int(_env("COLLEGIUM_LLM_MAX_TOKENS", "2048"))
     )
+    # Qwen3's thinking mode wants ~0.6; its card warns that greedy (near-0)
+    # decoding degrades it into repetition rather than better answers.
+    llm_temperature: float = field(
+        default_factory=lambda: float(_env("COLLEGIUM_LLM_TEMPERATURE", "0.6"))
+    )
     llm_timeout_seconds: float = field(
         default_factory=lambda: float(_env("COLLEGIUM_LLM_TIMEOUT_SECONDS", "600"))
     )

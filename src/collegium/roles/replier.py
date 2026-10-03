@@ -38,7 +38,7 @@ from collegium.db import Connection
 from collegium.jobs import Job
 from collegium.reliability import NOT_WORTH_PAYING, classify
 from collegium.roles.answerer import Answer, AnswerPoint, SearchTerms, brief, compose
-from collegium.roles.base import Context, Persist, Role
+from collegium.roles.base import QUICK, Context, Persist, Role
 from collegium.untrusted import fence
 
 MAX_SOURCES = 4
@@ -91,6 +91,7 @@ class Replier(Role):
             system,
             about + "\n\nWhich search terms would find what memory holds on it?",
             SearchTerms,
+            **QUICK,
         )
         with ctx.db.reading() as conn:
             found = memory.recall(
@@ -174,7 +175,10 @@ class Replier(Role):
         )
         system = self.system_prompt()
         plan = ctx.llm.generate(
-            system, about + "\n\nWhich search terms would find what memory now holds?", SearchTerms
+            system,
+            about + "\n\nWhich search terms would find what memory now holds?",
+            SearchTerms,
+            **QUICK,
         )
         with ctx.db.reading() as conn:
             found = memory.recall(conn, plan.terms, domain_ids[0] if domain_ids else None)

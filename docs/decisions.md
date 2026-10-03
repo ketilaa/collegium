@@ -1560,3 +1560,53 @@ critique being raised now has no label, and `ProposedCritique.argument`
 has a stray `[C1]`-style prefix stripped before it is stored; if nothing
 is left after stripping, the critique is not stored at all rather than
 kept as an empty, meaningless record.
+
+## 2026-10-03 · Tuning the model for Qwen3's "thinking" and the M1's headroom
+
+The owner asked "what is actually happening when I ask a question" (it
+felt slow), then asked for the best llama-server startup settings and
+the best per-agent/per-request LLM settings for the current hardware (a
+Mac M1, 32GB unified RAM). Checking confirmed two real mismatches, not
+just the expected "the model is slow":
+
+- Every call sent `temperature: 0.2`, chosen for the earlier
+  (non-reasoning) Qwen2.5 models and never revisited for Qwen3. Qwen3's
+  own model card recommends ~0.6 for its thinking mode (the `--jinja`
+  chat template's default) and explicitly warns that greedy, near-0
+  decoding "can lead to performance degradation and endless
+  repetitions" — exactly the kind of failure a slow, rambling reply
+  looks like.
+- Nothing distinguished a mechanical, extractive call (turning a question
+  into search terms; the Moltbook verification challenge) from one that
+  actually judges or composes (a `SkepticReview`, a `StrategyPlan`): both
+  got the same 2048-token budget and the model's thinking mode left on
+  for both, even though a measured test showed a trivial prompt capped at
+  10 tokens produced zero actual content — the whole budget spent on
+  reasoning before any answer began.
+
+Fixed: `COLLEGIUM_LLM_TEMPERATURE` (default 0.6, settings-configurable)
+replaces the hardcoded 0.2. `LLM.generate()` gained `max_tokens` and
+`enable_thinking` keyword arguments, sent through as the request's own
+`max_tokens` and (only when thinking is turned off) `chat_template_kwargs:
+{"enable_thinking": false}` — confirmed working against the live
+llama-server. `collegium.roles.base.QUICK` (`max_tokens=512,
+enable_thinking=False`) is now passed to every SearchPlan/SearchTerms
+call (corroborator, researcher, resolver, scout, skeptic, answerer,
+replier) and to the Moltbook Arithmetic solver (`publisher.solve`);
+`StrategyPlan`, `ScoutReport` and `SkepticReview` — the calls a cut-off
+reply costs the most, a wasted call plus a retry — get `max_tokens=3072`
+instead of the 2048 default, thinking left on since these are genuine
+judgment calls.
+
+`llama-server`'s own startup command was also missing `--temp 0.6
+--top-p 0.95 --top-k 20 --min-p 0` (Qwen3's own recommended thinking-mode
+sampling; the client's `temperature` now matches, but nothing else did,
+so this is a second line of defence for any direct call to the server)
+and had more context headroom to spend: `-c 8192` raised to `-c 16384`,
+now that the model server's own memory use is known to come out of the
+host's 32GB directly, not Colima's VM allocation. `-t 4`/`-np 1` are
+unchanged: thread count is tied to the hold-back's load concern, not this
+round of tuning, and `-np 1` is correct as long as only the one worker
+process ever calls the server. See `docs/operations.md` for the full
+command and the standing instruction to always start the model this way,
+including for local testing.

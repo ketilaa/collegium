@@ -35,8 +35,28 @@ def test_llm_sends_schema_and_parses_reply():
     body = requests[0]
     assert body["model"] == "qwen3:14b"
     assert body["max_tokens"] == 2048
+    # Qwen3's own card: thinking mode wants ~0.6; greedy (near-0) decoding
+    # degrades it into repetition.
+    assert body["temperature"] == 0.6
+    assert "chat_template_kwargs" not in body  # thinking left to the model's own default
     assert body["response_format"]["json_schema"]["schema"]["required"] == ["queries"]
     assert [m["role"] for m in body["messages"]] == ["system", "user"]
+
+
+def test_llm_passes_a_smaller_budget_and_can_turn_off_thinking():
+    requests = []
+
+    def handler(request):
+        requests.append(json.loads(request.content))
+        return _chat_reply('{"queries": ["ai pricing"]}')
+
+    llm = OpenAICompatibleLLM(
+        "http://llm/v1", "m", client=httpx.Client(transport=httpx.MockTransport(handler))
+    )
+    llm.generate("sys", "user", SearchPlan, max_tokens=512, enable_thinking=False)
+    body = requests[0]
+    assert body["max_tokens"] == 512
+    assert body["chat_template_kwargs"] == {"enable_thinking": False}
 
 
 def test_llm_retries_with_the_validation_error():

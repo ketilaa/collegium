@@ -19,7 +19,7 @@ from collegium import memory
 from collegium.db import Connection
 from collegium.grounding import is_english
 from collegium.jobs import Job
-from collegium.roles.base import Context, Persist, Role
+from collegium.roles.base import QUICK, Context, Persist, Role
 from collegium.untrusted import fence
 
 NOTHING_FOUND = "Memory holds nothing on this yet."
@@ -71,6 +71,7 @@ class Answerer(Role):
             system,
             f"The owner asks: {q['text']}\n\nWhich search terms would find the answer in memory?",
             SearchTerms,
+            **QUICK,
         )
         with ctx.db.reading() as conn:
             found = memory.recall(conn, plan.terms, domain_ids[0] if domain_ids else None)

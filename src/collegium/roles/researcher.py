@@ -8,6 +8,7 @@ from collegium import jobs, memory
 from collegium.db import Connection
 from collegium.jobs import Job
 from collegium.roles.base import (
+    QUICK,
     Context,
     EvidenceItem,
     NothingToWorkWith,
@@ -61,7 +62,10 @@ class Researcher(Role):
         brief = _brief(obs, existing)
         system = self.system_prompt()
         plan = ctx.llm.generate(
-            system, brief + "\n\nWhich web searches would find evidence about this?", SearchPlan
+            system,
+            brief + "\n\nWhich web searches would find evidence about this?",
+            SearchPlan,
+            **QUICK,
         )
         documents = self.gather(ctx, plan.queries)
         if not documents:

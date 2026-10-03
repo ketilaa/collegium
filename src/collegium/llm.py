@@ -22,7 +22,15 @@ class LLMError(RuntimeError):
 class LLM(Protocol):
     model: str
 
-    def generate(self, system: str, user: str, schema: type[T]) -> T: ...
+    def generate(
+        self,
+        system: str,
+        user: str,
+        schema: type[T],
+        *,
+        max_tokens: int | None = None,
+        enable_thinking: bool = True,
+    ) -> T: ...
 
 
 class OpenAICompatibleLLM:
@@ -34,7 +42,9 @@ class OpenAICompatibleLLM:
         api_key: str | None = None,
         timeout: float = 600,
         max_attempts: int = 3,
-        temperature: float = 0.2,
+        # Qwen3's own card: thinking mode wants ~0.6, and warns that greedy
+        # (near-0) decoding degrades it into repetition, not better answers.
+        temperature: float = 0.6,
         max_tokens: int = 2048,
         client: httpx.Client | None = None,
     ):
@@ -49,7 +59,15 @@ class OpenAICompatibleLLM:
         # is full, which on a busy machine can take an hour.
         self._max_tokens = max_tokens
 
-    def generate(self, system: str, user: str, schema: type[T]) -> T:
+    def generate(
+        self,
+        system: str,
+        user: str,
+        schema: type[T],
+        *,
+        max_tokens: int | None = None,
+        enable_thinking: bool = True,
+    ) -> T:
         messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
@@ -58,6 +76,10 @@ class OpenAICompatibleLLM:
             "type": "json_schema",
             "json_schema": {"name": schema.__name__, "schema": schema.model_json_schema()},
         }
+        budget = self._max_tokens if max_tokens is None else max_tokens
+        # Only sent when a caller opts out: omitting it leaves a model that
+        # does not support thinking mode unaffected.
+        thinking = {} if enable_thinking else {"chat_template_kwargs": {"enable_thinking": False}}
         error: Exception | None = None
         for _ in range(self._max_attempts):
             response = self._client.post(
@@ -67,8 +89,9 @@ class OpenAICompatibleLLM:
                     "model": self.model,
                     "messages": messages,
                     "temperature": self._temperature,
-                    "max_tokens": self._max_tokens,
+                    "max_tokens": budget,
                     "response_format": response_format,
+                    **thinking,
                 },
             )
             response.raise_for_status()
@@ -76,7 +99,7 @@ class OpenAICompatibleLLM:
             content = choice["message"]["content"] or ""
             if choice.get("finish_reason") == "length":
                 # Do not feed a runaway reply back; ask again, more briefly.
-                error = LLMError(f"reply cut off at {self._max_tokens} tokens")
+                error = LLMError(f"reply cut off at {budget} tokens")
                 messages = messages[:2] + [
                     {
                         "role": "user",

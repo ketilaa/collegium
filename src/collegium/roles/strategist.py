@@ -149,7 +149,10 @@ class Strategist(Role):
             budget,
         )
         plan = ctx.llm.generate(
-            self.system_prompt(), brief + "\n\nWhat is your plan?", StrategyPlan
+            self.system_prompt(),
+            brief + "\n\nWhat is your plan?",
+            StrategyPlan,
+            max_tokens=3072,
         )
         sources = _find_sources(ctx, candidates)
         hypothesis_ids = {h["id"] for h in hypotheses}

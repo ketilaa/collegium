@@ -10,6 +10,7 @@ from collegium import jobs, memory
 from collegium.db import Connection
 from collegium.jobs import Job
 from collegium.roles.base import (
+    QUICK,
     Context,
     NothingToWorkWith,
     Persist,
@@ -51,7 +52,10 @@ class Corroborator(Role):
             brief += f"\nAlready cited (excluded): {', '.join(sorted(cited))}"
         system = self.system_prompt()
         plan = ctx.llm.generate(
-            system, brief + "\n\nWhich web searches would find independent sources?", SearchPlan
+            system,
+            brief + "\n\nWhich web searches would find independent sources?",
+            SearchPlan,
+            **QUICK,
         )
         documents = [d for d in self.gather(ctx, plan.queries) if site(d.url) not in cited]
         if not documents:

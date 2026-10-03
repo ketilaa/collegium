@@ -14,6 +14,7 @@ from collegium import jobs, memory
 from collegium.db import Connection
 from collegium.jobs import Job
 from collegium.roles.base import (
+    QUICK,
     Context,
     EvidenceItem,
     NothingToWorkWith,
@@ -60,7 +61,10 @@ class Resolver(Role):
         brief = _brief(h, critiques)
         system = self.system_prompt()
         plan = ctx.llm.generate(
-            system, brief + "\n\nWhich web searches would settle these critiques?", SearchPlan
+            system,
+            brief + "\n\nWhich web searches would settle these critiques?",
+            SearchPlan,
+            **QUICK,
         )
         queries = plan.queries[:MAX_QUERIES]
         documents = self.gather(ctx, queries)
