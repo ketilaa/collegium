@@ -1495,3 +1495,19 @@ paused program, keeping its history (decisions, any goals already linked
 to it) on record. Used it to close the live "new" program, which
 duplicated the active one; the "P2 (active)" one was still only proposed
 and was rejected outright instead.
+
+## 2026-10-03 · No opening-hours restriction
+
+The owner asked to remove the working-hours restriction altogether: the
+worker and scheduler had only started new jobs and planned Mon-Fri
+08:00-16:00 Europe/Oslo (`hours.py`), queued work outside that window
+just waiting for the next opening. `hours.py` already had an escape
+hatch built in for exactly this (`WorkingHours.parse` treats the literal
+string `"always"` as open every hour of every day), so this needed no
+code change: `COLLEGIUM_WORK_HOURS=always` in the live env file, then the
+worker and scheduler recreated. Nothing was pending because of a separate
+"blocked by hours" state to release by hand: jobs outside working hours
+simply stayed `pending` at their normal `run_after`, so the next
+unrestricted loop iteration picked up all of them immediately, confirmed
+live (scheduler queued planning for all three domains at once; the
+worker started draining its backlog straight away).

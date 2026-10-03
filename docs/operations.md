@@ -39,6 +39,15 @@ changed. For what the code does, see CLAUDE.md; for why, docs/decisions.md.
   `--cpu 6 --memory 12` (or more, on a real host), restart `llama-server`
   with the 14B model and more threads, update `COLLEGIUM_LLM_MODEL`, and
   remove or lower `COLLEGIUM_WORKER_REST_SECONDS`.
+- **No opening-hours restriction (2026-10-03, the owner's decision):**
+  `COLLEGIUM_WORK_HOURS=always` in the env file, so the worker and
+  scheduler now work around the clock rather than only Mon-Fri 08:00-16:00
+  Europe/Oslo (`hours.py`'s own `"always"` value, no code change). The
+  owner's questions, drafts and replies always ran at any hour regardless
+  (`worker.ANY_HOUR`); this removes the restriction for everything else
+  too. Reinstating it: set `COLLEGIUM_WORK_HOURS` back to `08:00-16:00`
+  (and `COLLEGIUM_WORK_DAYS`, default `mon-fri`) and recreate the worker
+  and scheduler.
 - **Secrets** are in `~/.collegium/.env`: never read or print
   it; only pass it to commands. Every Compose command uses it:
 
