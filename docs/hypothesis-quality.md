@@ -35,6 +35,12 @@ of them.
 - Nothing merges hypotheses after the fact, automatically or by the
   owner's command — the only path to one superseding another is the
   Researcher flagging it at proposal time via `refines`.
+- **Giving up** (`historian.py`, `MAX_LIFETIME_CRITIQUES`): a hypothesis
+  whose open critiques survive `resolver.MAX_ROUNDS` *and* whose critiques
+  (across its whole life, not just this streak) have passed
+  `MAX_LIFETIME_CRITIQUES` is retired by the Historian rather than left
+  `under_review` to be found as the same "unresolved critiques" gap
+  forever. Added 2026-10-03; see that entry below.
 
 ## 2026-10-03 · First audit, and the researcher.md fix
 
@@ -101,3 +107,36 @@ the weak step. Confirmed real, specific findings exist and are useful,
 but they are a minority of what reaches "accepted," diluted by
 duplicates and by accepting a source's own self-interested framing as
 verified fact.
+
+## 2026-10-03 · Self-interested sources, and giving up on a stuck hypothesis
+
+Same day, following straight on from the audit above: the owner asked
+to fix the two remaining findings.
+
+For the OpenAI-self-description case: `organization.md`'s calibration
+rule and `skeptic.md`'s critique guidance now both say explicitly that a
+party's own account of its own motives or plans for its own action is
+that party's word about itself, not independently verified just because
+several outlets repeated it — the same caution `reliability.py` already
+gives a press release, now stated as a rule the model applies itself
+rather than only a code-level ceiling on known wire-service hosts. Not
+yet re-measured; a future entry should check whether this kind of claim
+still gets accepted readily.
+
+For the stuck-hypothesis case (13 and 14 critiques, never resolving):
+added `historian.MAX_LIFETIME_CRITIQUES` (8). The Historian already sent
+a hypothesis back for another round while `round_ < resolver.MAX_ROUNDS`,
+and already left a note ("critiques still open after 2 rounds") once
+that was exhausted — but left it `under_review` regardless, to be
+re-sent by the Strategist the next time it saw the same "unresolved
+critiques" gap, which is how two hypotheses reached double-digit
+critique counts without ever being decided either way. Now, once a
+hypothesis's total critique count (not just this streak) passes the
+threshold at the point the current round is also exhausted, the
+Historian retires it instead. No new column was added for *why*: the
+Historian's own run note already records it, in the same `runs.notes`
+trail every other decision leaves.
+
+Not done: the "Real-SWE isn't a falsifiable hypothesis" case, and
+re-checking the `refines` wording's actual effect on new duplicates —
+both still need a future audit entry to say whether they held up.

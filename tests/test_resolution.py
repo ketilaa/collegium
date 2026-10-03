@@ -11,7 +11,7 @@ from test_pipeline import (
     script_scout,
 )
 
-from collegium import worker
+from collegium import jobs, memory, worker
 from collegium.acquisition import Acquisition, BudgetExhausted
 from collegium.roles.base import EvidenceItem, SearchPlan, Stance
 from collegium.roles.resolver import ResolutionFindings
@@ -176,6 +176,59 @@ def test_upheld_critique_keeps_blocking_and_unsettled_ones_stop_after_max_rounds
             "WHERE a.name = 'historian' ORDER BY r.started_at DESC LIMIT 1"
         ).fetchone()["notes"]
         assert "critiques still open after 2 rounds" in last
+
+
+def test_a_hypothesis_is_retired_after_too_many_critiques_never_settle(
+    make_context, llm, board_db, worker_db, add_domain
+):
+    """A hypothesis whose critiques keep reopening without ever settling,
+    across many separate attempts rather than one streak (a real incident:
+    two hypotheses reached 13 and 14 critiques apiece), is retired rather
+    than asked to try again forever."""
+    domain_id = add_domain()
+    ctx = make_context(PAGES)
+    script_scout(llm)
+    script_research(llm)
+    review(llm, critiques=[ProposedCritique(argument=OBJECTION, severity=4)])
+    for _ in range(2):  # one full cycle, exhausted once: 1 critique so far
+        resolve(llm, stance="context")
+        review(llm, searches=False)
+    enqueue_scout(board_db, domain_id)
+    worker.drain(ctx)
+
+    with worker_db.reading() as conn:
+        hid = conn.execute("SELECT id FROM hypotheses").fetchone()["id"]
+        assert conn.execute("SELECT status FROM hypotheses").fetchone()["status"] == "under_review"
+
+    # Several more objections raised some other way (owner challenges,
+    # other rounds): the point here is the Historian's own threshold, not
+    # how critiques usually accumulate.
+    with worker_db.acting_as("skeptic") as conn:
+        for i in range(7):
+            memory.add_critique(
+                conn,
+                target_id=hid,
+                argument=f"Extra objection {i}",
+                alternative_explanation=None,
+                severity=4,
+            )
+
+    # One more attempt, starting fresh (as the Strategist would re-trigger
+    # it after seeing the gap again), that still does not settle it.
+    with worker_db.acting_as("strategist") as conn:
+        jobs.enqueue(conn, "resolve", {"hypothesis_id": hid, "round": 1})
+    for _ in range(2):
+        resolve(llm, stance="context")
+        review(llm, searches=False)
+    worker.drain(ctx)
+
+    with worker_db.reading() as conn:
+        status = conn.execute("SELECT status FROM hypotheses WHERE id = %s", (hid,)).fetchone()[
+            "status"
+        ]
+        n = conn.execute("SELECT count(*) AS n FROM critiques").fetchone()["n"]
+    assert n == 8  # cleared the threshold
+    assert status == "retired"
 
 
 def test_later_rounds_add_at_most_one_new_critique(

@@ -22,7 +22,10 @@ When given documents, return:
   like [C1] in front of it. A label like that only names one of the open
   critiques above, shown to you so you can resolve them; a critique you
   are raising now does not have one yet. Severity 1 is a quibble, 5 means
-  the hypothesis is likely wrong.
+  the hypothesis is likely wrong. If the hypothesis rests mainly on a
+  party's own account of its own motives, reasons or plans for its own
+  actions, raise that as a critique even when several outlets reported
+  it: wide coverage of one announcement is not independent confirmation.
 - Evidence: exact excerpts from the documents that bear on the hypothesis,
   labelled H, whether they support or contradict it. Report supporting
   evidence honestly too. Lack of evidence is a critique, not contradicting

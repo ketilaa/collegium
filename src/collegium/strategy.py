@@ -52,6 +52,10 @@ def find_gaps(conn: Connection, domain_id: UUID) -> list[Gap]:
             c for c in memory.open_critiques(conn, h["id"]) if c["severity"] >= BLOCKING_SEVERITY
         ]
         if open_blocking and _loop_exhausted(conn, h["id"]):
+            # Sending this back again, repeatedly, is how a hypothesis ends
+            # up with far more critiques than one streak could produce; past
+            # historian.MAX_LIFETIME_CRITIQUES the Historian retires it
+            # instead of leaving it to be found as this gap forever.
             gaps.append(
                 Gap(
                     "unresolved critiques",

@@ -1638,3 +1638,47 @@ the full audit and its reasoning now live in `docs/hypothesis-quality.md`
 (linked from CLAUDE.md), in the same append-only, dated-entry style as
 this file, rather than only in a chat reply that would otherwise be
 lost. Future audits add an entry there rather than starting over.
+
+## 2026-10-03 · Scrutinizing self-interested sources, and retiring a stuck hypothesis
+
+Following straight on from the hypothesis-quality audit above: the
+owner asked to fix the remaining two findings and explicitly asked that
+a hypothesis be abandoned at some point rather than stay `under_review`
+forever.
+
+Considered giving the Strategist the power to abandon a hypothesis
+(mirroring how it already abandons a goal, with a reason kept as the
+goal's outcome). Rejected: CLAUDE.md is explicit that the Historian is
+the only role that changes a hypothesis's status, specifically so every
+belief change follows the same deterministic rules; routing retirement
+through the Strategist's own (model-based) judgment would have broken
+that invariant for no real benefit, since the Historian already has
+everything it needs (the critiques, the round number) at exactly the
+point it decides whether to send a hypothesis back for another round.
+
+Added `historian.MAX_LIFETIME_CRITIQUES` (8): once a hypothesis's open
+critiques survive `resolver.MAX_ROUNDS` *and* its total critique count
+(across every separate attempt, not just the current streak) passes
+this threshold, the Historian sets it `retired` instead of leaving it
+`under_review`. `retired` already existed in the schema's status check
+constraint, unused until now, so this needed no migration; `retired`
+hypotheses are already excluded from `LIVE_HYPOTHESIS_STATUSES`, so they
+stop appearing in `live_hypotheses`, stop being proposed as Moltbook
+questions, and stop being found by `find_gaps`'s "unresolved critiques"
+check — which is what was perpetuating them in the first place, since
+the Strategist kept re-sending a hypothesis it saw as the same
+unresolved gap every time it planned. The reason is recorded only in the
+Historian's own run note, the same place every other decision's
+reasoning already lives; no new column. Bumped `Historian.version()`
+(`rules-3` to `rules-4`) since this changes a rule.
+
+For the OpenAI-self-description case: `organization.md`'s shared
+calibration rule and `skeptic.md`'s critique guidance now both say a
+party's own account of its own motives or plans is that party's word
+about itself, no more independently verified for being widely reported
+— the same caution `reliability.py` already gives a press release by
+host, now a rule the model applies itself rather than only a code-level
+ceiling on known wire-service hosts.
+
+Both findings, and whether these fixes actually hold up, belong in
+`docs/hypothesis-quality.md`'s next audit entry, not here.

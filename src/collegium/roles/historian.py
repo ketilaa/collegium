@@ -10,6 +10,10 @@ decision): enough confidence, support from independent sites, and no
 serious critique left open or upheld. The Skeptic's verdict counts only as
 a veto. While serious critiques are open, the Historian sends the
 hypothesis back for another round of critique resolution, up to MAX_ROUNDS.
+A hypothesis whose critiques keep reopening without ever settling, across
+many separate attempts rather than one streak (the Strategist keeps seeing
+it as a gap and keeps sending it back), is retired once its critiques pass
+MAX_LIFETIME_CRITIQUES, rather than asked to try again forever.
 """
 
 from urllib.parse import urlsplit
@@ -32,6 +36,12 @@ MIN_INDEPENDENT_SOURCES = 2
 # critique of FATAL severity rejects the hypothesis.
 BLOCKING_SEVERITY = 3
 FATAL_SEVERITY = 5
+# A real incident: two hypotheses reached 13 and 14 critiques apiece,
+# blocked and under_review the whole time, because each exhausted attempt
+# just became a fresh knowledge gap the Strategist sent back again. Past
+# this many critiques (not just one exhausted streak), the organization
+# has given it a genuinely fair hearing and stops asking again.
+MAX_LIFETIME_CRITIQUES = 8
 
 
 def decide(
@@ -77,9 +87,9 @@ class Historian(Role):
 
     def version(self) -> str:
         return (
-            f"rules-3:accept>={ACCEPT_AT},reject<={REJECT_AT},"
+            f"rules-4:accept>={ACCEPT_AT},reject<={REJECT_AT},"
             f"sources>={MIN_INDEPENDENT_SOURCES},blocking>={BLOCKING_SEVERITY},"
-            f"fatal={FATAL_SEVERITY},rounds={MAX_ROUNDS}"
+            f"fatal={FATAL_SEVERITY},rounds={MAX_ROUNDS},retire_at={MAX_LIFETIME_CRITIQUES}"
         )
 
     def prepare(self, ctx: Context, job: Job) -> Persist:
@@ -113,6 +123,12 @@ class Historian(Role):
                         parent_job_id=job.id,
                     )
                     notes.append(f"sent for critique resolution, round {round_ + 1}")
+                elif len(critiques) >= MAX_LIFETIME_CRITIQUES:
+                    status = "retired"
+                    notes.append(
+                        f"retired: {len(open_blockers)} critique(s) still open after "
+                        f"{len(critiques)} critiques across repeated attempts to resolve them"
+                    )
                 else:
                     notes.append(f"critiques still open after {MAX_ROUNDS} rounds")
             if status != h["status"]:
