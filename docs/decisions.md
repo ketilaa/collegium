@@ -1511,3 +1511,31 @@ simply stayed `pending` at their normal `run_after`, so the next
 unrestricted loop iteration picked up all of them immediately, confirmed
 live (scheduler queued planning for all three domains at once; the
 worker started draining its backlog straight away).
+
+## 2026-10-03 · A free adapter for Norway's business register (brreg)
+
+The owner set up a new domain, Nordic IT consultancies (competitive
+intelligence: positioning, services, recruitment, and moves like
+acquisitions or leadership changes), and asked whether brreg.no
+(Brønnøysundregistrene, Norway's central business register) could be a
+source. Its `data.brreg.no` API is free and keyless, like NVA's, but
+structurally different: it indexes legal entities, not news, so there is
+no topic to rank a search by the way NVA's or SearXNG's can. `discover()`
+therefore treats the query as a company-name search (`navn`), narrowed to
+company forms that can be an IT consultancy (`AS`, `ASA`, `NUF`: not a
+sole proprietor) and to the NACE codes covering programming, IT
+consultancy, systems operation and other IT services (division 62),
+which also cuts out the large volume of one-person freelance
+registrations the raw industry filter alone would otherwise return. It
+mainly returns something when the Scout or Researcher's query already
+is, or contains, a company's name; `recent_days`, when given, narrows
+further to entities registered since then.
+
+Learned from SEC-41 (NVA's `identifier` interpolated into a URL
+unescaped, still an open LOW recommendation): the organisasjonsnummer is
+validated as exactly nine digits before it goes into the landing URL, so
+a malformed or missing one is simply skipped rather than trusted.
+
+Queued but not built: the Swedish (Bolagsverket), Danish (CVR) and
+Finnish (PRH) equivalents, for the same domain's Nordic scope beyond
+Norway.

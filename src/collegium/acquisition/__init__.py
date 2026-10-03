@@ -480,6 +480,7 @@ def interleave(lists: list[list[SearchResult]]) -> list[SearchResult]:
 def acquisition_from_settings(settings: Settings) -> Acquisition:
     """Free providers first: SearXNG (if configured) for search, the web
     extractor for reading, with Tavily as the paid fallback for both."""
+    from collegium.acquisition.brreg import BrregDiscovery
     from collegium.acquisition.feeds import FeedReader
     from collegium.acquisition.hackernews import HackerNewsDiscovery
     from collegium.acquisition.moltbook import MoltbookDiscovery
@@ -492,6 +493,7 @@ def acquisition_from_settings(settings: Settings) -> Acquisition:
         "hackernews": HackerNewsDiscovery(),
         "moltbook": MoltbookDiscovery(),
         "nva": NVADiscovery(),
+        "brreg": BrregDiscovery(),
     }
     if settings.searxng_url:
         from collegium.acquisition.searxng import SearXNGDiscovery
@@ -516,7 +518,7 @@ def acquisition_from_settings(settings: Settings) -> Acquisition:
 def discovery_source_names(settings: Settings) -> list[str]:
     """The discovery sources `acquisition_from_settings` registers, known
     without their keys, so the board can offer them without holding keys."""
-    names = {"hackernews", "moltbook", "nva", "tavily", settings.search_provider}
+    names = {"hackernews", "moltbook", "nva", "brreg", "tavily", settings.search_provider}
     if settings.searxng_url:
         names.add("searxng")
     return sorted(names)

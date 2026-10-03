@@ -7,6 +7,7 @@ import httpx
 import pytest
 from conftest import FakeProvider
 
+from collegium.acquisition.brreg import BrregDiscovery
 from collegium.acquisition.hackernews import HackerNewsDiscovery
 from collegium.acquisition.nva import NVADiscovery
 from collegium.acquisition.tavily import TavilyProvider
@@ -339,6 +340,102 @@ def test_a_publication_with_no_venue_or_contributors_gets_a_plain_snippet():
     assert lead.published_at is None
 
 
+# A real company, shaped like a /enheter hit.
+BRREG_COMPANY = {
+    "organisasjonsnummer": "974442167",
+    "navn": "BOUVET ASA",
+    "organisasjonsform": {"kode": "ASA", "beskrivelse": "Allmennaksjeselskap"},
+    "naeringskode1": {
+        "kode": "62.200",
+        "beskrivelse": (
+            "Konsulentvirksomhet tilknyttet informasjonsteknologi og "
+            "forvaltning og drift av it-systemer"
+        ),
+    },
+    "forretningsadresse": {"kommune": "OSLO"},
+    "registreringsdatoEnhetsregisteret": "1995-05-22",
+    "harRegistrertAntallAnsatte": True,
+    "antallAnsatte": 1600,
+    "konkurs": False,
+    "underAvvikling": False,
+}
+# A smaller company in trouble: no employee count registered, in bankruptcy.
+BRREG_TROUBLED = {
+    "organisasjonsnummer": "123456785",
+    "navn": "LITEN IT AS",
+    "naeringskode1": {"beskrivelse": "Dataprogrammeringstjenester"},
+    "konkurs": True,
+}
+
+
+def test_brreg_leads_carry_the_registry_metadata():
+    requests = []
+
+    def handler(request):
+        requests.append(request.url.params)
+        return httpx.Response(200, json={"_embedded": {"enheter": [BRREG_COMPANY, BRREG_TROUBLED]}})
+
+    company, troubled = BrregDiscovery(transport=httpx.MockTransport(handler)).discover(
+        "Bouvet", 5, recent_days=30
+    )
+
+    params = requests[0]
+    assert params["navn"] == "Bouvet" and params["size"] == "5"
+    assert params["naeringskode"] == "62.100,62.200,62.300,62.900"
+    assert params["organisasjonsform"] == "AS,ASA,NUF"
+    assert params["fraRegistreringsdatoEnhetsregisteret"]  # a date, server-side
+
+    assert company.url == "https://virksomhet.brreg.no/nb/oppslag/enheter/974442167"
+    assert company.title == "BOUVET ASA"
+    assert company.snippet == (
+        "Allmennaksjeselskap: Konsulentvirksomhet tilknyttet informasjonsteknologi og "
+        "forvaltning og drift av it-systemer. Registered in Oslo. since 1995-05-22. "
+        "1600 registered employees"
+    )
+    assert company.published_at == "1995-05-22"
+    assert company.metadata == {"brreg_org_number": "974442167"}
+
+    # No form, no address, no date, no employee count registered.
+    assert troubled.snippet == "Dataprogrammeringstjenester. in bankruptcy proceedings"
+    assert troubled.published_at is None
+
+
+def test_brreg_asks_for_no_date_filter_without_a_window():
+    requests = []
+
+    def handler(request):
+        requests.append(request.url.params)
+        return httpx.Response(200, json={"_embedded": {"enheter": []}})
+
+    BrregDiscovery(transport=httpx.MockTransport(handler)).discover("q", 3)
+    assert "fraRegistreringsdatoEnhetsregisteret" not in requests[0]
+
+
+def test_a_brreg_hit_with_a_malformed_or_missing_org_number_is_skipped():
+    bad = [
+        {"navn": "No number"},
+        {"organisasjonsnummer": "12345", "navn": "Too short"},
+        {"organisasjonsnummer": "974442167"},  # no name
+    ]
+
+    def handler(request):
+        return httpx.Response(200, json={"_embedded": {"enheter": bad}})
+
+    assert BrregDiscovery(transport=httpx.MockTransport(handler)).discover("q", 5) == []
+
+
+def test_a_brreg_hit_with_no_extra_fields_gets_a_plain_snippet():
+    bare = {"organisasjonsnummer": "974442167", "navn": "BARE AS"}
+
+    def handler(request):
+        return httpx.Response(200, json={"_embedded": {"enheter": [bare]}})
+
+    [lead] = BrregDiscovery(transport=httpx.MockTransport(handler)).discover("q", 5)
+    assert lead.snippet == (
+        "An entry in Brønnøysundregistrene, Norway's business register, for BARE AS"
+    )
+
+
 def test_llm_asks_again_briefly_when_a_reply_is_cut_off():
     replies = iter(
         [_chat_reply('{"queries": ["a", "a", "a", "a', "length"), _chat_reply('{"queries": ["a"]}')]
@@ -570,13 +667,14 @@ def test_every_adapter_says_who_it_is():
     HackerNewsDiscovery(transport=t).discover("q", 1)
     MoltbookDiscovery(transport=t).discover("q", 1)
     NVADiscovery(transport=t).discover("q", 1)
+    BrregDiscovery(transport=t).discover("q", 1)
     TavilyProvider("key", transport=t).discover("q", 1)
     with contextlib.suppress(Exception):  # not a feed; only the request matters
         FeedReader(transport=t, resolver=lambda host: ["93.184.216.34"]).crawl(
             "https://feed.example/rss", 1
         )
-    # The feed reader asks for robots.txt first, so seven requests from six adapters.
-    assert set(agents) == {USER_AGENT} and len(agents) == 7
+    # The feed reader asks for robots.txt first, so eight requests from seven adapters.
+    assert set(agents) == {USER_AGENT} and len(agents) == 8
     MoltbookClient("key", transport=t)._client.get("/x")
     assert agents[-1].startswith("Collegium/0.1 (+https://github.com/ketilaa/collegium;")
 
