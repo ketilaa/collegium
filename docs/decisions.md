@@ -1610,3 +1610,31 @@ round of tuning, and `-np 1` is correct as long as only the one worker
 process ever calls the server. See `docs/operations.md` for the full
 command and the standing instruction to always start the model this way,
 including for local testing.
+
+## 2026-10-03 · A standing hypothesis-quality audit, and the first finding
+
+The owner asked whether the organization had found anything useful, or
+"just trigger[ed] on more or less any statement it can find," and an
+audit of the live database found a real, specific gap: two hypotheses
+accepted separately for the same underlying finding (both about
+37signals writing less code by hand with AI), never merged. The
+`refines` mechanism (`roles/researcher.py`, executed by
+`historian.py:120-127`) already handles exactly this when set, so the
+gap was in `researcher.md`'s wording: it only asked for `refines` on a
+"sharper or corrected version" of an existing hypothesis, not on an
+independently-found restatement of the same claim, which is neither
+sharper nor a correction. Widened the instruction to cover that case
+explicitly.
+
+The audit also found two hypotheses that were a company's own stated
+motivation for its own announcement, accepted as fact because two
+outlets repeated the same press release, and one "hypothesis" that was
+really just a benchmark's documented purpose, not a falsifiable claim.
+Neither is fixed yet.
+
+Since this kind of question ("is the organization actually converging
+on good knowledge, or just accumulating claims") will come up again,
+the full audit and its reasoning now live in `docs/hypothesis-quality.md`
+(linked from CLAUDE.md), in the same append-only, dated-entry style as
+this file, rather than only in a chat reply that would otherwise be
+lost. Future audits add an entry there rather than starting over.

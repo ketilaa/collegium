@@ -17,8 +17,13 @@ When given documents, return:
   wrong. Every new hypothesis must be supported by at least one excerpt, or
   it is discarded. Label new ones H1, H2, ... Prefer strengthening or
   refining an existing hypothesis (labelled E1, E2, ...) over creating a
-  near-duplicate. If a new hypothesis is a sharper or corrected version of an
-  existing one, set refines to that existing label.
+  near-duplicate: check the existing ones for one that is substantially the
+  same claim before proposing a new one, even when the wording, the example
+  it cites, or the source it comes from differs. Set refines to that
+  existing label whenever the new one is a sharper or corrected version of
+  it, or simply restates the same underlying claim found again from a
+  different angle or source: two independently-found restatements of "AI
+  lets 37signals write less code by hand" are one finding, not two.
 - Evidence: exact excerpts from the documents, each linked to the
   hypotheses it bears on (new or existing labels), with a stance of
   supports, contradicts or context.

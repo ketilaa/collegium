@@ -11,6 +11,7 @@ Where to look, and how much to read:
 - `docs/decisions.md` records every technical decision and why, newest last (about 60 KB). Do not read it whole: `grep -n "^## " docs/decisions.md` for the headings, then read the entries that bear on the task. Add an entry for each new decision.
 - `docs/operations.md`: how the live instance is run, deployed, inspected and changed by hand.
 - `docs/reviews/README.md`: the security review before a push.
+- `docs/hypothesis-quality.md`: whether the research pipeline is actually converging on good findings, not just recording anything it can find — a standing concern, re-audited and appended to (newest last) whenever it comes up again, not just written once.
 - The owner's secrets live in `~/.collegium/.env`: never read or print that file, only pass it to commands (`docker compose --env-file ...`, or `set -a; . file; set +a` in a command).
 
 Open threads (update this list as they close):
