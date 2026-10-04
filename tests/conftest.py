@@ -112,13 +112,36 @@ class ScriptedLLM:
 
     def __init__(self):
         self._queue: dict[type, list] = defaultdict(list)
+        self._tool_queue: list[tuple[str, dict]] = []
         self.calls: list[tuple[type, str]] = []
+        self.tool_calls: list[tuple[str, dict]] = []
 
     def add(self, schema: type[BaseModel], response: BaseModel | Callable | Exception):
         self._queue[schema].append(response)
 
-    def generate(self, system, user, schema, *, max_tokens=None, enable_thinking=True):
+    def queue_tool_call(self, name: str, **args):
+        """Simulates the model calling this tool with these arguments
+        before its next `generate()` reply, in a role that offers it."""
+        self._tool_queue.append((name, args))
+
+    def generate(
+        self,
+        system,
+        user,
+        schema,
+        *,
+        max_tokens=None,
+        enable_thinking=True,
+        tools=None,
+        max_tool_calls=3,
+    ):
         self.calls.append((schema, user))
+        if tools:
+            by_name = {t.name: t for t in tools}
+            while self._tool_queue and self._tool_queue[0][0] in by_name:
+                name, args = self._tool_queue.pop(0)
+                by_name[name].call(**args)
+                self.tool_calls.append((name, args))
         if not self._queue[schema] and schema.__name__ in DEFAULTS:
             return DEFAULTS[schema.__name__](user)
         if not self._queue[schema]:

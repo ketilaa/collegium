@@ -11,7 +11,7 @@ from test_pipeline import HYPOTHESIS, PAGES
 from test_web import client, crawler, researched  # noqa: F401 (fixtures)
 
 from collegium import jobs, memory, strategy, worker
-from collegium.roles.answerer import NOTHING_FOUND, Answer, AnswerPoint, SearchTerms, compose
+from collegium.roles.answerer import NOTHING_FOUND, Answer, AnswerPoint, compose
 
 
 def ask(client, text, domain=""):
@@ -31,7 +31,7 @@ def test_an_answer_cites_memory(client, researched, worker_db, llm, make_context
         job = conn.execute("SELECT kind, priority FROM jobs WHERE kind = 'ask'").fetchone()
     assert job["priority"] == 1  # ahead of the organization's own work
 
-    llm.add(SearchTerms, SearchTerms(terms=["inference costs", "prices", "prisene"]))
+    llm.queue_tool_call("recall", terms=["inference costs", "prices", "prisene"])
     llm.add(
         Answer,
         Answer(
@@ -50,10 +50,10 @@ def test_an_answer_cites_memory(client, researched, worker_db, llm, make_context
     )
     worker.drain(make_context(PAGES))
 
+    assert llm.tool_calls == [("recall", {"terms": ["inference costs", "prices", "prisene"]})]
     brief = llm.prompts_for(Answer)[-1]
-    assert f") {HYPOTHESIS}" in brief and "[H1]" in brief
     assert "Hvor raskt faller prisene" in brief
-    assert "Write it in Norwegian." in brief
+    assert "answer in Norwegian." in brief
     q = only_question(worker_db)
     assert q["status"] == "answered"
     # Labels become numbered sources; an unknown label (H9) is left as written.
@@ -75,7 +75,7 @@ def test_an_answer_without_valid_citations_is_not_an_answer(
     client, researched, worker_db, llm, make_context, add_domain
 ):
     ask(client, "What do agents cost?")
-    llm.add(SearchTerms, SearchTerms(terms=["inference costs"]))
+    llm.queue_tool_call("recall", terms=["inference costs"])
     llm.add(Answer, Answer(points=[AnswerPoint(statement="About $2 an hour.", sources=["H7"])]))
     worker.drain(make_context(PAGES))
     q = only_question(worker_db)
@@ -89,16 +89,40 @@ def test_an_answer_without_valid_citations_is_not_an_answer(
     assert gap.about == q["id"] and 'the owner asked "What do agents cost?"' in gap.description
 
 
-def test_nothing_in_memory_needs_no_answer_from_the_model(
+def test_nothing_in_memory_is_unanswered_even_if_the_model_tries(
     client, researched, worker_db, llm, make_context
 ):
+    """The tool round and the final answer are one generate() call, so the
+    model is still asked to answer even once recall found nothing;
+    whatever it says is discarded since there is nothing to cite."""
     ask(client, "What is the weather in Bergen?")
-    llm.add(SearchTerms, SearchTerms(terms=["weather", "Bergen"]))
+    llm.queue_tool_call("recall", terms=["weather", "Bergen"])
+    llm.add(Answer, Answer(points=[]))
     worker.drain(make_context(PAGES))
-    assert llm.prompts_for(Answer) == []
+    assert llm.tool_calls == [("recall", {"terms": ["weather", "Bergen"]})]
     q = only_question(worker_db)
     assert (q["status"], q["answer"]) == ("unanswered", NOTHING_FOUND)
     assert q["missing"] == "What is the weather in Bergen?"
+
+
+def test_the_model_can_search_again_with_different_terms(
+    client, researched, worker_db, llm, make_context
+):
+    """A second recall call's results get their own labels, continuing
+    from where the first left off, rather than restarting at H1/O1/...
+    and silently colliding with what the first call already showed."""
+    ask(client, "What do we know about AI inference costs?")
+    llm.queue_tool_call("recall", terms=["inference costs"])
+    llm.queue_tool_call("recall", terms=["inference costs"])
+    llm.add(Answer, Answer(points=[AnswerPoint(statement="Costs are falling.", sources=["H2"])]))
+    worker.drain(make_context(PAGES))
+
+    assert llm.tool_calls == [
+        ("recall", {"terms": ["inference costs"]}),
+        ("recall", {"terms": ["inference costs"]}),
+    ]
+    q = only_question(worker_db)
+    assert (q["status"], q["answer"]) == ("answered", "Costs are falling. [1]")
 
 
 def test_questions_are_answered_outside_working_hours(board_db, worker_db, add_domain):

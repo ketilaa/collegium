@@ -1,12 +1,20 @@
 """Answering the owner's questions from memory: Ask the Organization.
 
-The Researcher answers, but never searches: the answer rests only on what
-the organization already holds. The model first turns the question into
-search terms (the question may be in Norwegian; memory is in English), full
-text search finds what memory holds, and the model answers citing labels.
-Only citations of records it was shown are kept, and an answer that cites
-nothing is not an answer: the question is then recorded as unanswered, and
-becomes a knowledge gap for the Strategist.
+The Researcher answers, but never searches the outside world: the answer
+rests only on what the organization already holds. A `recall` tool lets
+the model search memory itself, in its own words (the question may be in
+Norwegian; memory is in English), as many times as it needs with
+different terms before answering, rather than committing to one blind
+guess at search terms up front. It then answers citing labels; only
+citations of records it was actually shown are kept, and an answer that
+cites nothing is not an answer: the question is recorded as unanswered,
+and becomes a knowledge gap for the Strategist.
+
+The tool round and the final structured answer are deliberately two
+separate model calls (`collegium.llm.OpenAICompatibleLLM.generate`'s
+`tools` support): asking for both a tool call and a schema-constrained
+reply in the same request has been observed to make the model skip the
+tool and answer from nothing, fabricating sources.
 """
 
 import re
@@ -19,8 +27,24 @@ from collegium import memory
 from collegium.db import Connection
 from collegium.grounding import is_english
 from collegium.jobs import Job
-from collegium.roles.base import QUICK, Context, Persist, Role
+from collegium.llm import Tool
+from collegium.roles.base import Context, Persist, Role
 from collegium.untrusted import fence
+
+RECALL_PARAMETERS = {
+    "type": "object",
+    "properties": {
+        "terms": {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 1,
+            "maxItems": 8,
+            "description": "Words and short phrases that records answering the question "
+            "would contain",
+        }
+    },
+    "required": ["terms"],
+}
 
 NOTHING_FOUND = "Memory holds nothing on this yet."
 _LABEL = re.compile(r"\b([HOXN]\d+)\b")
@@ -67,15 +91,41 @@ class Answerer(Role):
                 return lambda conn: f"already {q['status']}"
             domain_ids = memory.node_domain_ids(conn, question_id)
         system = self.system_prompt()
-        plan = ctx.llm.generate(
-            system,
-            f"The owner asks: {q['text']}\n\nWhich search terms would find the answer in memory?",
-            SearchTerms,
-            **QUICK,
+
+        labels: dict[str, UUID] = {}
+        records: dict[str, dict] = {}
+        counts: dict[str, int] = {}
+        searched: list[list[str]] = []
+
+        def recall(terms: list[str]) -> str:
+            with ctx.db.reading() as conn:
+                found = memory.recall(conn, terms, domain_ids[0] if domain_ids else None)
+            new_labels, new_records, shown, new_counts = brief(found, counts)
+            labels.update(new_labels)
+            records.update(new_records)
+            counts.update(new_counts)
+            searched.append(list(terms))
+            return shown or "Nothing found for these terms."
+
+        recall_tool = Tool(
+            name="recall",
+            description="Search organizational memory for hypotheses, observations, evidence "
+            "and entities matching these search terms.",
+            parameters=RECALL_PARAMETERS,
+            call=recall,
         )
-        with ctx.db.reading() as conn:
-            found = memory.recall(conn, plan.terms, domain_ids[0] if domain_ids else None)
-        labels, records, shown = brief(found)
+
+        # The model follows a named language far better than "the language
+        # of the question"; the organization's languages are these two.
+        language = "English" if is_english(q["text"]) else "Norwegian"
+        reply = ctx.llm.generate(
+            system,
+            f"The owner asks: {q['text']}\n\nUse the recall tool to search memory for records "
+            "that answer it; call it again with different terms if the first search does not "
+            f"answer it. Once you have what memory holds, answer in {language}.",
+            Answer,
+            tools=[recall_tool],
+        )
         if not labels:
 
             def nothing(conn: Connection) -> str:
@@ -87,19 +137,10 @@ class Answerer(Role):
                     missing=q["text"],
                     cites=[],
                 )
-                return f"terms={plan.terms}; nothing in memory"
+                return f"terms={searched}; nothing in memory"
 
             return nothing
 
-        # The model follows a named language far better than "the language
-        # of the question"; the organization's languages are these two.
-        language = "English" if is_english(q["text"]) else "Norwegian"
-        reply = ctx.llm.generate(
-            system,
-            f"The owner asks: {q['text']}\n\nWhat memory holds:\n\n{shown}\n\n"
-            f"What is your answer? Write it in {language}.",
-            Answer,
-        )
         composed = compose(reply, labels, records)
         answered = bool(composed.cited)
 
@@ -114,7 +155,7 @@ class Answerer(Role):
                 points=composed.points,
             )
             return (
-                f"terms={plan.terms}; {len(labels)} records shown; "
+                f"terms={searched}; {len(labels)} records shown; "
                 f"{'answered' if answered else 'unanswered'}, citing {len(composed.cited)}"
                 + (
                     f"; {composed.dropped} points without a known source dropped"
@@ -251,19 +292,25 @@ def _renumber(text: str, number: dict[str, int]) -> str:
     return _WRAPPED.sub(lambda m: "".join(re.findall(r"\[\d+\]", m.group(1))), text)
 
 
-def brief(found: dict) -> tuple[dict[str, UUID], dict[str, dict], str]:
+def brief(
+    found: dict, counts: dict[str, int] | None = None
+) -> tuple[dict[str, UUID], dict[str, dict], str, dict[str, int]]:
     """Records as labelled lines; excerpts are outside text and fenced.
-    Also, per label, the record's kind, status and confidence."""
+    Also, per label, the record's kind, status and confidence. `counts`
+    continues numbering from an earlier call, so a second memory search in
+    the same job does not reuse H1 for a different record."""
     labels: dict[str, UUID] = {}
     records: dict[str, dict] = {}
     lines: list[str] = []
     label_of: dict[UUID, str] = {}
+    counts = dict(counts or {})
 
     kinds = {"H": "hypothesis", "O": "observation", "X": "evidence", "N": "entity"}
 
     def add(prefix: str, rows: list[dict]) -> list[tuple[str, dict]]:
         out = []
-        for i, row in enumerate(rows, 1):
+        start = counts.get(prefix, 0)
+        for i, row in enumerate(rows, start + 1):
             label = f"{prefix}{i}"
             labels[label] = row["id"]
             records[label] = {
@@ -273,6 +320,7 @@ def brief(found: dict) -> tuple[dict[str, UUID], dict[str, dict], str]:
             }
             label_of[row["id"]] = label
             out.append((label, row))
+        counts[prefix] = start + len(rows)
         return out
 
     hypotheses = add("H", found["hypotheses"])
@@ -304,4 +352,4 @@ def brief(found: dict) -> tuple[dict[str, UUID], dict[str, dict], str]:
             f"[{label}] {n['name']} ({n['entity_type']}, {n['mentions']} mentions)"
             for label, n in entities
         ]
-    return labels, records, "\n".join(lines)
+    return labels, records, "\n".join(lines), counts

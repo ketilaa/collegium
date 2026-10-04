@@ -104,7 +104,7 @@ class Replier(Role):
                 found["evidence"] = [
                     r for r in found["evidence"] if r["target_id"] != thread.anchor
                 ]
-        labels, records, shown = brief(found)
+        labels, records, shown, _ = brief(found)
         if not labels and not own:
             return lambda conn: f"terms={plan.terms}; memory holds nothing on it"
 
@@ -182,7 +182,7 @@ class Replier(Role):
         )
         with ctx.db.reading() as conn:
             found = memory.recall(conn, plan.terms, domain_ids[0] if domain_ids else None)
-        labels, records, shown = brief(found)
+        labels, records, shown, _ = brief(found)
         if not labels:
             return lambda conn: f"terms={plan.terms}; nothing yet on {subject}"
         draft = ctx.llm.generate(

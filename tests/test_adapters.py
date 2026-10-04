@@ -11,7 +11,7 @@ from collegium.acquisition.brreg import BrregDiscovery
 from collegium.acquisition.hackernews import HackerNewsDiscovery
 from collegium.acquisition.nva import NVADiscovery
 from collegium.acquisition.tavily import TavilyProvider
-from collegium.llm import LLMError, OpenAICompatibleLLM
+from collegium.llm import LLMError, OpenAICompatibleLLM, Tool
 from collegium.roles.base import SearchPlan
 
 
@@ -57,6 +57,115 @@ def test_llm_passes_a_smaller_budget_and_can_turn_off_thinking():
     body = requests[0]
     assert body["max_tokens"] == 512
     assert body["chat_template_kwargs"] == {"enable_thinking": False}
+
+
+def test_llm_calls_a_tool_then_asks_for_the_schema_separately():
+    requests = []
+    recorded = []
+
+    def recall(terms):
+        recorded.append(terms)
+        return "[H1] a record"
+
+    tool = Tool(
+        name="recall",
+        description="Search memory.",
+        parameters={"type": "object", "properties": {"terms": {"type": "array"}}},
+        call=recall,
+    )
+
+    replies = iter(
+        [
+            # Round 1: a tool call, no response_format in the request.
+            httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "finish_reason": "tool_calls",
+                            "message": {
+                                "role": "assistant",
+                                "content": "",
+                                "tool_calls": [
+                                    {
+                                        "id": "call1",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "recall",
+                                            "arguments": '{"terms": ["x"]}',
+                                        },
+                                    }
+                                ],
+                            },
+                        }
+                    ]
+                },
+            ),
+            # Round 2: no more tool calls, just a free-text answer.
+            _chat_reply("Here is what I found."),
+            # Round 3: the final, schema-constrained answer.
+            _chat_reply('{"queries": ["x"]}'),
+        ]
+    )
+
+    def handler(request):
+        requests.append(json.loads(request.content))
+        return next(replies)
+
+    llm = OpenAICompatibleLLM(
+        "http://llm/v1", "m", client=httpx.Client(transport=httpx.MockTransport(handler))
+    )
+    result = llm.generate("sys", "user", SearchPlan, tools=[tool])
+
+    assert result.queries == ["x"]
+    assert recorded == [["x"]]  # the tool actually ran, with the model's own arguments
+
+    # The tool rounds ask for tools, never response_format.
+    assert requests[0]["tools"][0]["function"]["name"] == "recall"
+    assert "response_format" not in requests[0]
+    assert requests[1]["tools"][0]["function"]["name"] == "recall"
+    assert "response_format" not in requests[1]
+    # The tool result was fed back as its own message.
+    tool_message = requests[1]["messages"][-1]
+    assert tool_message == {"role": "tool", "tool_call_id": "call1", "content": "[H1] a record"}
+    # The final round asks for the schema, never tools.
+    assert "tools" not in requests[2]
+    assert requests[2]["response_format"]["json_schema"]["name"] == "SearchPlan"
+
+
+def test_an_unknown_or_failing_tool_call_does_not_crash_the_loop():
+    def handler(request):
+        body = json.loads(request.content)
+        if body.get("tools") and not any(m.get("role") == "tool" for m in body["messages"]):
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "finish_reason": "tool_calls",
+                            "message": {
+                                "role": "assistant",
+                                "content": "",
+                                "tool_calls": [
+                                    {
+                                        "id": "call1",
+                                        "type": "function",
+                                        "function": {"name": "nope", "arguments": "{}"},
+                                    }
+                                ],
+                            },
+                        }
+                    ]
+                },
+            )
+        return _chat_reply('{"queries": ["x"]}')
+
+    llm = OpenAICompatibleLLM(
+        "http://llm/v1", "m", client=httpx.Client(transport=httpx.MockTransport(handler))
+    )
+    tool = Tool(name="recall", description="d", parameters={}, call=lambda **kw: "unused")
+    result = llm.generate("sys", "user", SearchPlan, tools=[tool])
+    assert result.queries == ["x"]
 
 
 def test_llm_retries_with_the_validation_error():

@@ -1682,3 +1682,54 @@ ceiling on known wire-service hosts.
 
 Both findings, and whether these fixes actually hold up, belong in
 `docs/hypothesis-quality.md`'s next audit entry, not here.
+
+## 2026-10-04 · A recall tool for Ask the Organization
+
+The owner asked whether any role would benefit from a real tool the
+model can call mid-task, rather than everything being fetched by code
+before the model ever runs. Considered Scout/Researcher/Skeptic first
+(a WebSearch tool via SearXNG) and recommended against starting there:
+each round is a full call to a thinking model (tens of seconds under the
+current hold-back), so an iterative search loop multiplies that cost
+across the core pipeline every other job depends on. "Ask the
+Organization" (`answerer.py`) was the better first case: it is already
+pure memory lookup (no web calls at all), and today's design asks for
+search terms once, blind, with no chance to recover if the guess
+misses — a weakness the hypothesis-quality audit's "memory holds
+nothing yet" cases already pointed at.
+
+Verified empirically against the live `llama-server` before writing any
+code (`docs/operations.md`'s model): tool-calling itself works
+correctly (proper `tool_calls` responses, valid arguments), but
+combining `tools` and `response_format` in the same request makes the
+model skip the tool entirely and fabricate a schema-valid answer with
+invented sources — confirmed with a real example, not merely suspected.
+No llama.cpp documentation addresses this combination either way. The
+design therefore runs tool rounds with no `response_format` at all,
+and only once the model stops calling tools does a separate,
+no-`tools` request ask for the final structured answer — one real
+extra model call (confirmed against the live model too), not a
+workaround to be unhappy about: nothing simpler is actually supported
+by llama.cpp today.
+
+Built: `collegium.llm.Tool` (name, description, a JSON-schema
+`parameters`, and a `call` callable) and a tool-calling loop inside
+`OpenAICompatibleLLM.generate()` (new `tools`/`max_tool_calls` keyword
+arguments; existing callers that pass neither are unaffected).
+`answerer.py`'s `ask` job now gives the model a `recall` tool backed by
+the existing `memory.recall()`, replacing the old fixed "search once,
+then answer" two-call flow; it may call `recall` more than once with
+different terms before answering. `brief()` gained a `counts` parameter
+so a second call's records get their own labels (H2, O3, ...)
+continuing from the first's, rather than colliding with labels already
+shown. `reply` (the Moltbook community agent, which shares `answerer.py`'s
+`brief`/`compose` helpers) is deliberately not converted yet: `ask` is
+priority-1, infrequent, and owner-facing only, the lowest-stakes place
+to find out whether this is actually worth the added cost before it
+reaches anything published externally.
+
+Known cost: a question that used to cost one or two model calls now
+costs at least two (one tool round, one final answer), more if the
+model searches again. Whether the extra round actually reduces "memory
+holds nothing yet" false negatives, versus just costing more for the
+same answers, is for a future check to say — not measured yet.
