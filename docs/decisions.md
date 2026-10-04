@@ -1733,3 +1733,32 @@ costs at least two (one tool round, one final answer), more if the
 model searches again. Whether the extra round actually reduces "memory
 holds nothing yet" false negatives, versus just costing more for the
 same answers, is for a future check to say — not measured yet.
+
+## 2026-10-04 · An empty program name is the same bug, a third time
+
+Live, caught from the board: a decision titled "Open research program: "
+(empty name) with rationale "No new research program required as
+current efforts address owner priorities." The linked `programs` row
+had `name = ''`, the same empty text as its own charter rephrased.
+Rejected the decision (auto-closing the empty program) and found the
+cause: the same root problem as the "new"/"P2 (active)" program-naming
+bug from 2026-10-01, a third shape of it. The model, when it correctly
+decides no new program is needed, is supposed to leave `program` out of
+its reply (`program: ProgramProposal | None = None`) — but instead some
+of the time it fills the field in anyway, with an empty name and a
+charter that explains why one is not needed, rather than actually
+omitting it.
+
+`_LABEL_LIKE_NAME`'s regex never matched an empty string, so this
+variant slipped straight through the guard the earlier fix added.
+Broadened it into `_usable_program_name()`: a name must be non-empty
+after stripping, in addition to not being a label. Also widened
+`strategist.md`: most plans propose no program at all, and that means
+leaving the field out entirely, not filling it in to explain why one
+is not needed.
+
+This is now the third live incident of the same pattern (misusing a
+structured field to say "no" instead of omitting it: `ProgramProposal.name`
+twice differently, and earlier `ProposedCritique.argument`'s stray
+"[C1]"). Worth remembering as a standing weak spot in how the current
+model handles optional fields, not three unrelated bugs.

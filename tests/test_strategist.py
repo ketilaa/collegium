@@ -178,10 +178,13 @@ def test_a_label_like_program_name_is_not_created(
     """A model sometimes echoes the sentinel word "new", or an existing
     program's own [P2]/(status) label, into the name of the program it is
     proposing, instead of writing a real title (a real incident: two
-    programs ended up named literally "new" and "P2 (active)"). Such a
-    name is unusable and must not become a program row or a decision."""
+    programs ended up named literally "new" and "P2 (active)"). A model
+    also sometimes leaves the name empty and explains in the rationale
+    that no program is needed, instead of leaving the whole field out (a
+    later real incident). Neither is usable and must not become a
+    program row or a decision."""
     domain_id, ctx = domain_with_weak_hypothesis
-    for bad_name in ("new", "P2 (active)", " P12 "):
+    for bad_name in ("new", "P2 (active)", " P12 ", "", "   "):
         llm.add(
             StrategyPlan,
             StrategyPlan(

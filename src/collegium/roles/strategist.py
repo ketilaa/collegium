@@ -50,6 +50,15 @@ MAX_SOURCE_PROPOSALS = 2
 _LABEL_LIKE_NAME = re.compile(r"^(new|p\d+(\s*\([^)]*\))?)$", re.IGNORECASE)
 
 
+def _usable_program_name(name: str) -> bool:
+    """A name worth creating a program for: not empty (a real incident had
+    the model fill `program` with an empty name and a "not needed"
+    rationale instead of leaving the field out when it meant no new
+    program), and not a label the proposal brief showed it, echoed back."""
+    name = name.strip()
+    return bool(name) and not _LABEL_LIKE_NAME.match(name)
+
+
 class Action(BaseModel):
     kind: Literal["scout", "corroborate", "resolve"]
     target: str | None = Field(None, description="H label for corroborate and resolve")
@@ -291,7 +300,7 @@ def _propose_program(
     to it in the same run; the id of the matching existing program instead
     if one already has this name, so "new" still resolves for a goal even
     when the program itself is not created again."""
-    if not plan.program or _LABEL_LIKE_NAME.match(plan.program.name.strip()):
+    if not plan.program or not _usable_program_name(plan.program.name):
         return None
     existing = next(
         (

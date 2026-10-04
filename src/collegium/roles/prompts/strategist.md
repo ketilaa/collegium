@@ -36,7 +36,10 @@ Return a plan:
   Give it a real, descriptive name of its own: never a P label or the
   word "new", which are just how the programs already listed to you are
   shown, not names. The owner decides whether it opens; propose one
-  rarely.
+  rarely. Most plans propose none at all: when that is so, leave the
+  program out of your reply entirely. Do not fill it in just to explain
+  that one is not needed; that is not a name or a charter, and nothing
+  reads the explanation.
 
 Questions the owner asked that memory could not answer are gaps too, and
 usually worth a goal: they show what the owner wants to know.
