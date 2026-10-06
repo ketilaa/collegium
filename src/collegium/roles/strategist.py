@@ -121,6 +121,7 @@ class Strategist(Role):
             entities = memory.top_entities(conn, [domain_id], limit=15)
             goals = memory.active_goals(conn, [domain_id])
             programs = memory.programs(conn, [domain_id])
+            closed_programs = memory.closed_programs(conn, [domain_id])
             abandoned = memory.closed_goals(conn, [domain_id], "abandoned")
             candidates = strategy.source_candidates(conn, domain_id)[:MAX_SOURCE_PROPOSALS]
             gaps = strategy.find_gaps(conn, domain_id)
@@ -153,6 +154,7 @@ class Strategist(Role):
             goals,
             abandoned,
             programs,
+            closed_programs,
             gaps,
             label_of,
             budget,
@@ -178,7 +180,9 @@ class Strategist(Role):
             # A program a goal can be linked to as it is created, so the
             # new program (if proposed) exists before any goal needs it.
             program_ids = {p["id"] for p in programs}
-            new_program_id = _propose_program(conn, plan, programs, domain, domain_id)
+            new_program_id = _propose_program(
+                conn, plan, programs, closed_programs, domain, domain_id
+            )
             if new_program_id:
                 notes.append(f"proposed program for the owner: {plan.program.name}")
                 program_ids.add(new_program_id)
@@ -294,24 +298,30 @@ class Strategist(Role):
 
 
 def _propose_program(
-    conn: Connection, plan: StrategyPlan, programs: list[dict], domain: dict, domain_id: UUID
+    conn: Connection,
+    plan: StrategyPlan,
+    programs: list[dict],
+    closed_programs: list[dict],
+    domain: dict,
+    domain_id: UUID,
 ) -> UUID | None:
     """The program the plan proposes, created now so a goal can be linked
     to it in the same run; the id of the matching existing program instead
     if one already has this name, so "new" still resolves for a goal even
-    when the program itself is not created again."""
+    when the program itself is not created again. Nothing is proposed while
+    another proposal waits for the owner, or for a program the owner closed:
+    a real incident had three near-identical proposals on three days, and
+    a rejected topic came back under a new name."""
     if not plan.program or not _usable_program_name(plan.program.name):
         return None
-    existing = next(
-        (
-            p["id"]
-            for p in programs
-            if memory.statement_key(p["name"]) == memory.statement_key(plan.program.name)
-        ),
-        None,
-    )
+    key = memory.statement_key(plan.program.name)
+    existing = next((p["id"] for p in programs if memory.statement_key(p["name"]) == key), None)
     if existing:
         return existing
+    if any(p["status"] == "proposed" for p in programs):
+        return None
+    if any(memory.statement_key(p["name"]) == key for p in closed_programs):
+        return None
     program_id = memory.add_program(conn, name=plan.program.name, charter=plan.program.charter)
     memory.tag_domains(conn, program_id, [domain_id])
     decision_id = memory.add_decision(
@@ -420,6 +430,7 @@ def _brief(
     goals,
     abandoned,
     programs,
+    closed_programs,
     gaps,
     label_of,
     budget,
@@ -462,6 +473,12 @@ def _brief(
     lines += [
         f"[{label_of[p['id']]}] ({p['status']}) {p['name']}: {p['charter']}" for p in programs
     ] or ["- none"]
+    if closed_programs:
+        lines.append(
+            "\nClosed research programs (the owner declined or closed them; do not propose "
+            "their topic again under another name):"
+        )
+        lines += [f"- {p['name']}: {p['charter']}" for p in closed_programs]
     lines.append("\nKnowledge gaps found:")
     for gap in gaps:
         about = f"[{label_of[gap.about]}] " if gap.about in label_of else ""

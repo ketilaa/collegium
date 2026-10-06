@@ -424,7 +424,9 @@ def test_owner_approves_or_rejects_proposals(
     domain_with_weak_hypothesis, llm, board_db, worker_db, db_url, monkeypatch, capsys
 ):
     domain_id, ctx = domain_with_weak_hypothesis
-    for name in ("Economics of AI inference", "Agent security"):
+    monkeypatch.setenv("COLLEGIUM_BOARD_DATABASE_URL", db_url)
+
+    def propose(name):
         llm.add(
             StrategyPlan,
             StrategyPlan(
@@ -435,15 +437,17 @@ def test_owner_approves_or_rejects_proposals(
         )
         _strategize(board_db, domain_id)
         worker.run_once(ctx)
+        with worker_db.reading() as conn:
+            row = conn.execute(
+                "SELECT id FROM decisions WHERE statement = %s",
+                (f"Open research program: {name}",),
+            ).fetchone()
+        return str(row["id"])
 
-    monkeypatch.setenv("COLLEGIUM_BOARD_DATABASE_URL", db_url)
-    with worker_db.reading() as conn:
-        ids = {
-            r["statement"].split(": ", 1)[1]: str(r["id"])
-            for r in conn.execute("SELECT id, statement FROM decisions")
-        }
-    cli.main(["approve", ids["Economics of AI inference"][:8]])
-    cli.main(["reject", ids["Agent security"][:8], "--reason", "Out of scope for now."])
+    # One proposal waits at a time, so each is decided before the next.
+    cli.main(["approve", propose("Economics of AI inference")[:8]])
+    rejected = propose("Agent security")
+    cli.main(["reject", rejected[:8], "--reason", "Out of scope for now."])
     out = capsys.readouterr().out
     assert "program Economics of AI inference is now active" in out
     assert "program Agent security is now closed" in out
@@ -459,7 +463,7 @@ def test_owner_approves_or_rejects_proposals(
         ]
         objection = conn.execute(
             "SELECT argument, status FROM critiques WHERE target_id = %s",
-            (ids["Agent security"],),
+            (rejected,),
         ).fetchone()
         assert (objection["argument"], objection["status"]) == ("Out of scope for now.", "upheld")
 
@@ -587,3 +591,81 @@ def test_social_media_and_forums_are_never_proposed(worker_db, add_domain):
     with worker_db.reading() as conn:
         found = strategy.source_candidates(conn, domain_id)
     assert [(c.site, c.observations) for c in found] == [("news.example", 2)]
+
+
+def _propose(llm, board_db, ctx, domain_id, name):
+    llm.add(
+        StrategyPlan,
+        StrategyPlan(
+            assessment="a",
+            goals=[],
+            program=ProgramProposal(name=name, charter="c", rationale="r"),
+        ),
+    )
+    _strategize(board_db, domain_id)
+    assert worker.run_once(ctx)
+
+
+def test_no_second_program_is_proposed_while_one_waits_for_the_owner(
+    domain_with_weak_hypothesis, llm, board_db, worker_db
+):
+    """Three near-identical program proposals arrived on three days. While
+    one waits for the owner, a different one is not proposed at all."""
+    domain_id, ctx = domain_with_weak_hypothesis
+    _propose(llm, board_db, ctx, domain_id, "AI-Driven Role Evolution Analysis")
+    _propose(llm, board_db, ctx, domain_id, "AI-Driven Talent Shift Analysis")
+    with worker_db.reading() as conn:
+        names = [r["name"] for r in conn.execute("SELECT name FROM programs")]
+        decisions = conn.execute(
+            "SELECT count(*) AS n FROM decisions WHERE statement LIKE 'Open research program:%%'"
+        ).fetchone()["n"]
+    assert names == ["AI-Driven Role Evolution Analysis"]
+    assert decisions == 1
+
+
+def test_a_closed_program_is_not_proposed_again_under_another_name(
+    domain_with_weak_hypothesis, llm, board_db, worker_db, db_url, monkeypatch, capsys
+):
+    """A program the owner rejected is closed, and the Strategist is shown
+    it as closed. Proposing it again, under the same name, creates nothing,
+    and the closed program is never linked to a goal. A different name for
+    the same topic is for the prompt to prevent, not the code."""
+    domain_id, ctx = domain_with_weak_hypothesis
+    _propose(llm, board_db, ctx, domain_id, "Competitive Dynamics of AI Deployment")
+    monkeypatch.setenv("COLLEGIUM_BOARD_DATABASE_URL", db_url)
+    with worker_db.reading() as conn:
+        decision_id = str(
+            conn.execute(
+                "SELECT id FROM decisions WHERE statement LIKE 'Open research program:%%'"
+            ).fetchone()["id"]
+        )
+    cli.main(["reject", decision_id[:8], "--reason", "Covered by another program."])
+    capsys.readouterr()
+
+    llm.add(
+        StrategyPlan,
+        StrategyPlan(
+            assessment="a",
+            goals=[
+                PlannedGoal(
+                    statement="Track how AI labs shape safety standards",
+                    success_criteria="A list of their commitments",
+                    priority=2,
+                    program="new",
+                )
+            ],
+            program=ProgramProposal(
+                name="competitive dynamics of AI deployment", charter="c", rationale="r"
+            ),
+        ),
+    )
+    _strategize(board_db, domain_id)
+    assert worker.run_once(ctx)
+
+    brief = llm.prompts_for(StrategyPlan)[-1]
+    assert "Closed research programs" in brief
+    assert "- Competitive Dynamics of AI Deployment: c" in brief
+    with worker_db.reading() as conn:
+        assert conn.execute("SELECT count(*) AS n FROM programs").fetchone()["n"] == 1
+        goal = conn.execute("SELECT program_id FROM goals").fetchone()
+    assert goal["program_id"] is None

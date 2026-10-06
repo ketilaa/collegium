@@ -410,6 +410,16 @@ def programs(conn: Connection, domain_ids: list[UUID]) -> list[dict]:
     ).fetchall()
 
 
+def closed_programs(conn: Connection, domain_ids: list[UUID]) -> list[dict]:
+    """Programs the owner declined or closed: shown to the Strategist so it
+    does not propose their topic again."""
+    return conn.execute(
+        "SELECT p.* FROM programs p JOIN node_domains d ON d.node_id = p.id "
+        "WHERE d.domain_id = ANY(%s) AND p.status = 'closed' ORDER BY p.priority",
+        (domain_ids,),
+    ).fetchall()
+
+
 def set_observation_status(conn: Connection, observation_id: UUID, status: str) -> None:
     conn.execute("UPDATE observations SET status = %s WHERE id = %s", (status, observation_id))
 

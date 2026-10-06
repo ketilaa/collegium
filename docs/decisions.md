@@ -1762,3 +1762,38 @@ structured field to say "no" instead of omitting it: `ProgramProposal.name`
 twice differently, and earlier `ProposedCritique.argument`'s stray
 "[C1]"). Worth remembering as a standing weak spot in how the current
 model handles optional fields, not three unrelated bugs.
+
+## 2026-10-06 · The Strategist proposes one program at a time, and not a closed one again
+
+Three near-identical program proposals arrived on three days (the same
+"competitive dynamics" and "AI-driven role" topics under new names). The
+owner rejected all three. The cause: `_propose_program` only recognised
+an exact name match among the programs it was shown, and `memory.programs`
+leaves out closed programs, so the Strategist never saw a rejected one.
+The prompt asked it to check existing charters but did not say closed
+programs count.
+
+Changed:
+
+- `memory.closed_programs()`: the programs the owner declined or closed.
+  The brief lists them under "Closed research programs", with a note not
+  to propose their topic again under another name.
+- `_propose_program` proposes nothing while another program is `proposed`
+  (one proposal waits for the owner at a time), and nothing whose name
+  matches a closed program.
+- `strategist.md`: closed programs count as covered, and a close topic
+  under another name is the same program. This changes `role_version`.
+
+Decided against: fuzzy topic matching in code. Names of the same topic
+share too few words ("AI-Driven Role Evolution" and "AI-Driven Talent
+Shift" have only two in common) for a similarity check to be reliable.
+The one-at-a-time rule and the prompt carry the topic-level part.
+
+Correction to the analysis above: the duplicate check never matched a
+closed program (the list it compares against leaves them out), so a
+rejected name created a new program row rather than linking to the old
+one. Found while testing: the variable holding the closed-program list
+was shadowed by the run's closed-goal set in `persist`, so the check
+silently did nothing. Renamed to `closed_programs`. Covered by
+`test_a_closed_program_is_not_proposed_again_under_another_name`, and by
+`test_no_second_program_is_proposed_while_one_waits_for_the_owner`.

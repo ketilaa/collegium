@@ -32,7 +32,11 @@ Return a plan:
   both continue and abandon the same goal.
 - At most one new research program, only if the domain has a lasting
   direction worth sustained attention that no existing program (P1, P2,
-  ...), proposed or active, already covers; check their charters first.
+  ...), proposed or active, already covers, and that no closed program
+  covered. Closed programs are listed too: the owner declined or closed
+  them. A topic close to a closed program is that program again under
+  another name, so do not propose it. If a program is already proposed and
+  waiting for the owner, propose nothing new. Check the charters first.
   Give it a real, descriptive name of its own: never a P label or the
   word "new", which are just how the programs already listed to you are
   shown, not names. The owner decides whether it opens; propose one
