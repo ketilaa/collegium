@@ -1,38 +1,52 @@
 # Operations: the owner's running instance
 
-How the live organization on the owner's laptop is run, checked and
-changed. For what the code does, see CLAUDE.md; for why, docs/decisions.md.
+How the live organization is run, checked and changed. For what the code
+does, see CLAUDE.md; for why, docs/decisions.md.
 
 ## The machine
 
-- **Docker runs in Colima**, not Docker Desktop. Docker-level fixes go
-  through the Colima VM (`colima ssh`, `colima restart`, provisioning in
-  `~/.colima/default/colima.yaml`).
-- **The network re-signs HTTPS (a TLS-inspecting proxy).** The Colima VM
-  trusts the proxy's root (a provision step), and the git-ignored
-  `compose.override.yaml` mounts `~/.collegium/ca-bundle.pem` into the
-  services (see `compose.override.example.yaml`). On the host, Python tools
-  that fail with certificate errors need
-  `SSL_CERT_FILE=$HOME/.collegium/ca-bundle.pem`.
-- **The machine is a Mac M1, 32GB unified RAM.** `llama-server` runs
-  natively on the host, not in Colima: its memory and CPU come out of the
-  host's 32GB directly, separate from whatever `colima start --cpu/--memory`
-  gives the Docker VM.
-- **The model** runs on the host outside Docker: llama.cpp's `llama-server`
-  at `http://localhost:8080/v1` (`host.docker.internal:8080` from the
-  containers). As of 2026-10-03 it serves `Qwen/Qwen3-8B-GGUF:q4_K_M`, a
-  reasoning model (see "Recommended startup settings" below for why the
-  command looks the way it does):
+Since 2026-10-07 the organization runs on a dedicated hosting server on
+the owner's own private (Tailscale) network, not the owner's laptop (see
+`docs/decisions.md`). The laptop is kept as a cold fallback: fully
+stopped, not decommissioned, holding its own copy of everything as of
+the cutover. Where this section used to describe the laptop specifically
+(Colima, the corporate TLS-inspecting proxy), that is now historical:
+see "The laptop (cold fallback)" below.
+
+- **Docker Engine and the Compose plugin run natively** (the host is
+  Linux), not through Colima or Docker Desktop: there is no VM layer to
+  size.
+- **The model** runs on the host outside Docker, built from source:
+  llama.cpp's `llama-server` at `http://localhost:8080/v1`
+  (`host.docker.internal:8080` from the containers). It is a CPU-only
+  build for now (a CUDA build is a planned follow-up on this host's GPU);
+  it serves `Qwen/Qwen3-8B-GGUF:q4_K_M`, the same model and sampling
+  settings as the laptop ran (see "Recommended startup settings" below):
 
   ```sh
   llama-server -hf Qwen/Qwen3-8B-GGUF:q4_K_M --offline -c 16384 -ctk q8_0 \
-    -ctv q8_0 -fa on -t 4 -to 3600 --jinja -n 2048 -np 1 \
-    --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0 \
-    --repeat-penalty 1.15 --repeat-last-n 256 --port 8080
+    -ctv q8_0 -fa on -t <this host's own core count> -to 3600 --jinja \
+    -n 2048 -np 1 --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0 \
+    --repeat-penalty 1.15 --repeat-last-n 256 --port 8080 \
+    --host <see below>
   ```
 
   `COLLEGIUM_LLM_MODEL` in the env file must match the model actually
   running, since every run records it.
+- **`--host` matters on native Linux Docker, where the laptop's Colima
+  setup needed no such flag.** `host.docker.internal` (the `host-gateway`
+  special value in compose.yaml's `extra_hosts`) always resolves to the
+  *default* bridge's own gateway address, not to whichever network a
+  container actually runs on, and never to `127.0.0.1`. Docker Desktop
+  and Colima reach a loopback-bound host service through their own
+  VM-boundary networking; native Linux Docker does not. Find the right
+  address with
+  `docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}'`
+  (typically `172.17.0.1`) and give it to `llama-server`'s `--host`.
+  Binding to `0.0.0.0` instead would also answer on this host's LAN and
+  any other network interface it has; binding to the default bridge's
+  own gateway answers only Docker's own containers, confirmed by testing
+  a container's reach against each address directly.
 - **Recommended startup settings (2026-10-03) — always start the model
   this way, including for local testing, not just the live instance:**
   - `--temp 0.6 --top-p 0.95 --top-k 20 --min-p 0`: Qwen3's own model card
@@ -46,9 +60,10 @@ changed. For what the code does, see CLAUDE.md; for why, docs/decisions.md.
     spare. A multi-document Research/Review prompt (up to 3 documents) plus
     a reasoning model's own "thinking" tokens can otherwise get close to
     the old ceiling.
-  - `-t 4`, `-np 1`: unchanged by this round of tuning. Thread count is
-    tied to the hold-back below, not this; `-np 1` is correct as long as
-    only one worker process ever calls the server at a time.
+  - `-t`, `-np 1`: thread count is this host's own, not part of this
+    round of tuning (see "The hold-back" below for the laptop's old
+    value); `-np 1` is correct as long as only one worker process ever
+    calls the server at a time.
   - Per-call tuning (temperature aside) lives in code, not here: see
     `collegium.roles.base.QUICK` and each role's `ctx.llm.generate(...,
     max_tokens=..., enable_thinking=...)` call. Mechanical, extractive
@@ -58,19 +73,19 @@ changed. For what the code does, see CLAUDE.md; for why, docs/decisions.md.
     `SkepticReview`) keep thinking on and get a larger one (3072, not the
     default 2048), since those are the ones a cut-off reply costs the most
     (a wasted call, then a retry).
-- **The hold-back (2026-09-28):** running everything on this laptop —
-  Postgres, the board, the worker, SearXNG, the publisher and the model —
-  forced a reboot under load. Until the organization has a proper host:
-  Colima runs smaller (`colima start --cpu 3 --memory 6`, not the default
-  6/12), `-t 4` (not more) on `llama-server`, and
-  `COLLEGIUM_WORKER_REST_SECONDS=120` in the env file pauses the worker
-  after each job so the model server is not driven back to back. See
-  `docs/decisions.md`, 2026-09-28. Lifting it: set Colima back to
-  `--cpu 6 --memory 12` (or more, on a real host), raise `-t` on
-  `llama-server`, and remove or lower `COLLEGIUM_WORKER_REST_SECONDS`. The
-  rest of the startup command (sampling settings, `-c`, the model itself)
-  is independent of the hold-back; see "Recommended startup settings"
-  above.
+- **The hold-back (2026-09-28, applied to the laptop only):** running
+  everything on that laptop — Postgres, the board, the worker, SearXNG,
+  the publisher and the model — forced a reboot under load, so Colima
+  ran smaller (`colima start --cpu 3 --memory 6`, not the default 6/12),
+  `-t 4` (not more) on `llama-server`, and
+  `COLLEGIUM_WORKER_REST_SECONDS=120` in the env file paused the worker
+  after each job so the model server was not driven back to back. See
+  `docs/decisions.md`, 2026-09-28 and 2026-10-07. Now that nothing runs on
+  the laptop, this host has no Colima to size and a thread count already
+  set to its own core count (see "Recommended startup settings" above);
+  whether to also raise or remove `COLLEGIUM_WORKER_REST_SECONDS` on this
+  host is a deliberate decision not yet made, kept separate from the move
+  itself (see `docs/decisions.md`, 2026-10-07).
 - **No opening-hours restriction (2026-10-03, the owner's decision):**
   `COLLEGIUM_WORK_HOURS=always` in the env file, so the worker and
   scheduler now work around the clock rather than only Mon-Fri 08:00-16:00
@@ -96,11 +111,34 @@ changed. For what the code does, see CLAUDE.md; for why, docs/decisions.md.
   passwords, the LLM settings and `COLLEGIUM_CONTACT`. If something fails
   because of a value in it, describe the symptom and ask the owner.
 
+### The laptop (cold fallback)
+
+Stopped, not decommissioned, holding its own copy of everything as of
+the 2026-10-07 cutover. If it is ever brought back as the live instance:
+
+- **Docker ran in Colima**, not Docker Desktop: `colima ssh`, `colima
+  restart`, provisioning in `~/.colima/default/colima.yaml`.
+- **The network re-signs HTTPS (a TLS-inspecting proxy).** The Colima VM
+  trusted the proxy's root (a provision step), and the git-ignored
+  `compose.override.yaml` mounted `~/.collegium/ca-bundle.pem` into the
+  services (see `compose.override.example.yaml`). On the host, Python
+  tools that fail with certificate errors need
+  `SSL_CERT_FILE=$HOME/.collegium/ca-bundle.pem`.
+- It is a Mac M1, 32GB unified RAM; `llama-server` ran natively on the
+  host, not in Colima, with no `--host` flag needed (Colima's
+  `host.docker.internal` reaches a loopback-bound host service through
+  its own VM-boundary networking, unlike native Linux Docker — see "The
+  machine" above).
+- `host.docker.internal:8080` from the containers; `http://localhost:8080/v1`
+  on the host itself. The hold-back values above (`-t 4`,
+  `colima start --cpu 3 --memory 6`, `COLLEGIUM_WORKER_REST_SECONDS=120`)
+  were this machine's own, not a property of Collegium in general.
+
 ## Addresses
 
 | What | Where |
 |---|---|
-| The board | http://localhost:8000 |
+| The board | http://localhost:8000, or `COLLEGIUM_WEB_BIND_ADDR`'s address if set |
 | SearXNG | http://localhost:8888 (`/search?q=...&format=json`) |
 | Postgres | localhost:5432; as superuser: `docker compose $E exec -T db psql -U collegium` |
 | The model | http://localhost:8080/v1 |

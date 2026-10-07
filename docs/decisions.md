@@ -1797,3 +1797,91 @@ was shadowed by the run's closed-goal set in `persist`, so the check
 silently did nothing. Renamed to `closed_programs`. Covered by
 `test_a_closed_program_is_not_proposed_again_under_another_name`, and by
 `test_no_second_program_is_proposed_while_one_waits_for_the_owner`.
+
+## 2026-10-07 · Off the laptop: a dedicated hosting server
+
+The organization moved off the owner's laptop onto a dedicated server the
+owner provisioned, reachable only over the owner's private (Tailscale)
+network, with no public exposure. The hold-back from 2026-09-28 existed
+because running everything -- Postgres, the board, the worker, SearXNG,
+the publisher and the model -- on one laptop forced a reboot under load.
+That premise no longer holds once nothing runs on the laptop; see the
+open question below on actually lifting it.
+
+What changed in how the stack runs:
+
+- **Docker directly, no Colima.** Colima exists only to give macOS a Linux
+  VM to run Docker in; the hosting server is already Linux, so Docker
+  Engine and the Compose plugin run natively. There is no VM layer to
+  size, so the hold-back's Colima `--cpu`/`--memory` limits have nothing
+  to apply to on this host.
+- **The model stays native on the host**, exactly as on the laptop, built
+  from source (`llama-server`, CPU-only for now; a CUDA build is a planned
+  follow-up now that real GPU hardware is available). One real,
+  non-laptop-specific finding from getting this working: native Linux
+  Docker's `host.docker.internal` (the `host-gateway` special value)
+  always resolves to the *default* bridge's own gateway address, not to
+  whichever network a container actually runs on. Docker Desktop and
+  Colima reach a loopback-bound host service through their own
+  VM-boundary networking, which native Linux does not have. So
+  `llama-server` must bind to that default-bridge gateway address (found
+  with `docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}'`,
+  typically `172.17.0.1`), not `127.0.0.1` and not `0.0.0.0`: tested
+  directly, a container reaches it there while the host's LAN and overlay
+  network addresses stay unreachable, with no firewall rule needed. A
+  fixed custom Compose subnet was tried first and found unnecessary --
+  `host-gateway` ignores per-project networks regardless, so that
+  compose.yaml change was reverted.
+- **The data moved by `pg_dump --data-only --disable-triggers` /
+  restore**, not by copying the Postgres volume, since the two hosts never
+  ran the same Postgres version-on-disk guarantees. The worker, scheduler
+  and publisher were paused on the laptop first, so nothing could diverge
+  between the dump and the cutover. Two lessons worth keeping:
+  - `migrate` seeds the fixed `actors` rows (and, as a side effect, the
+    `audit_log` rows auditing that seeding) on *any* fresh database, so a
+    plain data-only restore collides with them by primary key. `actors`
+    and `audit_log` both reject `DELETE` and `TRUNCATE` outright
+    (`reject_change()`: "memory is permanent" / "table is append-only")
+    -- deliberately, and correctly, since this must not be how an operator
+    casually loses history. The real audit history (over 12,000 rows, the
+    organization's whole provenance trail) must not be excluded from the
+    migration either, only the handful of bootstrap-seed rows the fresh
+    `migrate` itself added. The actual fix for a one-time, supervised
+    administrative load like this: `SET session_replication_role =
+    replica;` before clearing just those bootstrap rows, which disables
+    ordinary triggers for that session without weakening the constraint
+    or the trigger itself.
+  - The first restore attempt died partway through (on the conflict
+    above) without rolling back what had already loaded, since a plain
+    `psql -f` run is not one transaction. Restoring with
+    `--single-transaction` makes a second attempt either load everything
+    or nothing, instead of compounding into a partial-state puzzle.
+- **The board is reachable over the private network now**, not only from
+  `localhost`: see the entry below.
+
+Kept as a deliberate, separate decision rather than folded into this one:
+whether to also lift the hold-back's worker-rest pause and whether to
+raise the model size now that there is real headroom (more RAM, a GPU).
+Also open: a CUDA build of `llama-server` for this hardware, and whether
+to try vLLM against the same model as a head-to-head comparison. The
+laptop stays fully stopped as a cold fallback, not decommissioned.
+
+## 2026-10-07 · The board, reachable over the owner's own network
+
+The board has no login yet, so until now its only protection was
+answering on `127.0.0.1` alone -- fine on a laptop opened locally, not
+useful once Collegium runs on a server the owner isn't sitting at.
+`COLLEGIUM_WEB_BIND_ADDR` (compose.yaml) now controls which address the
+`web` service's port is published on, defaulting to `127.0.0.1` as
+before; a deployment reachable over a private overlay network sets it to
+that network's own address on the host. Deliberately not `0.0.0.0`:
+that would answer on every network interface the host has, including a
+plain LAN, which is a materially larger exposure than "the owner's own
+devices on their own overlay network" for a dashboard with no
+authentication yet. `COLLEGIUM_WEB_ALLOWED_HOSTS` (already existed, for
+the board's own `Host` header check) must list that same address or
+hostname, or requests to it are refused.
+
+Considered and set aside for now: push notifications (ntfy.sh/Pushover)
+on worker failures or stalls. The owner asked for board reachability only
+at this time; proactive alerting can follow as its own decision later.

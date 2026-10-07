@@ -165,8 +165,15 @@ services:
       COLLEGIUM_WORK_HOURS: ${COLLEGIUM_WORK_HOURS:-08:00-16:00}
       COLLEGIUM_WORK_DAYS: ${COLLEGIUM_WORK_DAYS:-mon-fri}
       COLLEGIUM_TIMEZONE: ${COLLEGIUM_TIMEZONE:-Europe/Oslo}
+      COLLEGIUM_WEB_ALLOWED_HOSTS: ${COLLEGIUM_WEB_ALLOWED_HOSTS:-localhost,127.0.0.1}
     ports:
-      - "127.0.0.1:${COLLEGIUM_WEB_PORT:-8000}:8000"
+      # Defaults to localhost only. A deployment reachable beyond the host
+      # itself (for example over a private overlay network) sets
+      # COLLEGIUM_WEB_BIND_ADDR to that network's own address on the host,
+      # never 0.0.0.0: the board has no login yet, so its only protection
+      # is which addresses it answers on. COLLEGIUM_WEB_ALLOWED_HOSTS must
+      # then include that same address or hostname.
+      - "${COLLEGIUM_WEB_BIND_ADDR:-127.0.0.1}:${COLLEGIUM_WEB_PORT:-8000}:8000"
     restart: unless-stopped
     depends_on:
       logins:
