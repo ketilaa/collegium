@@ -1885,3 +1885,50 @@ hostname, or requests to it are refused.
 Considered and set aside for now: push notifications (ntfy.sh/Pushover)
 on worker failures or stalls. The owner asked for board reachability only
 at this time; proactive alerting can follow as its own decision later.
+
+## 2026-10-07 · A CSRF token alongside the Origin/Sec-Fetch-Site check
+
+Approving a decision from the board's own UI, over the private network
+from a real Chrome browser, was refused as a cross-site request. The
+actual headers the request arrived with: no `Sec-Fetch-Site`, no
+`Referer`, and `Origin: null` (the literal string, not absent) -- all
+three stripped at once, for a request that was genuinely same-origin.
+The most likely explanation is a browser privacy feature that treats
+requests touching a private-network address cautiously (Chrome's own
+Privacy Sandbox/IP Protection work is one candidate; a network layer in
+between is another), but the exact cause matters less than the fact:
+Origin/Referer/Sec-Fetch-Site are demonstrably not reliable enough, on
+their own, to gate every action the owner takes through the board.
+
+Added a second, independent signal: a random token in a cookie
+(`SameSite=Strict`, `HttpOnly`), echoed into a hidden field in every form
+(20 forms across 8 templates) and compared to the cookie on submission
+(the standard "double-submit" pattern). A request is accepted if either
+the Origin/Sec-Fetch-Site check *or* the token matches -- not both required,
+since the whole point is that a genuine request can lack either signal
+for reasons outside its control. The token alone does not need a working
+Origin header to prove itself: the browser will not send the cookie at
+all on a genuinely cross-site request, SameSite=Strict being enforced at
+the HTTP layer regardless of what a privacy feature strips from the
+headers that merely describe the request.
+
+One real limitation, stated plainly rather than papered over: a
+sibling subdomain forging a request (what the existing `same-site` test
+case already guards against) is normally additionally defended against
+with the `__Host-` cookie prefix, which requires HTTPS. The board is
+plain HTTP over the owner's private network, so that extra layer is not
+available here. In practice this is moot for Collegium, since nothing
+else shares this host, but it would matter on a host that did.
+
+Found and fixed along the way: a middleware that calls `request.form()`
+to peek at a POST body breaks the route's own later `Form(...)` parameters
+(seen live: an empty "statement" reaching the mission-setting route,
+nothing to do with CSRF itself). `request.body()` (raw bytes, parsed by
+hand with `parse_qsl`) is the documented-safe way to inspect a body in
+middleware without disturbing what the route reads afterward.
+
+Considered and set aside: running the board only on the owner's own
+machine instead (the Mac), which would have sidestepped the whole
+problem by never being cross-network in the first place. Rejected
+because it would tie board access to wherever that process happens to
+run, defeating the point of reaching it from any of the owner's devices.

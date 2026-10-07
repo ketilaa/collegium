@@ -161,6 +161,35 @@ def test_cross_site_posts_are_refused(client, add_domain, worker_db):
     assert response.status_code == 200  # followed the redirect
 
 
+def test_a_csrf_token_covers_a_post_with_no_origin_information(client, add_domain, worker_db):
+    """Seen live: a browser can strip Origin, Referer and Sec-Fetch-Site on
+    a genuinely same-origin request. The cookie token set on an earlier
+    visit, echoed back in the form, covers exactly this case."""
+    add_domain()
+    client.get("/domains")  # a page visit issues the cookie
+    token = client.cookies.get("csrf_token")
+    assert token
+    response = client.post(
+        "/domains/ai-agents/status",
+        data={"status": "paused", "csrf_token": token},
+        headers={"Origin": "null"},
+    )
+    assert response.status_code == 200
+    with worker_db.reading() as conn:
+        assert conn.execute("SELECT status FROM domains").fetchone()["status"] == "paused"
+
+
+def test_a_wrong_csrf_token_does_not_substitute_for_the_origin_check(client, add_domain):
+    add_domain()
+    client.get("/domains")
+    response = client.post(
+        "/domains/ai-agents/status",
+        data={"status": "paused", "csrf_token": "wrong"},
+        headers={"Origin": "null"},
+    )
+    assert response.status_code == 403
+
+
 def _proposed_program(worker_db, domain_id):
     with worker_db.acting_as("strategist") as conn:
         program = memory.add_program(conn, name="Inference economics", charter="Track costs.")

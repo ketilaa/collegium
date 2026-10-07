@@ -15,7 +15,7 @@
       <ul class="plain">{% for g in goals %}<li>{{ status(g.status) }} {{ g.statement }}</li>{% endfor %}</ul>
     {% endif %}
     {% if p.status in ("active", "paused") %}
-      <form method="post" action="/programs/{{ p.id }}/withdraw" class="inline">
+      <form method="post" action="/programs/{{ p.id }}/withdraw" class="inline"><input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
         <button type="submit" class="secondary">Withdraw</button>
       </form>
     {% endif %}

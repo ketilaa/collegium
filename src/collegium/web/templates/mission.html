@@ -10,7 +10,7 @@
   {% endif %}
   <details class="form">
     <summary>{% if current %}Change{% else %}Set{% endif %} the mission</summary>
-    <form method="post" action="/mission">
+    <form method="post" action="/mission"><input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
       <input type="hidden" name="domain" value="{{ domain_slug }}">
       <label>Mission
         <textarea name="statement" rows="3" required placeholder="{{ placeholder }}">{{ current.statement if current else "" }}</textarea></label>

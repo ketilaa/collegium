@@ -21,7 +21,7 @@
     {% set href = u.uri|http_url %}
     <div class="actions">
       {% if href %}<a href="{{ href }}" rel="noopener noreferrer nofollow" target="_blank">On Moltbook</a>{% endif %}
-      <form method="post" action="/community/upvote" class="inline">
+      <form method="post" action="/community/upvote" class="inline"><input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
         <input type="hidden" name="url" value="{{ u.uri }}">
         <button type="submit">Upvote</button>
       </form>
@@ -45,11 +45,11 @@
     {% if href %}<p><a href="{{ href }}" rel="noopener noreferrer nofollow" target="_blank">On Moltbook</a></p>{% endif %}
     {% if p.error %}<p class="meta">{{ p.error }}</p>{% endif %}
     {% if p.status == "approved" %}
-      <form method="post" action="/community/{{ p.id }}/withdraw" class="inline">
+      <form method="post" action="/community/{{ p.id }}/withdraw" class="inline"><input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
         <button type="submit" class="secondary">Withdraw</button>
       </form>
     {% elif p.status == "failed" %}
-      <form method="post" action="/community/{{ p.id }}/retry" class="inline">
+      <form method="post" action="/community/{{ p.id }}/retry" class="inline"><input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
         <button type="submit">Try again</button>
       </form>
     {% endif %}

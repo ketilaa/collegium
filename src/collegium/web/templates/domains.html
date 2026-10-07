@@ -13,16 +13,16 @@
 
     <div class="actions">
       {% if d.status == "active" %}
-        <form method="post" action="/domains/{{ d.slug }}/scout"><button type="submit">Scout now</button></form>
-        <form method="post" action="/domains/{{ d.slug }}/strategize"><button type="submit">Plan now</button></form>
-        <form method="post" action="/domains/{{ d.slug }}/status"><input type="hidden" name="status" value="paused"><button type="submit" class="secondary">Pause</button></form>
+        <form method="post" action="/domains/{{ d.slug }}/scout"><input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}"><button type="submit">Scout now</button></form>
+        <form method="post" action="/domains/{{ d.slug }}/strategize"><input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}"><button type="submit">Plan now</button></form>
+        <form method="post" action="/domains/{{ d.slug }}/status"><input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}"><input type="hidden" name="status" value="paused"><button type="submit" class="secondary">Pause</button></form>
       {% elif d.status == "paused" %}
-        <form method="post" action="/domains/{{ d.slug }}/status"><input type="hidden" name="status" value="active"><button type="submit">Resume</button></form>
+        <form method="post" action="/domains/{{ d.slug }}/status"><input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}"><input type="hidden" name="status" value="active"><button type="submit">Resume</button></form>
       {% endif %}
     </div>
 
     <h3>Discovery sources</h3>
-    <form method="post" action="/domains/{{ d.slug }}/sources" class="inline">
+    <form method="post" action="/domains/{{ d.slug }}/sources" class="inline"><input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
       {% for s in sources %}
         <label class="check"><input type="checkbox" name="source" value="{{ s }}"{% if s in d.discovery_sources %} checked{% endif %}> {{ s }}</label>
       {% endfor %}
@@ -38,7 +38,7 @@
           <li class="row">
             <span>{{ status(f.status) }} {{ f.title or f.url }}{% if f.title %} <span class="meta">{{ f.url }}</span>{% endif %}</span>
             {% if f.status != "retired" %}
-              <form method="post" action="/domains/{{ d.slug }}/feeds/status" class="inline">
+              <form method="post" action="/domains/{{ d.slug }}/feeds/status" class="inline"><input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
                 <input type="hidden" name="url" value="{{ f.url }}">
                 {% if f.status == "active" %}
                   <button type="submit" name="status" value="paused" class="secondary">Pause</button>
@@ -52,7 +52,7 @@
         {% endfor %}
       </ul>
     {% else %}<p class="empty">No feeds.</p>{% endif %}
-    <form method="post" action="/domains/{{ d.slug }}/feeds" class="inline">
+    <form method="post" action="/domains/{{ d.slug }}/feeds" class="inline"><input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
       <input type="url" name="url" placeholder="https://example.com/feed.xml" required aria-label="Feed address">
       <input type="text" name="title" placeholder="Title (optional)" aria-label="Feed title">
       <button type="submit" class="secondary">Approve feed</button>
@@ -64,7 +64,7 @@
 
 <details class="card form">
   <summary>Add a domain</summary>
-  <form method="post" action="/domains">
+  <form method="post" action="/domains"><input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
     <label>Slug <input type="text" name="slug" placeholder="energy" pattern="[a-z0-9]+(-[a-z0-9]+)*" required></label>
     <label>Name <input type="text" name="name" placeholder="Energy" required></label>
     <label>Description <textarea name="description" rows="2"></textarea></label>

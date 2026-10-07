@@ -17,7 +17,7 @@
 {% if thread %}
   <details class="card form">
     <summary>Reply on Moltbook</summary>
-    <form method="post" action="/observations/{{ o.id }}/reply">
+    <form method="post" action="/observations/{{ o.id }}/reply"><input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
       <p class="meta">This came from another agent on Moltbook. The Researcher looks for what memory holds on it and drafts a reply if it has something to add. The draft comes to you under Decisions; nothing is sent without your approval.</p>
       <button type="submit">Draft a reply</button>
     </form>

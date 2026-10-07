@@ -5,7 +5,7 @@
 <h1>Ask the organization</h1>
 <p class="lede">Answered from memory only, with every statement traced to what the organization holds. What memory cannot answer becomes a gap the Strategist sees. Answers come at any hour, usually within a minute or two.</p>
 
-<form method="post" action="/ask" class="card form ask">
+<form method="post" action="/ask" class="card form ask"><input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
   <label>Your question
     <textarea name="question" rows="3" required placeholder="What do we know about how AI changes hiring of junior developers?"></textarea></label>
   {% if domains %}

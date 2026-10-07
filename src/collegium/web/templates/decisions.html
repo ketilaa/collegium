@@ -22,7 +22,7 @@
       {% elif d.details.hypothesis_id %}
         <p class="meta">Asks about <a href="/hypotheses/{{ d.details.hypothesis_id }}">a hypothesis</a>.</p>
       {% endif %}
-      <form method="post" action="/decisions/{{ d.id }}/approve" class="draft">
+      <form method="post" action="/decisions/{{ d.id }}/approve" class="draft"><input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
         {% if d.topic == "post" %}
           <label>Forum
             <select name="submolt">
@@ -38,11 +38,11 @@
     {% endif %}
     <div class="actions">
       {% if d.topic not in ("post", "reply") %}
-      <form method="post" action="/decisions/{{ d.id }}/approve">
+      <form method="post" action="/decisions/{{ d.id }}/approve"><input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
         <button type="submit">Approve</button>
       </form>
       {% endif %}
-      <form method="post" action="/decisions/{{ d.id }}/reject" class="grow">
+      <form method="post" action="/decisions/{{ d.id }}/reject" class="grow"><input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
         <input type="text" name="reason" placeholder="Why not? (kept on record)" aria-label="Reason for rejecting">
         <button type="submit" class="secondary">Reject</button>
       </form>

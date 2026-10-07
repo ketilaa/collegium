@@ -6,11 +6,13 @@ authentication yet, so it must only listen where the owner alone can reach
 it (see docs/decisions.md).
 """
 
+import logging
+import secrets
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -43,6 +45,15 @@ SECURITY_HEADERS = {
 
 DISCOVERY_WINDOWS = {1: "Last day", 7: "Last week", 30: "Last month"}
 
+# A cookie carrying a per-visit random token, checked against a matching
+# hidden form field (the "double-submit" pattern). Independent of the
+# Origin/Referer/Sec-Fetch-Site check below: some browsers strip all three
+# for privacy reasons even on a genuinely same-origin request (seen live,
+# 2026-10-07), while still sending their own cookies as normal. SameSite
+# "strict" means the cookie itself is withheld on an actually cross-site
+# request, so either signal passing is enough; neither alone needs to be.
+CSRF_COOKIE = "csrf_token"
+
 
 def create_app(settings: Settings, database: Callable[[], Database], crawler=None) -> FastAPI:
     """`database` opens a connection for one request; the board login in
@@ -58,11 +69,40 @@ def create_app(settings: Settings, database: Callable[[], Database], crawler=Non
     async def security_headers(request: Request, call_next):
         # Any page the owner visits could post a form here. Without a login
         # to tell the owner apart, a change is accepted only when the
-        # browser says it came from the board itself.
-        if request.method not in ("GET", "HEAD") and not _same_origin(request):
-            response = PlainTextResponse("Cross-site request refused.", status_code=403)
-        else:
-            response = await call_next(request)
+        # browser says it came from the board itself -- by the usual
+        # Origin/Sec-Fetch-Site check, or by the token below, since either
+        # alone can be unavailable through no fault of a genuine request.
+        token = request.cookies.get(CSRF_COOKIE)
+        issuing_token = token is None
+        if issuing_token:
+            token = secrets.token_urlsafe(32)
+        request.state.csrf_token = token
+
+        if request.method not in ("GET", "HEAD"):
+            token_ok = not issuing_token and await _submitted_token_matches(request, token)
+            if not _same_origin(request) and not token_ok:
+                logging.getLogger("collegium.web").warning(
+                    "cross-site refused: url=%s origin=%s sec-fetch-site=%s referer=%s "
+                    "had_token=%s",
+                    request.url,
+                    request.headers.get("origin"),
+                    request.headers.get("sec-fetch-site"),
+                    request.headers.get("referer"),
+                    not issuing_token,
+                )
+                response = PlainTextResponse("Cross-site request refused.", status_code=403)
+                response.headers.update(SECURITY_HEADERS)
+                return response
+
+        response = await call_next(request)
+        if issuing_token:
+            response.set_cookie(
+                CSRF_COOKIE,
+                token,
+                httponly=True,
+                samesite="strict",
+                secure=request.url.scheme == "https",
+            )
         response.headers.update(SECURITY_HEADERS)
         return response
 
@@ -267,6 +307,22 @@ def _same_origin(request: Request) -> bool:
         return fetch_site == "same-origin"
     origin = request.headers.get("origin")
     return origin is not None and origin == f"{request.url.scheme}://{request.url.netloc}"
+
+
+async def _submitted_token_matches(request: Request, token: str) -> bool:
+    """The form's own csrf_token field, compared to the cookie already
+    established for this visit. Reads the raw body (`request.body()`,
+    cached by Starlette so the route handler's own Form(...) parameters
+    still see the full body) rather than `request.form()`: parsing the
+    form here as well as in the route broke the route's own fields, seen
+    live (an empty "statement" reaching the mission form)."""
+    try:
+        body = await request.body()
+    except Exception:
+        return False
+    fields = dict(parse_qsl(body.decode("utf-8", errors="replace")))
+    submitted = fields.get("csrf_token")
+    return isinstance(submitted, str) and secrets.compare_digest(submitted, token)
 
 
 def _group(rows: list[dict], key: str) -> dict:
