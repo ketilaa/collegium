@@ -9,3 +9,6 @@ compose.override.yaml
 .review/
 *.swp
 .*.sw?
+
+# Personal Claude Code settings for this clone
+.claude/settings.local.json
