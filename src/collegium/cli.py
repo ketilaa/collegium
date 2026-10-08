@@ -198,6 +198,7 @@ def _scheduler(args, settings: Settings) -> None:
 
 def _publisher(args, settings: Settings) -> None:
     _warn_without_contact()
+    publisher.configure_audit_log(settings.publisher_log_dir)
     db = Database(require(settings.publisher_database_url, "COLLEGIUM_PUBLISHER_DATABASE_URL"))
     client = publisher.MoltbookClient(
         require(settings.moltbook_api_key, "COLLEGIUM_MOLTBOOK_API_KEY")

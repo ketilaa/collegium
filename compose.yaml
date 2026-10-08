@@ -143,6 +143,9 @@ services:
       # Who runs this copy; sent in the User-Agent of every request.
       COLLEGIUM_CONTACT: ${COLLEGIUM_CONTACT:-}
       COLLEGIUM_LLM_MAX_TOKENS: ${COLLEGIUM_LLM_MAX_TOKENS:-2048}
+      COLLEGIUM_PUBLISHER_LOG_DIR: /logs
+    volumes:
+      - ${COLLEGIUM_PUBLISHER_LOG_DIR:-./logs}:/logs
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped

@@ -19,6 +19,12 @@ Safeguards:
   operation; code computes the answer. The challenge text is outside text,
   fenced. After MAX_FAILED_VERIFICATIONS failed verifications in a row the
   publisher stops (the forum suspends accounts after ten).
+- Hard failures (a rejected post, a failed verification, the halt above)
+  are kept in a rotating log file (COLLEGIUM_PUBLISHER_LOG_DIR), not only
+  stdout, since stdout is not durable across a container recreate and this
+  is the only trail of what a verification challenge actually said. Routine
+  conditions (rate limiting, nothing to do) are not: see
+  `configure_audit_log`.
 """
 
 import logging
@@ -26,6 +32,8 @@ import re
 import signal
 import threading
 from datetime import UTC, datetime, timedelta
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from typing import Literal
 
 import httpx
@@ -38,6 +46,47 @@ from collegium.llm import LLM
 from collegium.untrusted import fence, sanitize
 
 log = logging.getLogger(__name__)
+
+AUDIT_LOG_FILE = "publisher.log"
+AUDIT_LOG_MAX_BYTES = 5_000_000
+AUDIT_LOG_BACKUPS = 5
+
+
+def configure_audit_log(log_dir: str | None) -> None:
+    """A durable, rotating record of this logger's own WARNING and above:
+    the publisher's hard failures (verification refused, the forum
+    rejecting a post, the halt switch tripping). Routine operation --
+    rate limiting, an idle tick, an ordinary publish -- stays at INFO and
+    so reaches only stdout (docker logs), not this file: those are normal
+    operation, not something the owner needs a durable trail of. A
+    disconnected or unresponsive Moltbook request surfaces the same way
+    as any other hard failure, through the same `except Exception` path
+    in `publish_next`; it is not specially suppressed.
+
+    A problem setting this up (an unwritable directory, say) is itself
+    only logged, never raised: publishing is the point, and an audit
+    trail of it must not be able to take publishing down."""
+    if not log_dir:
+        return
+    try:
+        path = Path(log_dir)
+        path.mkdir(parents=True, exist_ok=True)
+        handler = RotatingFileHandler(
+            path / AUDIT_LOG_FILE, maxBytes=AUDIT_LOG_MAX_BYTES, backupCount=AUDIT_LOG_BACKUPS
+        )
+    except OSError as e:
+        log.warning("could not set up the audit log at %s: %s", log_dir, e)
+        return
+    handler.setLevel(logging.WARNING)
+    handler.setFormatter(logging.Formatter("%(asctime)s %(name)s %(message)s"))
+    log.addHandler(handler)
+
+
+def _is_hard_failure(outcome: str) -> bool:
+    """Worth a durable record, not routine: not a rate limit (expected,
+    already retried automatically), an ordinary success, or an idle tick."""
+    return "failed" in outcome or outcome.startswith(("halted", "error:"))
+
 
 API = "https://www.moltbook.com/api/v1"
 # At most one post an hour and one comment every ten minutes; the forum
@@ -262,6 +311,16 @@ def publish_next(
         )
         verification = "passed" if passed else "failed"
         if not passed:
+            # A hard failure: kept with the challenge and the model's own
+            # answer, since this is exactly what the owner needs to judge
+            # whether the model is misreading the challenge or Moltbook's
+            # own check is at fault.
+            log.warning(
+                "verification failed for post %s: challenge_text=%r answer=%r",
+                post["id"],
+                challenge.get("challenge_text"),
+                answer,
+            )
             _record(
                 db,
                 post["id"],
@@ -333,7 +392,7 @@ def run_forever(
                 except Exception as e:
                     outcome = f"error: {type(e).__name__}: {e}"
                 if outcome != said:  # say each state once, not every minute
-                    log.info("%s", outcome)
+                    (log.warning if _is_hard_failure(outcome) else log.info)("%s", outcome)
                     said = outcome
             stopping.wait(idle_seconds)
         log.info("stopped")

@@ -1932,3 +1932,33 @@ machine instead (the Mac), which would have sidestepped the whole
 problem by never being cross-network in the first place. Rejected
 because it would tie board access to wherever that process happens to
 run, defeating the point of reaching it from any of the owner's devices.
+
+## 2026-10-08 · A durable audit log for the publisher's hard failures
+
+Investigating a run of Moltbook verification failures turned up a real
+gap: the publisher had no persistent record of anything, only stdout
+(`docker compose logs`), which is not durable across a container recreate
+and was lost by the time this was looked into. There was also no record
+anywhere of what a failed verification challenge and the model's answer
+to it actually were, since `community_posts` only ever holds the latest
+attempt's outcome, not its history.
+
+Added `configure_audit_log()`: a rotating file
+(`COLLEGIUM_PUBLISHER_LOG_DIR`, mounted at `/logs`, 5 MB x 5 backups) that
+captures the publisher logger's own WARNING and above, alongside the
+existing stdout logging rather than instead of it. A new `_is_hard_failure`
+classifies each outcome: a rejected post, a failed verification, the halt
+switch tripping, or an unexpected exception are WARNING (kept durably); an
+ordinary publish, a rate limit (expected, retried automatically), and an
+idle tick stay INFO (stdout only). A failed verification now also logs the
+challenge text and the model's own answer, which the owner could not
+previously see at all -- exactly the detail needed to tell whether the
+model is misreading the challenge or Moltbook's own check is at fault.
+
+A request this turned up but does not fix here: once
+`MAX_FAILED_VERIFICATIONS` trips, `publisher.halted()` stops everything
+(not just posts) until the owner looks, but there is no code path back
+from that state -- no CLI command, no board action -- only a new attempt
+succeeding would clear it, and no new attempt is made while halted. Left
+as an open thread rather than designed in the same turn as the logging
+fix.

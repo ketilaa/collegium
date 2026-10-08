@@ -30,6 +30,12 @@ class Settings:
     moltbook_publishing: bool = field(
         default_factory=lambda: _env("COLLEGIUM_MOLTBOOK_PUBLISHING", "off") == "on"
     )
+    # A durable, rotating record of the publisher's hard failures (verification
+    # refused, the forum rejecting a post, the halt switch tripping), separate
+    # from stdout/docker logs. Unset disables it (e.g. in tests).
+    publisher_log_dir: str | None = field(
+        default_factory=lambda: _env("COLLEGIUM_PUBLISHER_LOG_DIR")
+    )
 
     # Any OpenAI-compatible chat endpoint: Ollama, llama.cpp, vLLM.
     llm_base_url: str = field(
