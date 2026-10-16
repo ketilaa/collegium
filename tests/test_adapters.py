@@ -10,6 +10,7 @@ from conftest import FakeProvider
 from collegium.acquisition.brreg import BrregDiscovery
 from collegium.acquisition.hackernews import HackerNewsDiscovery
 from collegium.acquisition.nva import NVADiscovery
+from collegium.acquisition.prh import PRHDiscovery
 from collegium.acquisition.tavily import TavilyProvider
 from collegium.llm import LLMError, OpenAICompatibleLLM, Tool
 from collegium.roles.base import SearchPlan
@@ -541,9 +542,12 @@ def test_brreg_asks_for_no_date_filter_without_a_window():
 
 
 def test_a_brreg_hit_with_a_malformed_or_missing_org_number_is_skipped():
+    # SEC-44: a trailing newline (or anything else past 9 digits) must not
+    # slip through a ^...$ -style check, which a literal newline does.
     bad = [
         {"navn": "No number"},
         {"organisasjonsnummer": "12345", "navn": "Too short"},
+        {"organisasjonsnummer": "974442167\n", "navn": "Trailing newline"},
         {"organisasjonsnummer": "974442167"},  # no name
     ]
 
@@ -563,6 +567,103 @@ def test_a_brreg_hit_with_no_extra_fields_gets_a_plain_snippet():
     assert lead.snippet == (
         "An entry in Brønnøysundregistrene, Norway's business register, for BARE AS"
     )
+
+
+PRH_COMPANY = {
+    "businessId": {"value": "2464491-9", "registrationDate": "2012-08-15"},
+    "names": [
+        {"name": "Tietoevry Finland Oy", "registrationDate": "2022-01-01", "endDate": None},
+        {"name": "TietoEVRY Oyj", "registrationDate": "2012-08-15", "endDate": "2021-12-31"},
+    ],
+    "mainBusinessLine": {
+        "type": "62020",
+        "descriptions": [
+            {"languageCode": "1", "description": "Ohjelmistojen konsultointi"},
+            {"languageCode": "3", "description": "Computer consultancy activities"},
+        ],
+    },
+    "companyForms": [
+        {
+            "descriptions": [
+                {"languageCode": "1", "description": "Osakeyhtiö"},
+                {"languageCode": "3", "description": "Limited company"},
+            ]
+        }
+    ],
+    "addresses": [
+        {
+            "postOffices": [
+                {"languageCode": "1", "city": "HELSINKI"},
+                {"languageCode": "3", "city": "HELSINKI"},
+            ]
+        }
+    ],
+}
+PRH_OUTSIDE_IT = {
+    "businessId": {"value": "1111111-1", "registrationDate": "2000-01-01"},
+    "names": [{"name": "Some Bakery Oy", "endDate": None}],
+    "mainBusinessLine": {"type": "10710", "descriptions": []},
+}
+
+
+def test_prh_leads_carry_the_registry_metadata_and_filter_by_division():
+    requests = []
+
+    def handler(request):
+        requests.append(request.url.params)
+        return httpx.Response(200, json={"companies": [PRH_COMPANY, PRH_OUTSIDE_IT]})
+
+    [lead] = PRHDiscovery(transport=httpx.MockTransport(handler)).discover(
+        "Tietoevry", 5, recent_days=30
+    )
+
+    params = requests[0]
+    assert params["name"] == "Tietoevry" and params["maxResults"] == "15"
+    assert params["registrationDateStart"]  # a date, server-side
+
+    # The bakery (division 10, not 62) is filtered out client-side.
+    assert lead.url == "https://tietopalvelu.ytj.fi/yritys/2464491-9"
+    # The current name (no endDate), not the superseded one.
+    assert lead.title == "Tietoevry Finland Oy"
+    assert lead.snippet == (
+        "Limited company: Computer consultancy activities. Registered in Helsinki. since 2012-08-15"
+    )
+    assert lead.published_at == "2012-08-15"
+    assert lead.metadata == {"prh_business_id": "2464491-9"}
+
+
+def test_prh_asks_for_no_date_filter_without_a_window():
+    requests = []
+
+    def handler(request):
+        requests.append(request.url.params)
+        return httpx.Response(200, json={"companies": []})
+
+    PRHDiscovery(transport=httpx.MockTransport(handler)).discover("q", 3)
+    assert "registrationDateStart" not in requests[0]
+
+
+def test_a_prh_hit_with_no_business_id_is_skipped():
+    bad = {"names": [{"name": "No id"}], "mainBusinessLine": {"type": "62010"}}
+
+    def handler(request):
+        return httpx.Response(200, json={"companies": [bad]})
+
+    assert PRHDiscovery(transport=httpx.MockTransport(handler)).discover("q", 5) == []
+
+
+def test_a_prh_hit_with_no_extra_fields_gets_a_plain_snippet():
+    bare = {
+        "businessId": {"value": "2464491-9"},
+        "names": [{"name": "BARE OY"}],
+        "mainBusinessLine": {"type": "62010", "descriptions": []},
+    }
+
+    def handler(request):
+        return httpx.Response(200, json={"companies": [bare]})
+
+    [lead] = PRHDiscovery(transport=httpx.MockTransport(handler)).discover("q", 5)
+    assert lead.snippet == ("An entry in Finland's Business Information System (YTJ) for BARE OY")
 
 
 def test_llm_asks_again_briefly_when_a_reply_is_cut_off():
@@ -797,13 +898,14 @@ def test_every_adapter_says_who_it_is():
     MoltbookDiscovery(transport=t).discover("q", 1)
     NVADiscovery(transport=t).discover("q", 1)
     BrregDiscovery(transport=t).discover("q", 1)
+    PRHDiscovery(transport=t).discover("q", 1)
     TavilyProvider("key", transport=t).discover("q", 1)
     with contextlib.suppress(Exception):  # not a feed; only the request matters
         FeedReader(transport=t, resolver=lambda host: ["93.184.216.34"]).crawl(
             "https://feed.example/rss", 1
         )
-    # The feed reader asks for robots.txt first, so eight requests from seven adapters.
-    assert set(agents) == {USER_AGENT} and len(agents) == 8
+    # The feed reader asks for robots.txt first, so nine requests from eight adapters.
+    assert set(agents) == {USER_AGENT} and len(agents) == 9
     MoltbookClient("key", transport=t)._client.get("/x")
     assert agents[-1].startswith("Collegium/0.1 (+https://github.com/ketilaa/collegium;")
 

@@ -29,7 +29,7 @@ LANDING = "https://virksomhet.brreg.no/nb/oppslag/enheter/{}"
 NACE_CODES = "62.100,62.200,62.300,62.900"
 # Real companies, not a sole proprietor's one-person registration.
 ORG_FORMS = "AS,ASA,NUF"
-_ORG_NUMBER = re.compile(r"^\d{9}$")
+_ORG_NUMBER = re.compile(r"\d{9}")
 
 
 class BrregDiscovery:
@@ -64,7 +64,7 @@ class BrregDiscovery:
 def _lead(hit: dict) -> SearchResult | None:
     org_number = hit.get("organisasjonsnummer")
     name = hit.get("navn")
-    if not name or not org_number or not _ORG_NUMBER.match(org_number):
+    if not name or not org_number or not _ORG_NUMBER.fullmatch(org_number):
         return None
     return SearchResult(
         url=LANDING.format(org_number),

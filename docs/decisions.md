@@ -2004,3 +2004,52 @@ each excluded on their own) and
 `test_a_stuck_hypothesis_gets_a_second_attempt_even_if_the_plan_ignores_it`
 (the floor queues one even when the model's plan has nothing for it, and
 does not double-queue one the plan already chose).
+
+## 2026-10-16 · PRH (Finland) built; Bolagsverket and CVR are not simple ports of brreg.py
+
+Asked to build the three Nordic registry adapters queued since the move
+to the nordic-consultancy domain (Bolagsverket, CVR, PRH), the Nordic
+equivalents of `brreg.py`. Researched each against its actual, current
+documentation rather than assume brreg's shape generalizes -- it does
+not, for two of the three.
+
+**PRH (Finland), built.** `avoindata.prh.fi`'s YTJ open data API (v3) is
+free, keyless, JSON, and supports a name search
+(`/opendata-ytj-api/v3/companies?name=...`), confirmed against real
+companies (e.g. a live query for "Tietoevry" returns main business line
+codes "62030"/"62200"). The one real difference from brreg: there is no
+documented server-side filter by industry or company form, so `prh.py`
+fetches by name and keeps only hits whose main business line falls in
+TOL 2008 division 62 (computer programming, consultancy and related
+activities -- the same division NACE 62 covers) client-side instead of
+with a query parameter. The landing URL
+(`https://tietopalvelu.ytj.fi/yritys/{businessId}`) was confirmed live
+(rate-limited on a second request, not 404, so genuinely reachable).
+
+**Bolagsverket (Sweden), not built: the free API cannot do what we need
+it for.** Its open-data API (`vardefulla-datamangder`, free under the EU
+high-value-datasets regulation, OAuth2 client-credentials) supports
+lookup by Swedish organisation number and annual-report document
+listings -- nothing resembling brreg's `navn` or PRH's `name` search.
+Since the whole point of these adapters is surfacing a hit when the
+Scout or Researcher already has a company *name*, not a number, an
+identifier-only adapter would almost never return anything in practice.
+Building it anyway was considered and set aside: shipping a adapter that
+looks the same as the other two but structurally cannot do their job
+would be misleading, not merely limited.
+
+**CVR (Denmark), not built: the free route needs the owner's own
+action.** The genuinely open, no-login web portal (`datacvr.virk.dk`)
+has no documented public JSON API behind it, only an HTML search UI --
+not something to build an automated adapter against without risking a
+scrape of an interface meant for people, liable to change without
+notice. The actual machine-readable interface
+(`distribution.virk.dk`, Elasticsearch) is free but requires applying by
+email, signing a declaration, and an about-three-week wait, which only
+the owner can initiate (it is the owner's identity being declared, not
+the organization's). Left as an open thread rather than guessed at.
+
+Also fixed in passing, since it is exactly the same family of adapter:
+SEC-44 (`brreg.py`'s org-number check used `re.compile(r"^\d{9}$").match`,
+which a trailing newline passes; now `re.compile(r"\d{9}").fullmatch`,
+with a regression test).
