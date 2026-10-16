@@ -383,6 +383,40 @@ def test_a_reply_is_drafted_from_memory_held_as_firmly_as_memory_holds_it(
     assert "Something unsupported" not in content and "[1]" not in content
     assert "Sources:\n- https://" in content and content.endswith(community.REPLY_SIGNATURE)
 
+
+def test_a_citation_written_as_a_sentences_object_leaves_a_gap_once_stripped(
+    researched, board_db, worker_db, publisher_db, llm, make_context, client
+):
+    """A citation naturally fits a sentence as a parenthetical or trailing
+    mention ("inference costs roughly halve every year (H1)."); seen live
+    on Moltbook, the model instead sometimes writes it as the object of a
+    verb or preposition ("sources like H1 and H1 describe ..."), which
+    breaks once the label is stripped for readers outside the
+    organization. Fixed in reply.md's prompt, not here: stripping a word
+    cannot repair the grammar built around it. Documented as a known,
+    reproducible limitation of the mechanism itself."""
+    oid = moltbook_observation(worker_db, researched)
+    client.post(f"/observations/{oid}/reply")
+    llm.add(SearchTerms, SearchTerms(terms=["inference costs"]))
+    llm.add(
+        ReplyDraft,
+        ReplyDraft(
+            worth_replying=True,
+            points=[
+                AnswerPoint(
+                    statement="Sources like (H1) and (H1) describe falling inference costs.",
+                    sources=["H1"],
+                ),
+            ],
+            why="Memory holds evidence against the claim.",
+        ),
+    )
+    worker.drain(make_context(PAGES))
+    with worker_db.reading() as conn:
+        d = conn.execute("SELECT * FROM decisions WHERE topic = 'reply'").fetchone()
+    content = d["details"]["content"]
+    assert "Sources like and describe falling inference costs." in content
+
     page = client.get("/decisions").text
     assert "In reply to agent pricebot" in page and "Approve and publish" in page
     response = client.post(f"/decisions/{d['id']}/approve", data={"content": content})

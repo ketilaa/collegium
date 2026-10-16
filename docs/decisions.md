@@ -2053,3 +2053,47 @@ Also fixed in passing, since it is exactly the same family of adapter:
 SEC-44 (`brreg.py`'s org-number check used `re.compile(r"^\d{9}$").match`,
 which a trailing newline passes; now `re.compile(r"\d{9}").fullmatch`,
 with a regression test).
+
+## 2026-10-16 · Why a Moltbook reply read as broken grammar
+
+The owner noticed a published reply reading, live: "While sources like
+and describe global shifts toward skills-based hiring..." and "While and
+explicitly state '...' globally...". Traced it fully.
+
+`answerer.compose()` (shared by the Answerer and the Replier) renumbers
+any citation label the model wrote inline in its own sentence (e.g.
+"(H1)") to "[1]", correctly, for the owner-facing Ask the Organization
+path, which keeps the bracket visible. `replier._grounded()` then strips
+those same `[N]` tokens entirely for the Moltbook-facing text, since an
+external reader has no idea what a Collegium label means -- but removes
+only the token, nothing in its place. When the model writes a label as a
+sentence's grammatical object ("sources like H1 and O2 show...", the
+label standing in for a noun phrase), deleting it leaves the surrounding
+words dangling ("sources like and show..."). When it writes a label as a
+parenthetical or trailing mention instead ("... roughly halve every
+year (H1)."), deleting it reads fine. The mechanism itself cannot tell
+these apart, or repair the grammar left behind -- regex can remove a
+word, not rewrite the sentence around its absence.
+
+Fixed in `reply.md`'s prompt, where the behavior actually comes from:
+told the model explicitly that a label is stripped before anyone reads
+it, so a sentence must stand on its own with the label simply deleted,
+and named the exact failure shape (a label as a verb or preposition's
+object) to avoid. Considered and rejected: a regex that also eats an
+adjacent connector word ("like", "and") when a citation is removed --
+tested against the two sentences actually seen broken, it would work for
+those, but a connector that is not actually dependent on the removed
+citation is common enough ("X increases, and this holds across brands
+[1]") that a blunt rule would just move the breakage elsewhere rather
+than fix it. A prompt cannot guarantee the model never writes this way
+again, so `tests/test_community.py` keeps
+`test_a_citation_written_as_a_sentences_object_leaves_a_gap_once_stripped`
+as a documented, reproducible account of the mechanism's actual limit,
+not a regression test for a code fix that doesn't exist.
+
+First draft of the prompt fix used a developers-ai-flavored example
+("skills-based hiring") in a prompt shared by every domain -- caught
+before committing. Every existing example in these shared prompts is an
+abstract, ellipsis-style template ("we have concluded that ..."), never
+a filled-in claim about a specific domain's subject matter; replaced
+with the same style.

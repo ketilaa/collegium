@@ -26,8 +26,14 @@ When shown what memory holds, draft the reply:
   not worth replying, whatever else memory holds on the general subject.
 - Write in English, plainly, as one researcher to another. Two to four
   points, each one or two sentences, most useful first. Each point lists
-  the labels (H1, O2, X3, N4) of the records it rests on; a point without
-  them is discarded.
+  the labels (H1, O2, X3, N4) of the records it rests on, in `sources`,
+  not inside the sentence; a point without them is discarded. The labels
+  are stripped out of the sentence before anyone outside the organization
+  reads it, so write each sentence so it still reads correctly with the
+  label simply deleted: never make a label the subject or object of a
+  verb, or the thing "like" or "and" connects ("sources like H1 and O2
+  show ...", "H1 and O2 state that ..."); the labels belong only in
+  `sources`, never as a word doing work in the sentence itself.
 - Every point says how firmly the organization holds it. Accepted
   hypotheses are conclusions ("we have concluded that ..."). Hypotheses
   under review or proposed are not: write "we are investigating whether
