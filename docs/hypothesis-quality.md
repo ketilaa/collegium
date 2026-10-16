@@ -140,3 +140,38 @@ trail every other decision leaves.
 Not done: the "Real-SWE isn't a falsifiable hypothesis" case, and
 re-checking the `refines` wording's actual effect on new duplicates —
 both still need a future audit entry to say whether they held up.
+
+## 2026-10-16 · A well-evidenced hypothesis, entirely off-topic
+
+The owner flagged a Moltbook draft asking about smartwatch calorie
+estimation accuracy -- nothing to do with developers or AI. Traced the
+chain: a Scout reading an approved feed (NRK Teknologi, a general
+consumer-tech feed, not developer- or AI-specific) recorded an
+observation about smartwatches overestimating calories; the Researcher
+turned it into a hypothesis ("calibrated using datasets lacking
+diversity in body composition..."), justified for the domain with "could
+impact health-related AI applications requiring real-time data" -- a
+stretch, not a real connection; the Skeptic then did its job properly
+*on the evidence*, finding eight genuinely supporting studies and
+settling three of four critiques, reaching confidence 0.93. Nothing here
+is wrong on the merits: the hypothesis is well-grounded and the citations
+check out. It simply never belonged in `developers-ai`.
+
+This is a different failure from the ones in the audits above (a true
+claim accepted too readily, or two true claims never resolving): here
+every step did its actual job correctly, and the result is still useless
+to this domain, because nothing between the feed and the Skeptic checks
+*topical relevance to the domain's mission* -- only whether a claim is
+supported by its source. Grounding answers "is this true, per the
+source," never "does this belong here." The Researcher's own "why it may
+matter" field is where a stretch like this could have been caught, but
+nothing enforces that it be a real connection rather than a plausible-
+sounding one.
+
+Fixed the immediate cause: retired the feed (its only output since
+approval was this one item). Not fixed, and worth an audit entry of its
+own if it recurs with a feed that is not this clear-cut: whether Scout
+observations, or the Researcher's "why it may matter" framing, need an
+actual relevance check against the domain's mission before research
+proceeds, rather than relying entirely on feed curation at approval time
+to keep everything on-topic.
