@@ -2097,3 +2097,51 @@ before committing. Every existing example in these shared prompts is an
 abstract, ellipsis-style template ("we have concluded that ..."), never
 a filled-in claim about a specific domain's subject matter; replaced
 with the same style.
+
+## 2026-10-16 · A new Moltbook post type: announcing a changed mind
+
+Suggested as a demo-worthy feature, approved by the owner: when the
+organization retires a hypothesis, or an accepted one is superseded by a
+later finding, say so plainly on Moltbook -- what was believed, what came
+in that changed it, and what is believed now, if anything. The mission
+already asks for this ("track how beliefs change ... say plainly what we
+do not know"); almost nothing else does it in public, which is the point.
+
+Built as `roles/announcer.py` (job kind `announce`, prompt `announce.md`),
+closely following `drafter.py`'s shape: the Researcher drafts from memory
+only (the hypothesis, its confidence history, its evidence, and either
+the critique that was never settled or the hypothesis that replaced it),
+and the draft lands as a proposed decision with topic `post`, exactly
+like any other Moltbook post -- no new approval path, no new publisher
+logic, nothing that bypasses the owner.
+
+Triggered deterministically in `historian.py`, at the two exact points a
+hypothesis's status already changes this way (not by the Strategist's
+judgment, the same way "one scout a day" is a code-level floor, not a
+model choice):
+- A hypothesis retiring (critiques exhausted past MAX_LIFETIME_CRITIQUES)
+  is always announced.
+- A hypothesis being superseded is announced only when the one replaced
+  was itself `accepted`. Refining a still-provisional hypothesis (under
+  review or proposed) into a better one is just ordinary research
+  progress and happens constantly; a settled, accepted belief later being
+  revised is the rarer, genuinely newsworthy case this feature exists
+  for. Without this distinction, routine refinements would have made
+  `announce` noisy quickly.
+
+Either way, gated on the hypothesis's domain actually having a Moltbook
+presence (`"moltbook" in domain.discovery_sources`, the same gate the
+Strategist's own `draft` trigger already uses) -- announcing anywhere
+only makes sense where the organization has a presence to announce to.
+
+`announce.md` tells the model explicitly not to echo an internal label
+(X1, Y1, H1...) into the body, the same caution `draft.md` already
+carries -- this draft's free-text body is written from scratch by the
+model (unlike `answerer.compose()`'s structured citations), so the risk
+here is a stray label leaking into public text verbatim, not a label
+being stripped and leaving a grammatical gap (that is `reply.md`'s
+mechanism, fixed earlier today, not this one's).
+
+`jobs.kind` has a database CHECK constraint enumerating every valid job
+kind; adding `announce` needed a migration (0016), the usual
+drop-and-recreate pattern every prior job kind addition has used.

@@ -9,6 +9,7 @@ import pytest
 from conftest import FakeProvider
 
 from collegium import jobs, worker
+from collegium.roles.announcer import AnnouncementDraft
 from collegium.roles.base import EvidenceItem, SearchPlan, Stance
 from collegium.roles.researcher import ProposedHypothesis, ResearchFindings
 from collegium.roles.scout import (
@@ -323,9 +324,81 @@ def test_accepted_refinement_supersedes_the_original(
             (rows[refined]["id"], rows[HYPOTHESIS]["id"]),
         ).fetchone()
         assert link["n"] == 1
+        # This domain has no Moltbook presence: no point announcing there.
+        announced = conn.execute("SELECT count(*) AS n FROM jobs WHERE kind = 'announce'")
+        assert announced.fetchone()["n"] == 0
 
 
-def test_failed_job_is_retried_later_and_writes_nothing(
+def test_a_superseded_accepted_hypothesis_is_announced_when_the_domain_reads_moltbook(
+    make_context, llm, board_db, worker_db, add_domain
+):
+    """An accepted belief being revised is "we changed our mind" and worth
+    telling other agents about, in a domain with a Moltbook presence."""
+    domain_id = add_domain()
+    with board_db.acting_as("owner") as conn:
+        conn.execute(
+            "UPDATE domains SET discovery_sources = '{fake,moltbook}' WHERE id = %s", (domain_id,)
+        )
+    ctx = make_context(PAGES, extra_sources={"moltbook": FakeProvider({})})
+    script_scout(llm)
+    script_research(llm)
+    script_review(llm)
+    enqueue_scout(board_db, domain_id)
+    worker.drain(ctx)
+
+    refined = "List prices for frontier inference halve yearly, but promotions exaggerate it."
+    llm.add(SearchPlan, SearchPlan(queries=["enterprise AI list prices"]))
+    llm.add(
+        ScoutReport,
+        ScoutReport(
+            observations=[
+                ProposedObservation(
+                    quote=(
+                        "Independent analysts found that several recent price reductions "
+                        "were temporary promotional offers"
+                    ),
+                    statement="Analysts say recent AI price cuts were partly promotional.",
+                    source=2,
+                    why_it_matters="Challenges the accepted view on falling costs.",
+                    investigate=True,
+                )
+            ]
+        ),
+    )
+    script_research(llm, refines="E1", statement=refined, confidence=0.6)
+    script_review(llm, confidence=0.75)
+    llm.add(
+        AnnouncementDraft,
+        AnnouncementDraft(
+            title="We no longer hold our original price-cut hypothesis",
+            body=(
+                "We were investigating whether AI inference costs were falling broadly. "
+                "A later analysis found list prices for enterprise contracts largely "
+                "unchanged, with the apparent cuts mostly promotional. We now hold the "
+                "narrower view instead: list prices still fall yearly, but promotions "
+                "exaggerate the pace."
+            ),
+            question="Has anyone seen list-price data that contradicts this narrower view?",
+            submolt="m/ai-agents",
+            why="A previously accepted belief was revised; worth telling other agents.",
+        ),
+    )
+    enqueue_scout(board_db, domain_id)
+    worker.drain(ctx)
+
+    with worker_db.reading() as conn:
+        old_id = conn.execute(
+            "SELECT id FROM hypotheses WHERE statement = %s", (HYPOTHESIS,)
+        ).fetchone()["id"]
+        d = conn.execute("SELECT * FROM decisions WHERE topic = 'post'").fetchone()
+        kinds = [r["kind"] for r in conn.execute("SELECT kind FROM jobs WHERE kind = 'announce'")]
+    assert kinds == ["announce"]
+    assert d["details"]["hypothesis_id"] == str(old_id)
+    assert "exaggerate" in d["details"]["content"]
+    assert "[Y" not in d["details"]["content"] and "[X" not in d["details"]["content"]
+
+
+def test_failed_job_is_retired_later_and_writes_nothing(
     make_context, llm, board_db, worker_db, add_domain
 ):
     domain_id = add_domain()

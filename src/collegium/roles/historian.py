@@ -114,6 +114,7 @@ class Historian(Role):
                 f"{len(blockers)} blocking critiques)"
             ]
             open_blockers = [c for c in blockers if c["status"] == "open"]
+            retiring = False
             if status == "under_review" and open_blockers:
                 if round_ < MAX_ROUNDS:
                     jobs.enqueue(
@@ -125,6 +126,7 @@ class Historian(Role):
                     notes.append(f"sent for critique resolution, round {round_ + 1}")
                 elif len(critiques) >= MAX_LIFETIME_CRITIQUES:
                     status = "retired"
+                    retiring = True
                     notes.append(
                         f"retired: {len(open_blockers)} critique(s) still open after "
                         f"{len(critiques)} critiques across repeated attempts to resolve them"
@@ -133,14 +135,50 @@ class Historian(Role):
                     notes.append(f"critiques still open after {MAX_ROUNDS} rounds")
             if status != h["status"]:
                 memory.set_hypothesis_status(conn, hypothesis_id, status)
+            if retiring and _reads_moltbook(conn, hypothesis_id):
+                jobs.enqueue(
+                    conn,
+                    "announce",
+                    {"hypothesis_id": hypothesis_id, "reason": "retired"},
+                    parent_job_id=job.id,
+                )
+                notes.append("announcing the retirement")
             if status == "accepted":
                 for old_id in memory.refined_hypotheses(conn, hypothesis_id):
                     old = memory.hypothesis(conn, old_id)
                     if old and old["status"] in memory.LIVE_HYPOTHESIS_STATUSES:
+                        was_accepted = old["status"] == "accepted"
                         memory.set_hypothesis_status(
                             conn, old_id, "superseded", superseded_by=hypothesis_id
                         )
                         notes.append(f"superseded {old_id}")
+                        # Only a settled belief being revised is "we changed
+                        # our mind"; a still-provisional one being refined
+                        # is just ordinary research progress, not news.
+                        if was_accepted and _reads_moltbook(conn, old_id):
+                            jobs.enqueue(
+                                conn,
+                                "announce",
+                                {
+                                    "hypothesis_id": old_id,
+                                    "reason": "superseded",
+                                    "superseded_by": hypothesis_id,
+                                },
+                                parent_job_id=job.id,
+                            )
+                            notes.append(f"announcing that {old_id} was superseded")
             return "; ".join(notes)
 
         return persist
+
+
+def _reads_moltbook(conn: Connection, hypothesis_id: UUID) -> bool:
+    """Whether any domain this hypothesis belongs to reads Moltbook --
+    posting an announcement only makes sense where the organization
+    already has a presence there, the same gate the Strategist's own
+    draft trigger uses."""
+    for domain_id in memory.node_domain_ids(conn, hypothesis_id):
+        domain = memory.domain(conn, domain_id)
+        if domain and "moltbook" in (domain["discovery_sources"] or []):
+            return True
+    return False

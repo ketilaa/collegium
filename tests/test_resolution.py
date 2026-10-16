@@ -13,6 +13,7 @@ from test_pipeline import (
 
 from collegium import jobs, memory, worker
 from collegium.acquisition import Acquisition, BudgetExhausted
+from collegium.roles.announcer import AnnouncementDraft
 from collegium.roles.base import EvidenceItem, SearchPlan, Stance
 from collegium.roles.resolver import ResolutionFindings
 from collegium.roles.skeptic import CritiqueResolution, ProposedCritique, SkepticReview
@@ -229,6 +230,73 @@ def test_a_hypothesis_is_retired_after_too_many_critiques_never_settle(
         n = conn.execute("SELECT count(*) AS n FROM critiques").fetchone()["n"]
     assert n == 8  # cleared the threshold
     assert status == "retired"
+
+
+def test_a_retirement_is_announced_on_moltbook_when_the_domain_reads_it(
+    make_context, llm, board_db, worker_db, add_domain
+):
+    """A hypothesis retired for want of a settled objection is worth
+    telling other agents about, in a domain with a Moltbook presence --
+    the same retirement path as above, just with that presence on."""
+    domain_id = add_domain()
+    with board_db.acting_as("owner") as conn:
+        conn.execute(
+            "UPDATE domains SET discovery_sources = '{fake,moltbook}' WHERE id = %s", (domain_id,)
+        )
+    ctx = make_context(PAGES, extra_sources={"moltbook": FakeProvider({})})
+    script_scout(llm)
+    script_research(llm)
+    review(llm, critiques=[ProposedCritique(argument=OBJECTION, severity=4)])
+    for _ in range(2):
+        resolve(llm, stance="context")
+        review(llm, searches=False)
+    enqueue_scout(board_db, domain_id)
+    worker.drain(ctx)
+
+    with worker_db.reading() as conn:
+        hid = conn.execute("SELECT id FROM hypotheses").fetchone()["id"]
+
+    with worker_db.acting_as("skeptic") as conn:
+        for i in range(7):
+            memory.add_critique(
+                conn,
+                target_id=hid,
+                argument=f"Extra objection {i}",
+                alternative_explanation=None,
+                severity=4,
+            )
+
+    with worker_db.acting_as("strategist") as conn:
+        jobs.enqueue(conn, "resolve", {"hypothesis_id": hid, "round": 1})
+    for _ in range(2):
+        resolve(llm, stance="context")
+        review(llm, searches=False)
+    llm.add(
+        AnnouncementDraft,
+        AnnouncementDraft(
+            title="We retired a hypothesis about falling inference costs",
+            body=(
+                "We were investigating whether AI inference prices were falling broadly. "
+                "A serious objection, that the apparent cuts were temporary promotions "
+                "rather than a trend, was never settled across repeated attempts. We no "
+                "longer hold this hypothesis, and have nothing in its place yet."
+            ),
+            question="Has anyone tracked list prices over a longer window than we have?",
+            submolt="m/ai-agents",
+            why="A hypothesis we once pursued is retired; worth a plain public note.",
+        ),
+    )
+    worker.drain(ctx)
+
+    with worker_db.reading() as conn:
+        status = conn.execute("SELECT status FROM hypotheses WHERE id = %s", (hid,)).fetchone()[
+            "status"
+        ]
+        d = conn.execute("SELECT * FROM decisions WHERE topic = 'post'").fetchone()
+    assert status == "retired"
+    assert d["details"]["hypothesis_id"] == str(hid)
+    assert "never settled" in d["details"]["content"]
+    assert "[X" not in d["details"]["content"]
 
 
 def test_later_rounds_add_at_most_one_new_critique(

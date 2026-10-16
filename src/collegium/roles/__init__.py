@@ -1,5 +1,6 @@
 """The organization's roles, keyed by the job kind each one handles."""
 
+from collegium.roles.announcer import Announcer
 from collegium.roles.answerer import Answerer
 from collegium.roles.base import Role
 from collegium.roles.corroborator import Corroborator
@@ -27,5 +28,6 @@ ROLES: dict[str, Role] = {
         Answerer(),
         Drafter(),
         Replier(),
+        Announcer(),
     )
 }
