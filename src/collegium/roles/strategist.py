@@ -13,7 +13,10 @@ then applies the rules that are not the model's to decide:
 - actions are queued most important first, within the remaining paid
   budget when search is paid, or up to MAX_FREE_ACTIONS a plan when search
   and reading are free (the local model's time is then the limit);
-  first, and one scout per day is always kept;
+  first, and one scout per day is always kept; a well-supported hypothesis
+  whose critique loop ran out of rounds (`strategy.second_attempt_candidates`)
+  always gets one more resolve attempt too, since the model's own choice of
+  actions almost never revisits one on its own;
 - a program is only ever proposed, as a decision for the owner; a new
   goal may be linked to a program (its `program_id`), the one just
   proposed or an existing one, when the model says it serves it;
@@ -125,6 +128,7 @@ class Strategist(Role):
             abandoned = memory.closed_goals(conn, [domain_id], "abandoned")
             candidates = strategy.source_candidates(conn, domain_id)[:MAX_SOURCE_PROPOSALS]
             gaps = strategy.find_gaps(conn, domain_id)
+            backlog = strategy.second_attempt_candidates(conn, domain_id)
             follow_ups = memory.follow_ups_due(conn, domain_id)
             ask_community = (
                 strategy.post_candidate(conn, domain_id, gaps)
@@ -196,6 +200,7 @@ class Strategist(Role):
             queued: list[str] = []
             skipped = 0
             scouted = False
+            resolve_targets: set[UUID] = set()
             existing_goals = {memory.statement_key(g["statement"]): g["id"] for g in goals}
             for planned in sorted(plan.goals, key=lambda g: g.priority):
                 goal_id = labels.get((planned.existing or "").strip().upper())
@@ -242,6 +247,8 @@ class Strategist(Role):
                     )
                     queued.append(action.kind)
                     scouted |= action.kind == "scout"
+                    if action.kind == "resolve":
+                        resolve_targets.add(payload["hypothesis_id"])
 
             # One scout a day keeps the organization's view current, whatever
             # the plan says, if the budget allows.
@@ -249,6 +256,25 @@ class Strategist(Role):
                 if cost("scout") <= allowance:
                     jobs.enqueue(conn, "scout", {"domain_id": domain_id}, parent_job_id=job.id)
                     queued.append("scout")
+                else:
+                    skipped += 1
+
+            # A well-supported hypothesis whose critique loop ran out of
+            # rounds earns a second attempt deterministically, since the
+            # plan above almost never chooses to send one back on its own
+            # (docs/decisions.md, 2026-10-16).
+            for hypothesis_id in backlog:
+                if hypothesis_id in resolve_targets:
+                    continue  # the plan already sent this one back
+                if cost("resolve") <= allowance:
+                    jobs.enqueue(
+                        conn,
+                        "resolve",
+                        {"hypothesis_id": hypothesis_id, "round": 1},
+                        parent_job_id=job.id,
+                    )
+                    queued.append("resolve")
+                    allowance -= cost("resolve")
                 else:
                     skipped += 1
 

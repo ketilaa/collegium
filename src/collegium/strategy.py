@@ -14,7 +14,14 @@ from collegium import memory
 from collegium.db import Connection
 from collegium.grounding import mentions
 from collegium.reliability import classify
-from collegium.roles.historian import BLOCKING_SEVERITY, MIN_INDEPENDENT_SOURCES, site
+from collegium.roles.historian import (
+    ACCEPT_AT,
+    BLOCKING_SEVERITY,
+    MAX_LIFETIME_CRITIQUES,
+    MIN_INDEPENDENT_SOURCES,
+    blocking,
+    site,
+)
 from collegium.roles.resolver import MAX_ROUNDS
 
 # A domain not scouted for this long is a gap in itself.
@@ -107,6 +114,49 @@ def _loop_exhausted(conn: Connection, hypothesis_id: UUID) -> bool:
         (str(hypothesis_id), MAX_ROUNDS),
     ).fetchone()
     return row is not None
+
+
+def second_attempt_candidates(conn: Connection, domain_id: UUID, limit: int = 2) -> list[UUID]:
+    """Well-supported hypotheses (confidence >= historian.ACCEPT_AT) whose
+    critique loop used up its MAX_ROUNDS without clearing every blocking
+    critique, and have nothing already queued for them.
+
+    This gap already has a name ("unresolved critiques", above) and is
+    already shown to the model for it to act on if it chooses -- but in
+    practice it almost never does: of 134 such hypotheses checked live on
+    2026-10-16, 125 (93%) had gone through their one original attempt and
+    never been sent back, despite days of daily planning. The Strategist
+    keeps choosing to open new ground over finishing what is already
+    nearly a decision. So unlike the rest of this module, which only
+    describes gaps for the model to weigh, this one is enqueued directly,
+    the same way the Historian's own rules are not left to the model's
+    judgment. See docs/decisions.md, 2026-10-16."""
+    candidates: list[UUID] = []
+    for h in memory.live_hypotheses(conn, [domain_id], limit=50):
+        if h["status"] != "under_review" or h["confidence"] is None:
+            continue
+        if h["confidence"] < ACCEPT_AT:
+            continue
+        critiques = memory.critiques_of(conn, h["id"])
+        if not blocking(critiques) or len(critiques) >= MAX_LIFETIME_CRITIQUES:
+            continue
+        if not _loop_exhausted(conn, h["id"]) or _has_pending_attempt(conn, h["id"]):
+            continue
+        candidates.append(h["id"])
+        if len(candidates) == limit:
+            break
+    return candidates
+
+
+def _has_pending_attempt(conn: Connection, hypothesis_id: UUID) -> bool:
+    return (
+        conn.execute(
+            "SELECT 1 FROM jobs WHERE kind IN ('resolve', 'review') "
+            "AND status IN ('pending', 'running') AND payload->>'hypothesis_id' = %s LIMIT 1",
+            (str(hypothesis_id),),
+        ).fetchone()
+        is not None
+    )
 
 
 # ---------------------------------------------------------------------------

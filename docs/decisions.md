@@ -1962,3 +1962,45 @@ from that state -- no CLI command, no board action -- only a new attempt
 succeeding would clear it, and no new attempt is made while halted. Left
 as an open thread rather than designed in the same turn as the logging
 fix.
+
+## 2026-10-16 · A well-supported hypothesis now gets a second critique-resolution attempt deterministically
+
+Asked to analyse whether the domains were producing valuable insights.
+Found: of 134 hypotheses across ai-agents and developers-ai that already
+have confidence >= historian.ACCEPT_AT but sit `under_review` because
+their critique loop ran out of MAX_ROUNDS without clearing a blocking
+critique, 125 (93%) had gone through their one original attempt and
+were never sent back, despite `strategy.find_gaps` already surfacing
+exactly this as an "unresolved critiques" gap and days of daily
+planning having passed. The mechanism for revisiting them already
+existed (the gap, and the Strategist's own ability to queue a resolve
+action for it); it was simply almost never the model's choice, against
+scouting new ground or chasing other gaps, within the handful of
+actions one plan allows.
+
+This is a throughput problem, not a capability one: the loop itself
+(2 rounds, targeted searches, confidence reassessment) works when run;
+it just needed to actually be run again. Added
+`strategy.second_attempt_candidates()`: deterministic, not model-chosen,
+the same way the Historian's own accept/reject/retire rules are not left
+to a model call. The Strategist now queues a fresh round-1 resolve for
+up to 2 such hypotheses per plan (skipping any the model's own plan
+already chose to resolve this run), within the same budget as everything
+else -- the same pattern as the existing "one scout a day" floor.
+
+Chose this over the alternatives considered: biasing the Strategist's
+prompt to prefer this gap (cheaper, but still depends on the model
+actually following the steer under its action-count ceiling, which is
+exactly the thing that already failed 125 times) and raising MAX_ROUNDS
+or the per-round query limit (would reduce how many hypotheses ever need
+a second life, but does nothing for the backlog already stuck, and the
+2-round cap looked like a deliberate choice rather than an oversight).
+
+Covered by two new tests in `tests/test_strategist.py`:
+`test_second_attempt_candidates_finds_the_stuck_and_excludes_the_rest`
+(confidence too low, already has a pending attempt, at
+`MAX_LIFETIME_CRITIQUES`, or the loop not actually exhausted yet, are
+each excluded on their own) and
+`test_a_stuck_hypothesis_gets_a_second_attempt_even_if_the_plan_ignores_it`
+(the floor queues one even when the model's plan has nothing for it, and
+does not double-queue one the plan already chose).

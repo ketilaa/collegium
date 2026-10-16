@@ -53,6 +53,63 @@ def domain_with_weak_hypothesis(make_context, llm, board_db, worker_db, add_doma
     return domain_id, ctx
 
 
+def _stuck_hypothesis(
+    conn, domain_id, *, confidence=0.7, severity=4, total_critiques=1, round_=2, pending=None
+):
+    """A hypothesis matching (or, varied, not matching) every condition
+    `strategy.second_attempt_candidates` checks for."""
+    hid = memory.add_hypothesis(conn, statement="A well-supported but stuck claim.", rationale=None)
+    memory.tag_domains(conn, hid, [domain_id])
+    memory.set_hypothesis_status(conn, hid, "under_review")
+    memory.assess_confidence(
+        conn, target_id=hid, target_kind="hypothesis", confidence=confidence, rationale="r"
+    )
+    for i in range(total_critiques):
+        memory.add_critique(
+            conn,
+            target_id=hid,
+            argument=f"Objection {i}",
+            alternative_explanation=None,
+            severity=severity if i == 0 else 1,
+        )
+    resolve_job = jobs.enqueue(conn, "resolve", {"hypothesis_id": hid, "round": round_}, priority=2)
+    jobs.succeed(conn, resolve_job, None)
+    if pending:
+        jobs.enqueue(conn, pending, {"hypothesis_id": hid}, priority=2)
+    return hid
+
+
+def test_second_attempt_candidates_finds_the_stuck_and_excludes_the_rest(add_domain, worker_db):
+    domain_id = add_domain()
+    with worker_db.acting_as("researcher") as conn:
+        good = _stuck_hypothesis(conn, domain_id)
+        _stuck_hypothesis(conn, domain_id, confidence=0.5)  # below ACCEPT_AT
+        _stuck_hypothesis(conn, domain_id, pending="review")  # already has another attempt
+        _stuck_hypothesis(conn, domain_id, total_critiques=8)  # the Historian's job now
+        _stuck_hypothesis(conn, domain_id, round_=1)  # loop not actually exhausted yet
+    with worker_db.reading() as conn:
+        assert strategy.second_attempt_candidates(conn, domain_id) == [good]
+
+
+def test_a_stuck_hypothesis_gets_a_second_attempt_even_if_the_plan_ignores_it(
+    add_domain, worker_db, board_db, llm, make_context
+):
+    domain_id = add_domain()
+    ctx = make_context()
+    with worker_db.acting_as("researcher") as conn:
+        stuck = _stuck_hypothesis(conn, domain_id)
+    llm.add(StrategyPlan, StrategyPlan(assessment="a", goals=[]))
+    _strategize(board_db, domain_id)
+    assert worker.run_once(ctx)
+    with worker_db.reading() as conn:
+        fresh_attempts = conn.execute(
+            "SELECT count(*) AS n FROM jobs WHERE kind = 'resolve' AND status = 'pending' "
+            "AND (payload->>'hypothesis_id')::uuid = %s AND payload->>'round' = '1'",
+            (stuck,),
+        ).fetchone()["n"]
+    assert fresh_attempts == 1
+
+
 def _strategize(board_db, domain_id):
     with board_db.acting_as("owner") as conn:
         jobs.enqueue(conn, "strategize", {"domain_id": domain_id})
