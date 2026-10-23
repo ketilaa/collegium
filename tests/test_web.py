@@ -56,6 +56,7 @@ def test_every_page_renders(client, researched, worker_db):
     oid = _one(worker_db, "SELECT id FROM observations LIMIT 1")
     for path in [
         "/",
+        "/domains/ai-agents",
         "/programs",
         "/goals",
         "/goals?all=1",
@@ -91,6 +92,29 @@ def test_hypothesis_page_explains_the_belief(client, researched, worker_db):
 def test_unknown_records_are_not_found(client):
     assert client.get("/hypotheses/00000000-0000-0000-0000-000000000000").status_code == 404
     assert client.get("/hypotheses/not-a-uuid").status_code == 422
+
+
+def test_domain_story_gathers_one_domain_apart_from_the_rest(
+    client, researched, worker_db, board_db
+):
+    """The story page shows this domain's own mission, and an accepted
+    hypothesis under "What we've learned", with its confidence."""
+    with board_db.acting_as("owner") as conn:
+        memory.set_mission(conn, "Track AI and agents.", domain_id=researched)
+    with worker_db.reading() as conn:
+        h = conn.execute(
+            "SELECT * FROM hypothesis_overview WHERE status = 'accepted' LIMIT 1"
+        ).fetchone()
+    page = client.get("/domains/ai-agents").text
+    assert "Track AI and agents." in page
+    assert "What's blocking us" in page
+    assert "Where we're focused" in page
+    assert str(escape(h["statement"])) in page
+    assert f"{h['current_confidence']:.2f} confidence" in page
+
+
+def test_unknown_domain_is_not_found(client):
+    assert client.get("/domains/no-such-domain").status_code == 404
 
 
 def test_outside_text_is_escaped_and_bad_links_are_not_links(client, worker_db, add_domain):

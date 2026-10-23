@@ -2242,6 +2242,45 @@ result was dropped, and the first scout job failed with "no leads"
 despite the stub answering every call correctly. Fixed by dating stub
 responses `datetime.now(UTC)` instead of a fixed string.
 
+## 2026-10-23 · A domain's story, told in one place
+
+The owner wanted one page per domain telling its whole story -- what has
+been learned, what is blocking it, where attention is going -- instead
+of the same facts split disjointly across the Hypotheses, Programs,
+Goals, Contradictions and Decisions tabs with nothing connecting them.
+Mocked up first as an Artifact design before any code, to settle the
+shape and content before building it.
+
+Built entirely from facts the board already had, or could derive from
+existing queries -- no new model call, no schema change:
+
+- **`strategy.find_gaps`** (built for the Strategist, Milestone 3) is
+  exactly "what's blocking us": weak support, unresolved critiques,
+  unstudied entities, a stale domain. Reused as-is.
+- **The Strategist's own daily `assessment`** ("two or three sentences
+  on what the organization knows", `strategist.md`) already existed,
+  but only as the first segment of `runs.notes` -- generated every
+  strategize run and then never shown anywhere. `memory.latest_assessment`
+  recovers it (the first "; "-delimited segment of the latest successful
+  strategize run's notes for the domain, if it starts with the fixed
+  "assessment: " prefix `_propose_program`'s caller always writes) and
+  the story page surfaces it as the lede. Free: it cost nothing to
+  generate in the first place.
+- Accepted hypotheses, open programs, decisions still waiting and a
+  domain-scoped slice of "recently" round out the rest
+  (`board.domain_story`, `GET /domains/{slug}`, `domain.html`) --
+  existing CSS classes throughout (`card`, `columns`, `callout`,
+  `plain`, `status`), no new styling.
+- The mockup's "a live contradiction" imagined two opposing hypotheses
+  side by side; the schema's actual contradiction shape (from
+  `board.contradictions`) is one hypothesis with evidence pulling both
+  ways, not a pair. The real page shows that instead -- the mockup set
+  the shape of the page, not the literal content, where the two
+  disagreed.
+- Linked from `domains.html` and the per-domain mission line on the
+  overview; the old tabs stay as they are, reachable from the story
+  page's own footer -- this sits above them, it does not replace them.
+
 ## 2026-10-23 · A backup on every deploy, rotated separately from the daily ones
 
 The owner asked for the database to always be backed up on deploy, kept

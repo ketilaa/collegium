@@ -227,6 +227,14 @@ def create_app(settings: Settings, database: Callable[[], Database], crawler=Non
             sources=discovery_source_names(settings),
         )
 
+    @app.get("/domains/{slug}", response_class=HTMLResponse)
+    def domain_story(request: Request, slug: str, conn: Reading):
+        d = memory.domain_by_slug(conn, slug)
+        if d is None:
+            raise HTTPException(404, "No such domain")
+        story = board.domain_story(conn, d["id"])
+        return page(request, "domain.html", **story)
+
     @app.get("/goals", response_class=HTMLResponse)
     def goals(request: Request, conn: Reading, all: bool = False):
         return page(request, "goals.html", goals=board.goals(conn, include_all=all), all=all)

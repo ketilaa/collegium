@@ -5,7 +5,7 @@ from collections.abc import Callable
 from datetime import datetime
 from uuid import UUID
 
-from collegium import memory
+from collegium import memory, strategy
 from collegium.acquisition.moltbook import OWN_ACCOUNT
 from collegium.db import Connection
 from collegium.roles.historian import ACCEPT_AT, BLOCKING_SEVERITY
@@ -26,6 +26,63 @@ def domains(conn: Connection) -> list[dict]:
     return conn.execute(
         "SELECT id, slug, name, description, status, discovery_sources FROM domains ORDER BY slug"
     ).fetchall()
+
+
+# ---------------------------------------------------------------------------
+# One domain's story: what the Mission, Hypotheses, Programs, Goals,
+# Contradictions and Decisions tabs would otherwise show split apart.
+# ---------------------------------------------------------------------------
+
+
+def domain_story(conn: Connection, domain_id: UUID) -> dict | None:
+    domain = memory.domain(conn, domain_id)
+    if domain is None:
+        return None
+    learned = conn.execute(
+        "SELECT h.* FROM hypothesis_overview h JOIN node_domains d ON d.node_id = h.id "
+        "WHERE d.domain_id = %(domain_id)s AND h.status = 'accepted' "
+        "ORDER BY h.current_confidence DESC NULLS LAST LIMIT 5",
+        {"domain_id": domain_id},
+    ).fetchall()
+    contested = conn.execute(
+        "SELECT h.* FROM hypothesis_overview h JOIN node_domains d ON d.node_id = h.id "
+        "WHERE d.domain_id = %(domain_id)s AND h.status = ANY(%(live)s) "
+        "AND h.supporting_evidence > 0 AND h.contradicting_evidence > 0 "
+        "ORDER BY least(h.supporting_evidence, h.contradicting_evidence) DESC, "
+        "h.current_confidence DESC NULLS LAST LIMIT 1",
+        {"domain_id": domain_id, "live": list(LIVE)},
+    ).fetchone()
+    decisions = conn.execute(
+        "SELECT dec.*, a.name AS proposed_by, n.created_at FROM decisions dec "
+        "JOIN nodes n ON n.id = dec.id JOIN actors a ON a.id = n.created_by "
+        "JOIN node_domains nd ON nd.node_id = dec.id "
+        "WHERE nd.domain_id = %(domain_id)s AND dec.status = 'proposed' "
+        "ORDER BY n.created_at",
+        {"domain_id": domain_id},
+    ).fetchall()
+    recent = conn.execute(
+        "SELECT 'observation' AS kind, o.statement AS text, n.created_at AS at "
+        "FROM observations o JOIN nodes n ON n.id = o.id "
+        "JOIN node_domains d ON d.node_id = o.id WHERE d.domain_id = %(domain_id)s "
+        "UNION ALL "
+        "SELECT 'status change' AS kind, "
+        "h.statement || ' -- ' || s.from_status || ' to ' || s.to_status AS text, s.at "
+        "FROM hypothesis_status_history s JOIN hypotheses h ON h.id = s.hypothesis_id "
+        "JOIN node_domains d ON d.node_id = h.id WHERE d.domain_id = %(domain_id)s "
+        "ORDER BY at DESC LIMIT 6",
+        {"domain_id": domain_id},
+    ).fetchall()
+    return {
+        "domain": domain,
+        "mission": memory.mission(conn, domain_id),
+        "assessment": memory.latest_assessment(conn, domain_id),
+        "gaps": strategy.find_gaps(conn, domain_id),
+        "learned": learned,
+        "contested": contested,
+        "programs": memory.programs(conn, [domain_id]),
+        "decisions": decisions,
+        "recent": recent,
+    }
 
 
 # ---------------------------------------------------------------------------

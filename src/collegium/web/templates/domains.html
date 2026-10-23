@@ -7,7 +7,7 @@
 
 {% for d in domains %}
   <article class="card">
-    <h2>{{ d.name }} {{ status(d.status) }}</h2>
+    <h2><a href="/domains/{{ d.slug }}">{{ d.name }}</a> {{ status(d.status) }}</h2>
     <div class="meta"><code>{{ d.slug }}</code></div>
     {% if d.description %}<p>{{ d.description }}</p>{% endif %}
 

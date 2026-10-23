@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status %}
+{% block title %}{{ domain.name }}{% endblock %}
+{% block content %}
+<p class="crumb"><a href="/domains">Domains</a> / {{ domain.name }}</p>
+<h1>{{ domain.name }}</h1>
+{% if mission %}
+  <p class="lede">&ldquo;{{ mission.statement }}&rdquo;</p>
+{% else %}
+  <p class="empty">No mission set for this domain yet. <a href="/mission">Set one</a>.</p>
+{% endif %}
+
+{% if assessment %}
+<section class="card">
+  <p class="meta">{{ assessment.at|local("%Y-%m-%d %H:%M") }} &middot; from the Strategist's last plan</p>
+  <p class="prose">{{ assessment.text }}</p>
+</section>
+{% endif %}
+
+{% if decisions %}
+<section class="callout">
+  <h2>Waiting on you</h2>
+  <ul class="plain">
+    {% for d in decisions %}
+      <li><strong>{{ d.statement }}</strong>
+        <div class="meta">Proposed by the {{ d.proposed_by }} on {{ d.created_at|local("%Y-%m-%d") }}</div>
+        <p>{{ d.rationale }}</p></li>
+    {% endfor %}
+  </ul>
+  <p><a href="/decisions">Decide</a></p>
+</section>
+{% endif %}
+
+<div class="columns">
+  <section>
+    <h2>What we've learned</h2>
+    {% if learned %}
+      <ul class="plain">
+        {% for h in learned %}
+          <li><a href="/hypotheses/{{ h.id }}">{{ h.statement }}</a>
+            <div class="meta">{{ h.current_confidence|confidence }} confidence &middot; {{ h.supporting_evidence }} supporting citation{{ "s" if h.supporting_evidence != 1 }}</div></li>
+        {% endfor %}
+      </ul>
+    {% else %}<p class="empty">Nothing accepted yet.</p>{% endif %}
+  </section>
+
+  <section>
+    <h2>What's blocking us</h2>
+    {% if gaps %}
+      <ul class="plain">
+        {% for g in gaps %}
+          <li><span class="status">{{ g.kind }}</span>
+            <p>{{ g.description }}</p></li>
+        {% endfor %}
+      </ul>
+    {% else %}<p class="empty">No open gaps right now.</p>{% endif %}
+  </section>
+</div>
+
+<h2>Where we're focused</h2>
+{% if programs %}
+  <div class="columns">
+    {% for p in programs %}
+      <article class="card">
+        <h2>{{ status(p.status) }} {{ p.name }}</h2>
+        <p>{{ p.charter }}</p>
+      </article>
+    {% endfor %}
+  </div>
+{% else %}<p class="empty">No open research programs.</p>{% endif %}
+
+{% if contested %}
+<h2>A live contradiction</h2>
+<article class="card">
+  <p><a href="/hypotheses/{{ contested.id }}">{{ contested.statement }}</a></p>
+  <p class="meta">{{ contested.supporting_evidence }} piece(s) of evidence support it, {{ contested.contradicting_evidence }} contradict it</p>
+</article>
+<p class="meta"><a href="/contradictions">All contradictions</a></p>
+{% endif %}
+
+<h2>Recently</h2>
+{% if recent %}
+  <ul class="plain">
+    {% for r in recent %}
+      <li><span class="meta nowrap">{{ r.at|local("%Y-%m-%d") }}</span> {{ r.text }}</li>
+    {% endfor %}
+  </ul>
+{% else %}<p class="empty">Nothing recorded yet.</p>{% endif %}
+
+<p class="meta">Still browsable on their own: <a href="/hypotheses">Hypotheses</a> &middot; <a href="/programs">Programs</a> &middot; <a href="/goals">Goals</a> &middot; <a href="/contradictions">Contradictions</a> &middot; <a href="/decisions">Decisions</a></p>
+{% endblock %}

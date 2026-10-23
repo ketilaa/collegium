@@ -438,6 +438,26 @@ def program_targets(conn: Connection, program_ids: list[UUID]) -> dict[UUID, set
     return {row["program_id"]: set(row["targets"]) for row in rows}
 
 
+def latest_assessment(conn: Connection, domain_id: UUID) -> dict | None:
+    """The Strategist's own account of where this domain stands, from its
+    most recent successful strategize run: the first thing `persist()`
+    puts in `runs.notes` (`strategist.py`'s `notes = [f"assessment: ..."]`),
+    everything after it being this same run's other, unrelated notes."""
+    row = conn.execute(
+        "SELECT r.notes, r.finished_at FROM runs r JOIN jobs j ON j.run_id = r.id "
+        "WHERE j.kind = 'strategize' AND j.status = 'succeeded' "
+        "AND j.payload->>'domain_id' = %s AND r.notes IS NOT NULL "
+        "ORDER BY r.finished_at DESC LIMIT 1",
+        (str(domain_id),),
+    ).fetchone()
+    if row is None:
+        return None
+    first = row["notes"].split("; ", 1)[0]
+    if not first.startswith("assessment: "):
+        return None
+    return {"text": first.removeprefix("assessment: "), "at": row["finished_at"]}
+
+
 def set_observation_status(conn: Connection, observation_id: UUID, status: str) -> None:
     conn.execute("UPDATE observations SET status = %s WHERE id = %s", (status, observation_id))
 

@@ -8,7 +8,7 @@
   {% if org %}<p class="mission-statement">{{ org.statement }}</p>{% else %}<p class="empty">No mission set yet. <a href="/mission">Set one</a> to tell the Strategist what the organization is for.</p>{% endif %}
   {% for d in missions.domains %}
     {% set m = d.missions|selectattr("status", "equalto", "approved")|first %}
-    {% if m %}<p class="meta"><strong>{{ d.domain.name }}:</strong> {{ m.statement }}</p>{% endif %}
+    {% if m %}<p class="meta"><strong><a href="/domains/{{ d.domain.slug }}">{{ d.domain.name }}</a>:</strong> {{ m.statement }}</p>{% endif %}
   {% endfor %}
 </section>
 {{ ops_strip(ops) }}
