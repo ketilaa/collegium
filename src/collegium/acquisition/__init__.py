@@ -492,7 +492,9 @@ def acquisition_from_settings(settings: Settings) -> Acquisition:
     # Free, keyless sources; a domain chooses which of them its Scout uses.
     discovery: dict[str, Discovery] = {
         "hackernews": HackerNewsDiscovery(),
-        "moltbook": MoltbookDiscovery(),
+        "moltbook": MoltbookDiscovery(
+            **({"site": settings.moltbook_base_url} if settings.moltbook_base_url else {})
+        ),
         "nva": NVADiscovery(),
         "brreg": BrregDiscovery(),
         "prh": PRHDiscovery(),
@@ -503,7 +505,10 @@ def acquisition_from_settings(settings: Settings) -> Acquisition:
         discovery["searxng"] = SearXNGDiscovery(settings.searxng_url)
     tavily = None
     if settings.tavily_api_key or settings.search_provider == "tavily":
-        tavily = TavilyProvider(require(settings.tavily_api_key, "TAVILY_API_KEY"))
+        tavily = TavilyProvider(
+            require(settings.tavily_api_key, "TAVILY_API_KEY"),
+            **({"base_url": settings.tavily_base_url} if settings.tavily_base_url else {}),
+        )
         discovery["tavily"] = tavily
     if settings.search_provider not in discovery:
         raise SystemExit(f"unknown COLLEGIUM_SEARCH_PROVIDER {settings.search_provider!r}")

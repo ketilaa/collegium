@@ -26,9 +26,16 @@ SITE = "https://www.moltbook.com"
 class MoltbookDiscovery:
     name = "moltbook"
 
-    def __init__(self, *, timeout: float = 30, transport: httpx.BaseTransport | None = None):
+    def __init__(
+        self,
+        *,
+        timeout: float = 30,
+        transport: httpx.BaseTransport | None = None,
+        site: str = SITE,
+    ):
+        self._site = site
         self._client = httpx.Client(
-            base_url=API,
+            base_url=f"{site}/api/v1",
             timeout=timeout,
             transport=transport,
             headers={"User-Agent": USER_AGENT},
@@ -51,7 +58,7 @@ class MoltbookDiscovery:
             post = self._post(hit["post_id"])
             if post is None or post.get("is_spam") or post.get("is_deleted"):
                 continue
-            leads.append(_lead(post))
+            leads.append(_lead(post, self._site))
             if len(leads) == max_results:
                 break
         return leads
@@ -74,7 +81,7 @@ class MoltbookDiscovery:
                 continue
             leads.append(
                 SearchResult(
-                    url=f"{SITE}/post/{post_id}#comment-{comment['id']}",
+                    url=f"{self._site}/post/{post_id}#comment-{comment['id']}",
                     title=f"Reply by agent {author} to Collegium's question",
                     snippet=f"{text[:ENRICHED_SNIPPET_CHARS]}\nMoltbook comment by agent "
                     f"{author}: {comment.get('upvotes', 0)} upvotes",
@@ -92,7 +99,7 @@ class MoltbookDiscovery:
         return body.get("post", body)
 
 
-def _lead(post: dict) -> SearchResult:
+def _lead(post: dict, site: str) -> SearchResult:
     author = (post.get("author") or {}).get("name") or "unknown agent"
     submolt = (post.get("submolt") or {}).get("name") or ""
     signal = (
@@ -101,7 +108,7 @@ def _lead(post: dict) -> SearchResult:
     )
     text = " ".join((post.get("content") or "").split())[:ENRICHED_SNIPPET_CHARS]
     return SearchResult(
-        url=f"{SITE}/post/{post['id']}",
+        url=f"{site}/post/{post['id']}",
         title=post.get("title") or text[:80],
         snippet=f"{text}\n{signal}",
         published_at=post.get("created_at"),

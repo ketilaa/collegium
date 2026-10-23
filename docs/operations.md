@@ -144,23 +144,72 @@ the 2026-10-07 cutover. If it is ever brought back as the live instance:
 | The model | http://localhost:8080/v1 |
 | Backups | `~/.collegium/backups` (`COLLEGIUM_BACKUP_DIR`), daily |
 
+## Local testing against a small model
+
+The last guard before a production deploy, run after tests and lint pass
+and before building: `scripts/localtest-smoke.sh` brings up the whole
+pipeline -- Postgres, a real (small) model, and stand-ins for Tavily and
+Moltbook -- in its own throwaway Compose project (`collegium-localtest`,
+a different database port, never the live one), then runs a scout,
+drains the pipeline it queues, and runs a strategize cycle through it
+for real. It fails if anything lands in `jobs.status = 'failed'`.
+
+A real model, not `ScriptedLLM`, on purpose: the point of this gate is to
+catch what the model-agnostic pytest suite cannot by construction --
+whether a prompt still gets the structured output it asks for, whether a
+real "thinking" model's output still parses, whether the whole job chain
+actually wires together end to end. `ScriptedLLM` stays what it is: fast,
+deterministic coverage of the logic itself, run on every commit; this is
+slower, non-deterministic, closer-to-real coverage of the integration,
+run before a deploy.
+
+Tavily and Moltbook are never actually reached: `COLLEGIUM_TAVILY_BASE_URL`
+and `COLLEGIUM_MOLTBOOK_BASE_URL` (unset everywhere else, so production is
+unaffected) point both at one small canned server
+(`scripts/local_test_stubs.py`, stdlib only, no project dependency, so it
+keeps working even if the project's own dependencies change). The test
+domain's discovery sources are Tavily only, and `COLLEGIUM_SEARCH_PROVIDER
+=tavily` so SearXNG (which would reach real search engines) is never
+used either -- the only real network access anywhere in this gate is the
+model's own first download from Hugging Face, which a named volume then
+caches.
+
+Setup: `cp .env.localtest.example .env.localtest` (throwaway passwords and
+keys; they do not need to be secret, just present), then
+`scripts/localtest-smoke.sh`. The `llm` and `stubs` services only exist
+under the `localtest` Compose profile (`docker compose --profile
+localtest ...`); a normal `up` never starts them.
+
 ## Deploying a change
 
 1. Tests and lint pass: `set -a; . ~/.collegium/.env; set +a; uv run pytest -q` (the tests need `POSTGRES_PASSWORD`), `uv run ruff check . && uv run ruff format .`
 2. Commit (when the owner has asked for it).
-3. **A migration only with the owner's explicit approval:**
+3. **The last guard, on the commit that is about to be deployed:**
+   `scripts/localtest-smoke.sh` (see "Local testing against a small
+   model" above). A real model and a real Compose build catch some
+   things step 1 cannot.
+4. **Always back up the database first, on every deploy, migration or
+   not.** A one-off backup (`db/backup.sh`, no `--loop`), kept to the 3
+   most recent on the server regardless of age (`BACKUP_KEEP_COUNT`,
+   separate from the daily loop's own `BACKUP_KEEP_DAYS` so deploys
+   cannot slowly fill the disk):
+   `docker compose $E run --rm --no-deps -e BACKUP_KEEP_COUNT=3 backup sh /db/backup.sh`
+   Then pull it to this machine right away, rather than waiting for the
+   next scheduled pull (see `~/.collegium/NOTES.md` on this machine):
+   `~/.collegium/pull-backups.sh`
+5. **A migration only with the owner's explicit approval:**
    `docker compose $E run --rm migrate`. Then, if logins changed:
    `docker compose $E run --rm --no-deps logins`.
-4. Build: `docker compose $E build worker web scheduler publisher`.
-5. Recreate everything except the worker, **always with `--no-deps`**
+6. Build: `docker compose $E build worker web scheduler publisher`.
+7. Recreate everything except the worker, **always with `--no-deps`**
    (otherwise Compose runs `migrate` as a dependency and applies any
    pending migration unasked):
    `docker compose $E up -d --no-deps web scheduler publisher`
-6. Recreate the worker **on its own, in the background**: it finishes its
+8. Recreate the worker **on its own, in the background**: it finishes its
    current job first (up to `stop_grace_period: 20m`), and Compose waits
    for it, so combining it with the others keeps the board down meanwhile:
    `docker compose $E up -d --no-deps worker` (run in background).
-7. SearXNG settings changes: `docker compose $E up -d --no-deps --force-recreate searxng`.
+9. SearXNG settings changes: `docker compose $E up -d --no-deps --force-recreate searxng`.
 
 ## Looking at the organization
 

@@ -12,9 +12,9 @@ class TavilyProvider:
     name = "tavily"
     metered = True  # every call costs credits
 
-    def __init__(self, api_key: str, *, timeout: float = 60, transport=None):
+    def __init__(self, api_key: str, *, timeout: float = 60, transport=None, base_url: str = API):
         self._client = httpx.Client(
-            base_url=API,
+            base_url=base_url,
             headers={"Authorization": f"Bearer {api_key}", "User-Agent": USER_AGENT},
             timeout=timeout,
             transport=transport,

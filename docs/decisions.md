@@ -2180,3 +2180,136 @@ Only checked when the new proposal's own first-batch goals name targets
 at all: a program proposed with no goal yet pointing at anything has
 nothing to compare, so the existing name-based checks are all that
 apply to it.
+## 2026-10-21 · A local smoke test, against a real small model, as the last guard before a deploy
+
+The owner asked for a way to test changes locally against a real model
+in Docker, with Tavily and Moltbook mocked, and framed it as the last
+guard before a production deploy -- not another unit-test layer.
+`ScriptedLLM` (every existing test) is deliberately model-agnostic: fast
+and deterministic, but it cannot catch a prompt that stops getting valid
+structured output from an actual model, or a "thinking" model's output
+failing to parse, or the job chain not actually wiring together end to
+end. That gap is this gate's whole reason to exist, so it runs a real
+model on purpose, never a scripted one.
+
+`scripts/localtest-smoke.sh` brings up Postgres, a real small model
+(`llm`: the official `llama.cpp` server image, Qwen3 1.7B GGUF -- small
+enough to run the smoke test quickly, with no claim its research
+judgement is representative of the production 8B model) and a canned
+stand-in for Tavily and Moltbook (`stubs`: `scripts/local_test_stubs.py`,
+stdlib only, no project dependency) in their own throwaway Compose
+project (`collegium-localtest`, its own database port via the new
+`COLLEGIUM_DB_PORT`, never the live one), then runs a scout, drains the
+pipeline it queues, and runs a strategize cycle through it for real
+(which also exercises today's program-duplicate check, above). It fails
+on any `jobs.status = 'failed'` row.
+
+Making Tavily and Moltbook's real, hardcoded hosts (`tavily.py`'s `API`,
+`moltbook.py`'s `API`/`SITE`) actually stoppable needed a real code
+change, not just test-side mocking, since the smoke test runs the actual
+containers, not pytest: both adapters now take an optional base URL
+(`TavilyProvider(base_url=...)`, `MoltbookDiscovery(site=...)`), wired
+through two new settings, `COLLEGIUM_TAVILY_BASE_URL` and
+`COLLEGIUM_MOLTBOOK_BASE_URL`, read only by `acquisition_from_settings`
+and unset everywhere else -- production's `.env` never sets them, so
+production is unaffected, and the Moltbook key (which the publisher
+alone holds) is never involved regardless, since discovery needs none.
+`moltbook.py`'s `SITE` was already used for two things, not one: the API
+host, and the public post/comment URLs recorded as evidence
+(`_lead`, `replies`) -- overriding it moves both together, so a
+local-test run's evidence URLs point at the stub too, consistently.
+
+Chosen over two other ways to stub the real hosts: a DNS/hosts-level
+redirect (`extra_hosts` plus a trusted self-signed certificate for the
+real hostnames) works without touching adapter code, but means trusting
+a certificate for `tavily.com`/`moltbook.com` inside the test containers
+-- more moving parts and a stranger thing to have lying around than an
+env var that is simply unset in every real deployment. In-process
+monkeypatching (what unit tests already do via each adapter's
+`transport=` parameter) does not reach here at all: the smoke test runs
+the real built image's own entrypoint, not a pytest process.
+
+The test domain's discovery sources are Tavily only, and
+`COLLEGIUM_SEARCH_PROVIDER=tavily` so SearXNG (free, but it reaches real
+search engines) is never used either -- the only real network access
+anywhere in this gate is the model's first pull from Hugging Face, which
+a named volume then caches.
+
+Found while first running it: the stub's canned search results and posts
+had a fixed 2026-01-01 date, which the Scout's recency window
+(`COLLEGIUM_SCOUT_RECENT_DAYS`) silently treats as too old -- every
+result was dropped, and the first scout job failed with "no leads"
+despite the stub answering every call correctly. Fixed by dating stub
+responses `datetime.now(UTC)` instead of a fixed string.
+
+## 2026-10-23 · A backup on every deploy, rotated separately from the daily ones
+
+The owner asked for the database to always be backed up on deploy, kept
+to 3 on the server, with a copy always on the dev machine too.
+
+Reused `db/backup.sh` rather than writing a second dump mechanism: it
+already supports a one-off run (`backup.sh`, no `--loop`) alongside the
+daily loop's own. The one new thing it needed was a way to prune by
+*count*, not just the loop's existing age-based `BACKUP_KEEP_DAYS` (30):
+a deploy happens far more often than once a month, so age-based pruning
+alone would let a steadily growing pile of deploy backups sit on the
+server between the monthly sweep. `BACKUP_KEEP_COUNT`, unset by default
+(the daily loop's own invocation never sets it, so its behaviour is
+unchanged), prunes to at most that many `collegium-*.dump` files
+regardless of age when set. The deploy step
+(`docs/operations.md`, "Deploying a change") sets it to 3 on the one-off
+call only: `docker compose $E run --rm --no-deps -e BACKUP_KEEP_COUNT=3
+backup sh /db/backup.sh`.
+
+Implemented as count the files, subtract 3, delete the oldest that many
+by sorted filename (the timestamp in the name sorts correctly) --
+deliberately not `head -n -3` (all-but-the-last-3), which is a GNU
+extension; the `backup` service's image is `postgres:*-alpine`, BusyBox
+coreutils, which does not have it. Tested directly in that image, not
+assumed.
+
+"A copy on the dev machine too" was already most of the way there: the
+laptop already pulls ai-lab's backups daily (`~/.collegium/pull-backups.sh`,
+2026-10-21). A deploy now runs that pull immediately after the backup,
+rather than leaving the new one to wait for the next scheduled run --
+the point of backing up right before a risky change is having the copy
+in hand at that moment, not up to 24 hours later.
+
+## 2026-10-23 · Two wrong guesses in the `llm` service, found by actually running it
+
+Running the local smoke test again (unchanged since 2026-10-21) to gate
+today's changes, the `llm` service never became healthy. Two separate
+bugs, both guesses made without checking, neither caught by the earlier
+entry because that day's one run happened to work before either mattered:
+
+- **The cached-model volume mounted the wrong path.** `-hf`'s downloader
+  turns out to use the Hugging Face Hub's own cache layout under
+  `$HOME`, not a llama.cpp-specific `~/.cache/llama.cpp` (which exists,
+  and is empty) -- confirmed by `docker exec`-ing into a running
+  container and finding the `.gguf` file directly, not by reading
+  documentation that does not say. The pre-commit hook's own
+  "no home directory paths" check (rightly) refused the root account's
+  own default home directory, which this image sets `$HOME` to, so the
+  `llm` service sets `HOME: /data` instead and the cache volume mounts
+  under that -- avoiding the refusal by actually not being a home
+  directory path, not by working around the check. A deploy's model
+  now survives a container recreate as the 2026-10-21 entry already
+  claimed it would (it didn't, until now).
+- **The image's own baked-in CA bundle cannot validate Hugging Face's
+  current certificate chain** ("unable to get local issuer
+  certificate"), on this network and, going by how old a frozen image's
+  packages usually are, plausibly on others too. The Colima VM's own
+  system trust store validates the same request fine, so `compose.yaml`
+  now bind-mounts the host's `/etc/ssl/certs/ca-certificates.crt` over
+  the image's, read-only. (A `/tmp`-based copy of that file failed to
+  mount at all under Colima -- host paths it does not map into the VM,
+  like `/tmp`, silently do not appear inside the container; the fix was
+  mounting the path directly, not a copy of it.)
+- Also removed a stray `--offline` flag added while chasing the first
+  bug: correct once the cache is warm, but with nothing cached yet it
+  fails instantly instead of downloading, which is every address this
+  profile starts from.
+
+Nothing here was guessed the second time without running it. The
+smoke test is only as trustworthy as the thing it is gating being
+exercised for real before being written down as working.

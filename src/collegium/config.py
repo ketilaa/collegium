@@ -70,6 +70,13 @@ class Settings:
         )
     )
     tavily_api_key: str | None = field(default_factory=lambda: _env("TAVILY_API_KEY"))
+    # Overrides Tavily's and Moltbook's real hosts: local testing only, so a
+    # small model can be exercised against stubbed external APIs instead of
+    # the real, paid or public ones. Unset means the real host, always.
+    tavily_base_url: str | None = field(default_factory=lambda: _env("COLLEGIUM_TAVILY_BASE_URL"))
+    moltbook_base_url: str | None = field(
+        default_factory=lambda: _env("COLLEGIUM_MOLTBOOK_BASE_URL")
+    )
 
     # Limits that keep prompts within a local model's context window.
     max_search_results: int = field(

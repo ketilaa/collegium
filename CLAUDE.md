@@ -86,6 +86,8 @@ uv run collegium feed add ai-agents <url> # approve a feed for a domain (also li
 
 Tests create a migrated template database and give each test a fresh copy (memory tables cannot be emptied). They connect as the `collegium` superuser with `SET ROLE collegium_worker`/`collegium_board`, so table grants are exercised, but the owner/system impersonation checks (which look at the login user) are not. Tests use `ScriptedLLM` and `FakeProvider` from `tests/conftest.py`; no model or API key is needed.
 
+`scripts/localtest-smoke.sh` is the last guard before a deploy: the whole pipeline against a real small model, with Tavily and Moltbook stubbed (never the live instance). See `docs/operations.md`, "Local testing against a small model".
+
 ## What Collegium is
 
 A persistent research organization with institutional memory, not a request/response chatbot. It keeps working between user sessions. Its core products are accumulated, structured, explainable knowledge and the history of how that knowledge changed. The user acts as board chair: they set research areas and priorities, review findings and challenge conclusions. They do not assign individual tasks.
