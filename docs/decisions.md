@@ -2381,8 +2381,8 @@ audit log (added 2026-10-08) could not be written on the host --
 `COLLEGIUM_PUBLISHER_LOG_DIR`'s bind mount (`./logs`) had been auto-created
 by Docker as `root` on first `up`, and the container runs as uid 10001 --
 so there was no durable trail of what the original three verification
-failures actually said either. Fixed by hand on ai-lab (`chown`), not a
-code change.
+failures actually said either. Fixed by hand on the host (`chown`), not
+a code change.
 
 Added a real recovery path: `publisher_resumes` (migration 0017), a table
 the owner writes to (`collegium publisher resume`, or the board; wired
@@ -2395,5 +2395,10 @@ outcome like any other. A resume granted before the halt it's meant to
 clear cannot count (checked against `created_at`, not just "unused"):
 otherwise a grant left over from an earlier halt the owner already looked
 at could silently wave through a later, unrelated one the owner has not
-seen yet. This still does not surface the halt proactively (the board/CLI
-gap above); only the "no way back" half of the open thread is closed.
+seen yet. Nor is a grant spent if there is nothing queued to attempt:
+`publish_next` only consumes it once it has a candidate post in hand
+(the security review, 2026-10-23, caught an earlier version that
+consumed it first and could burn the owner's one grant on an empty
+queue, reasserting the halt untested). This still does not surface the
+halt proactively (the board/CLI gap above); only the "no way back" half
+of the open thread is closed.

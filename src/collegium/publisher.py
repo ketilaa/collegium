@@ -267,15 +267,6 @@ def publish_next(
     Returns what happened, for the log."""
     now = now or datetime.now(UTC)
     halted_since = _halted_since(db)
-    if halted_since is not None:
-        with db.acting_as("publisher") as conn:
-            resumed = _consume_resume(conn, halted_since, now)
-        if not resumed:
-            return (
-                f"halted: the last {MAX_FAILED_VERIFICATIONS} verifications failed; "
-                "the owner must look before anything more is posted"
-            )
-        log.warning("resuming: an owner-granted resume let one attempt through despite the halt")
     with db.acting_as("publisher") as conn:
         # Any attempt counts, including one the forum turned away for its pace.
         last = {
@@ -294,6 +285,18 @@ def publish_next(
             "ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED",
             (ready,),
         ).fetchone()
+        if halted_since is not None:
+            # Only spend the resume once there is an actual attempt to
+            # make: a halt that reasserts itself untested, because nothing
+            # was queued, would waste the owner's grant for nothing.
+            if post is None or not _consume_resume(conn, halted_since, now):
+                return (
+                    f"halted: the last {MAX_FAILED_VERIFICATIONS} verifications failed; "
+                    "the owner must look before anything more is posted"
+                )
+            log.warning(
+                "resuming: an owner-granted resume let one attempt through despite the halt"
+            )
         if post is None:
             return "nothing to publish now"
         conn.execute(

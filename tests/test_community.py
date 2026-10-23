@@ -247,7 +247,20 @@ def test_a_failed_verification_is_recorded_and_repeated_failures_halt(
         )
     assert publisher.publish_next(publisher_db, forum.client(), llm).startswith("halted")
 
-    # The owner's resume lets exactly one attempt through.
+    # A valid resume granted with nothing queued is not spent on nothing:
+    # the halt is still reported, and the grant stays usable.
+    with board_db.acting_as("owner") as conn:
+        # Explicit created_at: this test fast-forwards `now`, so the real
+        # wall clock a bare grant_publisher_resume() would default to is
+        # still "before" the halt in the test's simulated timeline.
+        conn.execute(
+            "INSERT INTO publisher_resumes (created_at) VALUES (%s)",
+            (later + timedelta(seconds=1),),
+        )
+    assert publisher.publish_next(publisher_db, forum.client(), llm).startswith("halted")
+
+    # Once something is queued, that same still-unused grant lets exactly
+    # one attempt through.
     with board_db.acting_as("owner") as conn:
         decision = memory.add_decision(conn, statement="Post", rationale="r", topic="post")
         conn.execute(
@@ -259,13 +272,6 @@ def test_a_failed_verification_is_recorded_and_repeated_failures_halt(
             "INSERT INTO community_posts (decision_id, submolt, title, content) "
             "VALUES (%s, 'ai', 't', 'c')",
             (decision,),
-        )
-        # Explicit created_at: this test fast-forwards `now`, so the real
-        # wall clock a bare grant_publisher_resume() would default to is
-        # still "before" the halt in the test's simulated timeline.
-        conn.execute(
-            "INSERT INTO publisher_resumes (created_at) VALUES (%s)",
-            (later + timedelta(seconds=1),),
         )
     llm.add(Arithmetic, Arithmetic(first=20, operation="-", second=5))
     later += timedelta(hours=2)
