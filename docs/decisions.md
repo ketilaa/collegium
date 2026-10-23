@@ -2352,3 +2352,18 @@ entry because that day's one run happened to work before either mattered:
 Nothing here was guessed the second time without running it. The
 smoke test is only as trustworthy as the thing it is gating being
 exercised for real before being written down as working.
+
+## 2026-10-23 · pypdf and certifi, upgraded for newly disclosed CVEs
+
+The last review (`docs/reviews/2026-10-23-9e395ad-001.md`, SEC-49-001)
+found `pip-audit` newly reporting 8 CVEs against the locked
+`pypdf==6.19.0` and one against `certifi==2026.7.22` -- not introduced
+by that push (the lockfile was unchanged), newly published since the
+last review that checked it. `pypdf` parses PDFs fetched from the open
+web, attacker-reachable content by design, so a hotfix rather than
+something to fold into the next unrelated change.
+
+`uv lock --upgrade-package pypdf --upgrade-package certifi`: pypdf
+6.19.0 -> 6.21.2, certifi 2026.7.22 -> 2026.10.19. `pip-audit` against
+the new lock reports no known vulnerabilities. No code changes either
+package's upgrade required.
