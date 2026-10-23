@@ -2145,3 +2145,38 @@ mechanism, fixed earlier today, not this one's).
 `jobs.kind` has a database CHECK constraint enumerating every valid job
 kind; adding `announce` needed a migration (0016), the usual
 drop-and-recreate pattern every prior job kind addition has used.
+
+## 2026-10-21 · A closed program's topic coming back under a new name
+
+The owner rejected a proposed program, "AI Tool Integration Analysis",
+on review: its charter prioritised Claude Code and Muse (by mention
+frequency, no hypothesis linkage) as a supposed gap, but at least eight
+already-closed programs had prioritised the exact same entities under
+titles sharing no words with it or each other ("AI-Driven Career Path
+Analysis", "AI-Driven Hiring & Career Trajectory Analysis", and so on).
+The 2026-10-06 fix (above) only ever checked the proposed name against
+closed programs' names; a new name for the same topic sailed through
+exactly as the owner had been warned fuzzy name-matching couldn't catch
+("AI-Driven Role Evolution" and "AI-Driven Talent Shift" share only two
+words), which is why that entry decided against it.
+
+Matching names was never the only option, though: `goals.program_id`
+plus each goal's `investigates` relationships already give every
+program -- open or closed -- a derivable set of the entities and
+hypotheses its goals actually targeted, with no schema change needed
+(`memory.program_targets`). That is a precise, structural fact, not
+prose, so it is where the duplicate check belongs instead.
+
+`_propose_program` now also collects the labels (`about`) of this same
+plan's own goals that declare `program: "new"`, resolves them to their
+underlying ids, and refuses the proposal if that set intersects at all
+with what any still-open or closed program's goals already investigate
+-- regardless of what either program is named. Nothing is proposed in
+that case (same silent skip the name check already used; the model's
+own `assessment` note is the only trace, as before). Covered by
+`test_a_closed_programs_target_blocks_a_differently_named_proposal`.
+
+Only checked when the new proposal's own first-batch goals name targets
+at all: a program proposed with no goal yet pointing at anything has
+nothing to compare, so the existing name-based checks are all that
+apply to it.

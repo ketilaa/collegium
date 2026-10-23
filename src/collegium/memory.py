@@ -420,6 +420,24 @@ def closed_programs(conn: Connection, domain_ids: list[UUID]) -> list[dict]:
     ).fetchall()
 
 
+def program_targets(conn: Connection, program_ids: list[UUID]) -> dict[UUID, set[UUID]]:
+    """What each program actually investigated: the union, over every goal
+    ever linked to it (any goal status, so a closed program's history still
+    counts), of what those goals investigate. A title is easy to vary; the
+    entities and hypotheses a program was chartered around are not, so this
+    is the reliable way to recognise the same program under a new name."""
+    if not program_ids:
+        return {}
+    rows = conn.execute(
+        "SELECT g.program_id, array_agg(DISTINCT r.object_id) AS targets "
+        "FROM goals g JOIN relationships r ON r.subject_id = g.id "
+        "AND r.predicate = 'investigates' AND r.retracted_at IS NULL "
+        "WHERE g.program_id = ANY(%s) GROUP BY g.program_id",
+        (program_ids,),
+    ).fetchall()
+    return {row["program_id"]: set(row["targets"]) for row in rows}
+
+
 def set_observation_status(conn: Connection, observation_id: UUID, status: str) -> None:
     conn.execute("UPDATE observations SET status = %s WHERE id = %s", (status, observation_id))
 

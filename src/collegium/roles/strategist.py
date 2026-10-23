@@ -185,7 +185,7 @@ class Strategist(Role):
             # new program (if proposed) exists before any goal needs it.
             program_ids = {p["id"] for p in programs}
             new_program_id = _propose_program(
-                conn, plan, programs, closed_programs, domain, domain_id
+                conn, plan, programs, closed_programs, labels, domain, domain_id
             )
             if new_program_id:
                 notes.append(f"proposed program for the owner: {plan.program.name}")
@@ -328,6 +328,7 @@ def _propose_program(
     plan: StrategyPlan,
     programs: list[dict],
     closed_programs: list[dict],
+    labels: dict[str, UUID],
     domain: dict,
     domain_id: UUID,
 ) -> UUID | None:
@@ -337,7 +338,18 @@ def _propose_program(
     when the program itself is not created again. Nothing is proposed while
     another proposal waits for the owner, or for a program the owner closed:
     a real incident had three near-identical proposals on three days, and
-    a rejected topic came back under a new name."""
+    a rejected topic came back under a new name.
+
+    A rejected topic also comes back under a name that shares none of the
+    old one's words (a second real incident: "AI Tool Integration
+    Analysis" proposed the same entities, Claude Code and Muse, that
+    several closed programs had already prioritised, under titles with no
+    words in common). Matching names is unreliable for this; matching what
+    a program actually investigates is not, since that is entities and
+    hypotheses the organization already tracks precisely, not prose. So:
+    if this plan's own goals for the new program (`program: "new"`) target
+    any entity or hypothesis a still-open or closed program's goals already
+    investigated, this is that program again, whatever it is called."""
     if not plan.program or not _usable_program_name(plan.program.name):
         return None
     key = memory.statement_key(plan.program.name)
@@ -348,6 +360,18 @@ def _propose_program(
         return None
     if any(memory.statement_key(p["name"]) == key for p in closed_programs):
         return None
+    proposed_targets = {
+        labels[label.strip().upper()]
+        for g in plan.goals
+        if (g.program or "").strip().lower() == "new"
+        for label in g.about
+        if label.strip().upper() in labels
+    }
+    if proposed_targets:
+        other_ids = [p["id"] for p in programs] + [p["id"] for p in closed_programs]
+        targets_by_program = memory.program_targets(conn, other_ids)
+        if any(proposed_targets & targets for targets in targets_by_program.values()):
+            return None
     program_id = memory.add_program(conn, name=plan.program.name, charter=plan.program.charter)
     memory.tag_domains(conn, program_id, [domain_id])
     decision_id = memory.add_decision(

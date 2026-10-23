@@ -726,3 +726,71 @@ def test_a_closed_program_is_not_proposed_again_under_another_name(
         assert conn.execute("SELECT count(*) AS n FROM programs").fetchone()["n"] == 1
         goal = conn.execute("SELECT program_id FROM goals").fetchone()
     assert goal["program_id"] is None
+
+
+def test_a_closed_programs_target_blocks_a_differently_named_proposal(
+    domain_with_weak_hypothesis, llm, board_db, worker_db, db_url, monkeypatch, capsys
+):
+    """A rejected program's topic can also come back under a name sharing
+    none of the old one's words (a real incident: "AI Tool Integration
+    Analysis" proposed the same entities two closed programs had already
+    prioritised, under titles with no words in common). Matching what a
+    program's own goals investigate, not its name, catches this."""
+    domain_id, ctx = domain_with_weak_hypothesis
+    llm.add(
+        StrategyPlan,
+        StrategyPlan(
+            assessment="a",
+            goals=[
+                PlannedGoal(
+                    statement="Investigate the weakly supported hypothesis",
+                    success_criteria="c",
+                    priority=1,
+                    about=["H1"],
+                    program="new",
+                )
+            ],
+            program=ProgramProposal(name="Economics of AI inference", charter="c", rationale="r"),
+        ),
+    )
+    _strategize(board_db, domain_id)
+    assert worker.run_once(ctx)
+
+    monkeypatch.setenv("COLLEGIUM_BOARD_DATABASE_URL", db_url)
+    with worker_db.reading() as conn:
+        decision_id = str(
+            conn.execute(
+                "SELECT id FROM decisions WHERE statement LIKE 'Open research program:%%'"
+            ).fetchone()["id"]
+        )
+    cli.main(["reject", decision_id[:8], "--reason", "Covered by another program."])
+    capsys.readouterr()
+
+    llm.add(
+        StrategyPlan,
+        StrategyPlan(
+            assessment="a",
+            goals=[
+                PlannedGoal(
+                    statement="A completely differently framed goal about the same claim",
+                    success_criteria="c",
+                    priority=1,
+                    about=["H1"],
+                    program="new",
+                )
+            ],
+            program=ProgramProposal(
+                name="Totally unrelated sounding title", charter="c", rationale="r"
+            ),
+        ),
+    )
+    _strategize(board_db, domain_id)
+    assert worker.run_once(ctx)
+
+    with worker_db.reading() as conn:
+        names = [r["name"] for r in conn.execute("SELECT name FROM programs")]
+        goal = conn.execute(
+            "SELECT program_id FROM goals WHERE statement LIKE 'A completely differently%%'"
+        ).fetchone()
+    assert names == ["Economics of AI inference"]
+    assert goal["program_id"] is None
