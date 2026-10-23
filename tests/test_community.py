@@ -239,6 +239,66 @@ def test_a_failed_verification_is_recorded_and_repeated_failures_halt(
     assert publisher.halted(publisher_db)
     assert publisher.publish_next(publisher_db, forum.client(), llm).startswith("halted")
 
+    # A resume granted before the halt took hold does not count.
+    with board_db.acting_as("owner") as conn:
+        conn.execute(
+            "INSERT INTO publisher_resumes (created_at) VALUES (%s)",
+            (later - timedelta(days=1),),
+        )
+    assert publisher.publish_next(publisher_db, forum.client(), llm).startswith("halted")
+
+    # The owner's resume lets exactly one attempt through.
+    with board_db.acting_as("owner") as conn:
+        decision = memory.add_decision(conn, statement="Post", rationale="r", topic="post")
+        conn.execute(
+            "UPDATE decisions SET status = 'approved', resolved_by = current_actor(), "
+            "resolved_at = now() WHERE id = %s",
+            (decision,),
+        )
+        conn.execute(
+            "INSERT INTO community_posts (decision_id, submolt, title, content) "
+            "VALUES (%s, 'ai', 't', 'c')",
+            (decision,),
+        )
+        # Explicit created_at: this test fast-forwards `now`, so the real
+        # wall clock a bare grant_publisher_resume() would default to is
+        # still "before" the halt in the test's simulated timeline.
+        conn.execute(
+            "INSERT INTO publisher_resumes (created_at) VALUES (%s)",
+            (later + timedelta(seconds=1),),
+        )
+    llm.add(Arithmetic, Arithmetic(first=20, operation="-", second=5))
+    later += timedelta(hours=2)
+    outcome = publisher.publish_next(publisher_db, Forum().client(), llm, now=later)
+    assert "published" in outcome
+    assert not publisher.halted(publisher_db)
+
+    # Consumed: a second halt gets no free pass from the same grant.
+    for _ in range(3):
+        with board_db.acting_as("owner") as conn:
+            decision = memory.add_decision(conn, statement="Post", rationale="r", topic="post")
+            conn.execute(
+                "UPDATE decisions SET status = 'approved', resolved_by = current_actor(), "
+                "resolved_at = now() WHERE id = %s",
+                (decision,),
+            )
+            conn.execute(
+                "INSERT INTO community_posts (decision_id, submolt, title, content) "
+                "VALUES (%s, 'ai', 't', 'c')",
+                (decision,),
+            )
+        later += timedelta(hours=2)
+        llm.add(Arithmetic, Arithmetic(first=1, operation="+", second=1))
+        publisher.publish_next(publisher_db, forum.client(), llm, now=later)
+    assert publisher.publish_next(publisher_db, forum.client(), llm).startswith("halted")
+
+
+def test_grant_publisher_resume_inserts_an_unused_grant(board_db):
+    with board_db.acting_as("owner") as conn:
+        owner.grant_publisher_resume(conn)
+        [row] = conn.execute("SELECT used_at FROM publisher_resumes").fetchall()
+    assert row["used_at"] is None
+
 
 def test_the_owner_sends_a_failed_post_back_for_another_attempt(
     researched, board_db, worker_db, publisher_db, llm, make_context, client

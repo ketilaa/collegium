@@ -30,7 +30,11 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)
 
-    sub.add_parser("publisher", help="publish the posts the owner approved on Moltbook")
+    p = sub.add_parser("publisher", help="publish the posts the owner approved on Moltbook")
+    psub = p.add_subparsers(dest="action")
+    psub.add_parser(
+        "resume", help="let one attempt through despite a halt, after looking why (owner)"
+    )
 
     p = sub.add_parser("domain", help="manage research domains (owner)")
     dsub = p.add_subparsers(dest="action", required=True)
@@ -197,6 +201,11 @@ def _scheduler(args, settings: Settings) -> None:
 
 
 def _publisher(args, settings: Settings) -> None:
+    if args.action == "resume":
+        with _board(settings).acting_as("owner") as conn:
+            owner.grant_publisher_resume(conn)
+        print("granted: the publisher will let one attempt through despite the halt")
+        return
     _warn_without_contact()
     publisher.configure_audit_log(settings.publisher_log_dir)
     db = Database(require(settings.publisher_database_url, "COLLEGIUM_PUBLISHER_DATABASE_URL"))

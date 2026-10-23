@@ -224,17 +224,40 @@ def solve(llm: LLM, challenge: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def halted(db: Database) -> bool:
-    """Whether the last attempts all failed verification."""
+def _halted_since(db: Database) -> datetime | None:
+    """When the current halt took hold (the most recent of the last
+    MAX_FAILED_VERIFICATIONS attempts, if all of them failed), or None if
+    not halted."""
     with db.reading() as conn:
         rows = conn.execute(
-            "SELECT verification FROM community_posts WHERE verification IS NOT NULL "
+            "SELECT verification, attempted_at FROM community_posts WHERE verification IS NOT NULL "
             "ORDER BY attempted_at DESC LIMIT %s",
             (MAX_FAILED_VERIFICATIONS,),
         ).fetchall()
-    return len(rows) == MAX_FAILED_VERIFICATIONS and all(
-        r["verification"] == "failed" for r in rows
-    )
+    if len(rows) == MAX_FAILED_VERIFICATIONS and all(r["verification"] == "failed" for r in rows):
+        return rows[0]["attempted_at"]
+    return None
+
+
+def halted(db: Database) -> bool:
+    """Whether the last attempts all failed verification."""
+    return _halted_since(db) is not None
+
+
+def _consume_resume(conn, since: datetime, now: datetime) -> bool:
+    """A pending owner-granted resume from after the halt began, if any:
+    marks it used and returns True. A resume granted before `since` is
+    left over from a halt the owner already looked at, and must not
+    silently wave through a later, unrelated one."""
+    row = conn.execute(
+        "SELECT id FROM publisher_resumes WHERE used_at IS NULL AND created_at > %s "
+        "ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED",
+        (since,),
+    ).fetchone()
+    if row is None:
+        return False
+    conn.execute("UPDATE publisher_resumes SET used_at = %s WHERE id = %s", (now, row["id"]))
+    return True
 
 
 def publish_next(
@@ -243,11 +266,16 @@ def publish_next(
     """Publish the oldest approved post or reply whose pace allows it.
     Returns what happened, for the log."""
     now = now or datetime.now(UTC)
-    if halted(db):
-        return (
-            f"halted: the last {MAX_FAILED_VERIFICATIONS} verifications failed; "
-            "the owner must look before anything more is posted"
-        )
+    halted_since = _halted_since(db)
+    if halted_since is not None:
+        with db.acting_as("publisher") as conn:
+            resumed = _consume_resume(conn, halted_since, now)
+        if not resumed:
+            return (
+                f"halted: the last {MAX_FAILED_VERIFICATIONS} verifications failed; "
+                "the owner must look before anything more is posted"
+            )
+        log.warning("resuming: an owner-granted resume let one attempt through despite the halt")
     with db.acting_as("publisher") as conn:
         # Any attempt counts, including one the forum turned away for its pace.
         last = {

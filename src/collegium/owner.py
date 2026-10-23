@@ -252,6 +252,14 @@ def retry_post(conn: Connection, post_id: UUID) -> None:
         raise OwnerError("That post has not failed, or no longer exists.")
 
 
+def grant_publisher_resume(conn: Connection) -> None:
+    """Let exactly one publish attempt through despite the halt switch
+    (publisher.MAX_FAILED_VERIFICATIONS failed verifications in a row).
+    Not a way to turn the halt off: if that one attempt fails
+    verification too, the halt is simply back, now with fresh evidence."""
+    conn.execute("INSERT INTO publisher_resumes DEFAULT VALUES")
+
+
 def request_draft(conn: Connection, hypothesis_id: UUID) -> UUID:
     """Ask the Researcher to draft a Moltbook post about a hypothesis. It
     comes back as a decision: nothing is posted without the owner."""

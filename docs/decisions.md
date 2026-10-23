@@ -2367,3 +2367,33 @@ something to fold into the next unrelated change.
 6.19.0 -> 6.21.2, certifi 2026.7.22 -> 2026.10.19. `pip-audit` against
 the new lock reports no known vulnerabilities. No code changes either
 package's upgrade required.
+
+## 2026-10-23 · A way back from the publisher's halt
+
+Found live: the publisher had been halted since 2026-10-07 13:33 UTC (the
+open thread from `docs/decisions.md`, 2026-10-08) and nobody had noticed,
+since nothing in the CLI or board surfaces it -- only `docker compose logs
+publisher`, and even that only shows the state once, the first time it
+changes (`run_forever` says each outcome once, not every tick). Sixteen
+days of approved posts and replies had piled up, never published. Also
+found live and unrelated to the halt itself: the publisher's durable
+audit log (added 2026-10-08) could not be written on the host --
+`COLLEGIUM_PUBLISHER_LOG_DIR`'s bind mount (`./logs`) had been auto-created
+by Docker as `root` on first `up`, and the container runs as uid 10001 --
+so there was no durable trail of what the original three verification
+failures actually said either. Fixed by hand on ai-lab (`chown`), not a
+code change.
+
+Added a real recovery path: `publisher_resumes` (migration 0017), a table
+the owner writes to (`collegium publisher resume`, or the board; wired
+through `owner.grant_publisher_resume`) and the publisher alone consumes.
+`publish_next` still refuses everything while `_halted_since()` is set,
+*unless* an unused resume exists with `created_at` after the halt took
+hold; consuming one lets exactly one attempt through, logged as
+`"resuming: ..."`, and the halt then stands or falls on that attempt's own
+outcome like any other. A resume granted before the halt it's meant to
+clear cannot count (checked against `created_at`, not just "unused"):
+otherwise a grant left over from an earlier halt the owner already looked
+at could silently wave through a later, unrelated one the owner has not
+seen yet. This still does not surface the halt proactively (the board/CLI
+gap above); only the "no way back" half of the open thread is closed.
