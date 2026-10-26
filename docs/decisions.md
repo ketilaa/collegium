@@ -2402,3 +2402,44 @@ consumed it first and could burn the owner's one grant on an empty
 queue, reasserting the halt untested). This still does not surface the
 halt proactively (the board/CLI gap above); only the "no way back" half
 of the open thread is closed.
+
+## 2026-10-26 · Programs overlap after approval, not just at proposal
+
+The owner felt that research programs kept overlapping despite rejecting
+several near-duplicate proposals, and asked to check. Found live: two of
+eleven active programs had become near-total duplicates of a sibling --
+"Agentic System Risk Quantification" investigated exactly the two
+hypotheses "Safety-Driven Model Evaluation" already had goals on;
+"Nordic AI Adoption Dynamics" investigated exactly the two "Nordic Tech
+Talent Dynamics" already had. Both happened the same night (2026-10-25):
+a single, freshly created goal landed under an already-approved program
+and claimed targets a different active program's goals had held for
+days. The owner withdrew both (`collegium program withdraw`).
+
+The 2026-10-21 structural check (`memory.program_targets`, comparing what
+a program's goals actually investigate rather than its name) only ever
+ran inside `_propose_program`, i.e. when the Strategist considers a brand
+new program. It was never consulted when a goal gets added to an
+*existing, already-approved* program on a later day -- which is the
+Strategist's ordinary daily behavior, and exactly how both incidents
+happened. The owner was only ever shown the overlap check at the one
+moment a program is proposed; the actual drift happened afterward,
+goal by goal, invisibly.
+
+Moved the same check to where goals actually get their `investigates`
+links (`strategist.py`'s `persist`), not only at proposal time: before
+linking a new goal's target, if that target already belongs to a
+*different* still-open program's goals, the link is skipped (and the
+goal, and any of its other targets, still go through normally) and the
+run's notes say how many were skipped. `memory.active_goals` now also
+returns each goal's `program_id` so this can be checked without an extra
+query per goal. Scoped to currently open programs only (`programs()`'s
+own `status <> 'closed'`), not closed ones: revisiting a closed program's
+old target under new work is normal, not the problem here. Covered by
+`test_a_goal_does_not_claim_a_target_another_open_program_already_investigates`.
+
+Does not touch the actions (`scout`/`resolve`/`corroborate`) a plan
+queues, which are independent of whether a goal's `investigates` link was
+actually written -- only the metadata that makes a program's charter
+mean something, and that `program_targets` relies on for its own
+overlap check, going forward.

@@ -341,6 +341,79 @@ def test_a_goal_can_be_linked_to_an_existing_program(
     assert goal["program_id"] == program_id
 
 
+def test_a_goal_does_not_claim_a_target_another_open_program_already_investigates(
+    domain_with_weak_hypothesis, llm, board_db, worker_db
+):
+    """Found live, 2026-10-25: a brand-new, single-target goal landed under
+    an already-approved program and claimed a hypothesis a different,
+    already-active program's goal had investigated for days -- the two
+    programs were, in substance, duplicates of each other. The structural
+    overlap check _propose_program already makes against a new program
+    proposal must also hold when a goal is added to an existing one, not
+    just at the moment a program is first proposed."""
+    domain_id, ctx = domain_with_weak_hypothesis
+    with worker_db.acting_as("strategist") as conn:
+        hypothesis_id = memory.live_hypotheses(conn, [domain_id], limit=20)[0]["id"]
+
+        covering_program = memory.add_program(
+            conn, name="Safety-Driven Model Evaluation", charter="c"
+        )
+        memory.tag_domains(conn, covering_program, [domain_id])
+        conn.execute(
+            "UPDATE programs SET status = 'active', priority = 2 WHERE id = %s",
+            (covering_program,),
+        )
+        covering_goal = memory.add_goal(
+            conn,
+            statement="Investigate the weakly supported hypothesis",
+            success_criteria="c",
+            priority=1,
+            program_id=covering_program,
+        )
+        memory.tag_domains(conn, covering_goal, [domain_id])
+        memory.add_relationship(
+            conn, subject_id=covering_goal, predicate="investigates", object_id=hypothesis_id
+        )
+
+        other_program = memory.add_program(
+            conn, name="Agentic System Risk Quantification", charter="c"
+        )
+        memory.tag_domains(conn, other_program, [domain_id])
+        conn.execute(
+            "UPDATE programs SET status = 'active', priority = 1 WHERE id = %s",
+            (other_program,),
+        )
+
+    llm.add(
+        StrategyPlan,
+        StrategyPlan(
+            assessment="a",
+            goals=[
+                PlannedGoal(
+                    statement="A differently framed goal about the same hypothesis",
+                    success_criteria="c",
+                    priority=1,
+                    about=["H1"],
+                    program="P1",  # lower priority number sorts first: other_program
+                )
+            ],
+        ),
+    )
+    _strategize(board_db, domain_id)
+    assert worker.run_once(ctx)
+
+    with worker_db.reading() as conn:
+        new_goal = conn.execute(
+            "SELECT id, program_id FROM goals WHERE statement LIKE 'A differently framed%%'"
+        ).fetchone()
+        assert new_goal["program_id"] == other_program
+        assert not memory.has_relationship(conn, new_goal["id"], "investigates", hypothesis_id)
+        run_notes = conn.execute(
+            "SELECT notes FROM runs WHERE notes LIKE '%%investigates link%%'"
+        ).fetchone()
+    assert run_notes is not None and "already covered by another program" in run_notes["notes"]
+
+
 def test_a_label_that_is_not_a_program_does_not_link_the_goal(
     domain_with_weak_hypothesis, llm, board_db, worker_db
 ):

@@ -390,7 +390,7 @@ def mission(conn: Connection, domain_id: UUID | None) -> dict | None:
 def active_goals(conn: Connection, domain_ids: list[UUID]) -> list[dict]:
     """Active goals in these domains, each with the ids of what it is about."""
     return conn.execute(
-        "SELECT g.id, g.statement, g.success_criteria, g.priority, n.created_at, "
+        "SELECT g.id, g.statement, g.success_criteria, g.priority, g.program_id, n.created_at, "
         "coalesce(array_agg(r.object_id) FILTER (WHERE r.object_id IS NOT NULL), '{}') "
         "AS about FROM goals g JOIN nodes n ON n.id = g.id "
         "JOIN node_domains d ON d.node_id = g.id "

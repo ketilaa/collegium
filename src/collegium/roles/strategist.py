@@ -200,8 +200,20 @@ class Strategist(Role):
             queued: list[str] = []
             skipped = 0
             scouted = False
+            duplicate_targets = 0
             resolve_targets: set[UUID] = set()
             existing_goals = {memory.statement_key(g["statement"]): g["id"] for g in goals}
+            goal_program = {g["id"]: g["program_id"] for g in goals}
+            # The same structural check _propose_program makes against a new
+            # program proposal, kept live here too: a program's charter is
+            # only checked for overlap once, at proposal time, but goals keep
+            # getting added to already-approved programs every day after
+            # that -- and nothing stopped one of them from quietly claiming a
+            # target another open program already investigates (seen live,
+            # 2026-10-25: two single-target goals landed under separate,
+            # already-approved programs, each duplicating a sibling
+            # program's existing goal word for word in substance).
+            targets_by_program = memory.program_targets(conn, list(program_ids))
             for planned in sorted(plan.goals, key=lambda g: g.priority):
                 goal_id = labels.get((planned.existing or "").strip().upper())
                 if goal_id is None:
@@ -219,20 +231,33 @@ class Strategist(Role):
                     )
                     memory.tag_domains(conn, goal_id, [domain_id])
                     existing_goals[memory.statement_key(planned.statement)] = goal_id
+                    goal_program[goal_id] = program_id
                     notes.append(
                         f"new goal: {planned.statement}"
                         + (" (for the program)" if program_id else "")
                     )
+                else:
+                    program_id = goal_program.get(goal_id)
                 for label in planned.about:
                     target = labels.get(label.strip().upper())
                     if (
-                        target
-                        and target != goal_id
-                        and not memory.has_relationship(conn, goal_id, "investigates", target)
+                        not target
+                        or target == goal_id
+                        or memory.has_relationship(conn, goal_id, "investigates", target)
                     ):
-                        memory.add_relationship(
-                            conn, subject_id=goal_id, predicate="investigates", object_id=target
-                        )
+                        continue
+                    if program_id is not None and any(
+                        target in other_targets
+                        for other_id, other_targets in targets_by_program.items()
+                        if other_id != program_id
+                    ):
+                        duplicate_targets += 1
+                        continue
+                    memory.add_relationship(
+                        conn, subject_id=goal_id, predicate="investigates", object_id=target
+                    )
+                    if program_id is not None:
+                        targets_by_program.setdefault(program_id, set()).add(target)
                 for action in planned.actions:
                     payload = _payload(action, domain_id, labels, hypothesis_ids)
                     if payload is None:
@@ -316,6 +341,12 @@ class Strategist(Role):
             notes.append(
                 f"{len(gaps)} gaps; queued {', '.join(queued) or 'nothing'}"
                 + (f"; {skipped} actions skipped (budget or invalid)" if skipped else "")
+                + (
+                    f"; {duplicate_targets} investigates link(s) skipped "
+                    "(already covered by another program)"
+                    if duplicate_targets
+                    else ""
+                )
                 + (f"; budget left before queueing {budget}" if budget is not None else "")
             )
             return "; ".join(notes)
