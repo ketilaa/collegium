@@ -144,14 +144,18 @@ def test_only_the_owner_puts_approved_text_in_the_outbox(
 class Forum:
     """Moltbook as far as the publisher sees it."""
 
-    def __init__(self, *, challenge=True, verify_ok=True, status=201):
+    def __init__(self, *, challenge=True, verify_ok=True, verify_error=None, status=201):
         self.requests: list[httpx.Request] = []
         self.challenge, self.verify_ok, self.status = challenge, verify_ok, status
+        self.verify_error = verify_error
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
         if request.url.path.endswith("/verify"):
-            return httpx.Response(200, json={"success": self.verify_ok})
+            body = {"success": self.verify_ok}
+            if self.verify_error:
+                body["error"] = self.verify_error
+            return httpx.Response(200, json=body)
         if self.status != 201:
             return httpx.Response(self.status, json={"error": "slow down"})
         item = {"id": "new-1"}
@@ -204,6 +208,20 @@ def test_the_publisher_sends_the_approved_text_and_solves_the_challenge(
 
     # Nothing more to send.
     assert publisher.publish_next(publisher_db, forum.client(), llm) == "nothing to publish now"
+
+
+def test_a_failed_verification_logs_moltbooks_own_reason(
+    researched, board_db, worker_db, publisher_db, llm, make_context, caplog
+):
+    """A correct-looking answer can still fail verification (seen live,
+    2026-10-25): discarding Moltbook's own response left no way to tell
+    our own misreading of the challenge from a problem on Moltbook's
+    end. The challenge and the model's answer alone are not enough."""
+    approved_post(researched, board_db, worker_db, llm, make_context)
+    forum = Forum(verify_ok=False, verify_error="answer format invalid")
+    llm.add(Arithmetic, Arithmetic(first=20, operation="-", second=5))
+    publisher.publish_next(publisher_db, forum.client(), llm)
+    assert "answer format invalid" in caplog.text
 
 
 def test_a_failed_verification_is_recorded_and_repeated_failures_halt(

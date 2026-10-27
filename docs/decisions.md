@@ -2443,3 +2443,29 @@ queues, which are independent of whether a goal's `investigates` link was
 actually written -- only the metadata that makes a program's charter
 mean something, and that `program_targets` relies on for its own
 overlap check, going forward.
+
+## 2026-10-27 · The publisher discarded Moltbook's own reason for a failed verification
+
+Looking into a halt, one of the three failed verifications behind it
+turned out to have a correct answer: the model read "the claw force of
+a lobster is twenty newtons and its neighbor applies fifteen newtons,
+what is the total force" right, answered 35.00, and it still failed.
+Ruled out a code-expiry theory first (the whole create-post, solve,
+verify round trip took under 5 seconds, far too fast to matter) before
+looking at the code -- the 2026-10-08 audit log's own stated purpose was
+"exactly the detail needed to tell whether the model is misreading the
+challenge or Moltbook's own check is at fault", but `MoltbookClient.
+verify()` only ever returned a bare `bool`, discarding whatever reason
+Moltbook's response actually gave. Half the diagnosis the log was built
+for was never possible.
+
+`verify()` now returns `(passed, detail)`: `detail` is Moltbook's own
+`error`/`message` field (the same `_message()` helper `create_post`/
+`create_comment` already use for their own errors) when verification
+fails, empty when it passes. Logged alongside the challenge and the
+model's answer, which stays as useful as before -- a correct-looking
+answer still failing is now something the next log line can actually
+explain, not just make us doubt our own quote. Doesn't explain the
+lobster case itself: that verification code is long gone, and there is
+no way to replay it against Moltbook to find out after the fact.
+Covered by `test_a_failed_verification_logs_moltbooks_own_reason`.

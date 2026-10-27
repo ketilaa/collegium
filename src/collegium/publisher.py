@@ -161,9 +161,16 @@ class MoltbookClient:
         if response.status_code not in (200, 201) or not body.get("success", True):
             raise PublishError(f"{response.status_code}: {_message(body)}")
 
-    def verify(self, code: str, answer: str) -> bool:
+    def verify(self, code: str, answer: str) -> tuple[bool, str]:
+        """Whether it passed, and -- when it didn't -- Moltbook's own
+        reason, not just our own side of it (the challenge and the
+        model's answer): a correct-looking answer can still fail, and
+        without this there is no way to tell our own misreading from a
+        problem on Moltbook's end."""
         response = self._client.post("/verify", json={"verification_code": code, "answer": answer})
-        return response.status_code == 200 and bool(_json(response).get("success"))
+        body = _json(response)
+        passed = response.status_code == 200 and bool(body.get("success"))
+        return passed, "" if passed else f"{response.status_code}: {_message(body)}"
 
 
 def _json(response: httpx.Response) -> dict:
@@ -337,20 +344,24 @@ def publish_next(
             answer = solve(llm, str(challenge.get("challenge_text") or ""))
         except Exception as e:
             log.warning("could not read the verification challenge: %s", e)
-        passed = answer is not None and client.verify(
-            str(challenge.get("verification_code") or ""), answer
-        )
+        detail = ""
+        if answer is not None:
+            passed, detail = client.verify(str(challenge.get("verification_code") or ""), answer)
+        else:
+            passed = False
         verification = "passed" if passed else "failed"
         if not passed:
-            # A hard failure: kept with the challenge and the model's own
-            # answer, since this is exactly what the owner needs to judge
-            # whether the model is misreading the challenge or Moltbook's
-            # own check is at fault.
+            # A hard failure: kept with the challenge, the model's own
+            # answer, and Moltbook's own reason for refusing it, since
+            # this is exactly what the owner needs to judge whether the
+            # model is misreading the challenge or Moltbook's own check
+            # is at fault -- a correct-looking answer can still fail.
             log.warning(
-                "verification failed for post %s: challenge_text=%r answer=%r",
+                "verification failed for post %s: challenge_text=%r answer=%r detail=%r",
                 post["id"],
                 challenge.get("challenge_text"),
                 answer,
+                detail,
             )
             _record(
                 db,
