@@ -12,6 +12,8 @@ from test_pipeline import PAGES, enqueue_scout, script_research, script_review, 
 from collegium import board, jobs, memory, worker
 from collegium.config import Settings
 from collegium.db import Database
+from collegium.roles.historian import BLOCKING_SEVERITY
+from collegium.roles.resolver import MAX_ROUNDS
 from collegium.web import create_app, http_url
 
 BOARD = "http://testserver"
@@ -111,6 +113,32 @@ def test_domain_story_gathers_one_domain_apart_from_the_rest(
     assert "Where we're focused" in page
     assert str(escape(h["statement"])) in page
     assert f"{h['current_confidence']:.2f} confidence" in page
+
+
+def test_domain_story_names_what_is_actually_blocking(client, add_domain, worker_db):
+    """ "What's blocking us" used to show only a count ("3 serious
+    critique(s) still open after 2 rounds of resolution") with no way to
+    tell which hypothesis, or what the critiques actually say."""
+    domain_id = add_domain()
+    with worker_db.acting_as("researcher") as conn:
+        hid = memory.add_hypothesis(conn, statement="A stuck claim.", rationale=None)
+        memory.tag_domains(conn, hid, [domain_id])
+        memory.set_hypothesis_status(conn, hid, "under_review")
+        memory.add_critique(
+            conn,
+            target_id=hid,
+            argument="The sample is too small to generalize from.",
+            alternative_explanation=None,
+            severity=BLOCKING_SEVERITY,
+        )
+        resolve_job = jobs.enqueue(
+            conn, "resolve", {"hypothesis_id": hid, "round": MAX_ROUNDS}, priority=2
+        )
+        jobs.succeed(conn, resolve_job, None)
+    page = client.get("/domains/ai-agents").text
+    assert "A stuck claim." in page
+    assert f'href="/hypotheses/{hid}"' in page
+    assert "The sample is too small to generalize from." in page
 
 
 def test_unknown_domain_is_not_found(client):

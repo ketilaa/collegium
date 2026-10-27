@@ -2469,3 +2469,28 @@ explain, not just make us doubt our own quote. Doesn't explain the
 lobster case itself: that verification code is long gone, and there is
 no way to replay it against Moltbook to find out after the fact.
 Covered by `test_a_failed_verification_logs_moltbooks_own_reason`.
+
+## 2026-10-27 · "What's blocking us" named nothing a reader could act on
+
+The owner pointed out that the board's "What's blocking us" section on a
+domain page showed only `strategy.Gap`'s own generic `description` --
+for the most common kind, something like "3 serious critique(s) still
+open after 2 rounds of resolution" -- with no indication of which
+hypothesis, or what the critiques actually argued. The same was true for
+"weak support" (no link to the hypothesis) and "unstudied entity" (the
+description doesn't even include the entity's name, only its mention
+count). `Gap.about` already carried the hypothesis, entity or question
+id the whole time; the template never used it.
+
+Left `strategy.find_gaps` and the `Gap` dataclass alone -- it is also
+the Strategist's own input, and resolving `about` into a hypothesis
+statement or a critique's argument text is display work, not something
+every caller needs. Added `board._gap_detail`, called only from
+`domain_story`, which resolves each gap's `about` into a link and label
+(the hypothesis a "weak support"/"unresolved critiques" gap concerns,
+the entity name for "unstudied entity", a link to the question for
+"unanswered question"), and -- for "unresolved critiques" specifically
+-- the open blocking critiques' own `argument` text, not just their
+count. The template now links to the hypothesis and lists what the
+critiques actually say. Covered by
+`test_domain_story_names_what_is_actually_blocking`.

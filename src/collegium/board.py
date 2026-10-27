@@ -76,13 +76,48 @@ def domain_story(conn: Connection, domain_id: UUID) -> dict | None:
         "domain": domain,
         "mission": memory.mission(conn, domain_id),
         "assessment": memory.latest_assessment(conn, domain_id),
-        "gaps": strategy.find_gaps(conn, domain_id),
+        "gaps": [_gap_detail(conn, g) for g in strategy.find_gaps(conn, domain_id)],
         "learned": learned,
         "contested": contested,
         "programs": memory.programs(conn, [domain_id]),
         "decisions": decisions,
         "recent": recent,
     }
+
+
+def _gap_detail(conn: Connection, gap: strategy.Gap) -> dict:
+    """A gap, with what it's actually about resolved to something the
+    board can show. `gap.description` alone (e.g. "3 serious critique(s)
+    still open after 2 rounds of resolution") names a count, not a
+    hypothesis -- useless to a reader who can't tell which one, or what
+    the critiques actually say."""
+    detail = {
+        "kind": gap.kind,
+        "description": gap.description,
+        "link": None,
+        "label": None,
+        "critiques": [],
+    }
+    if gap.about is None:
+        return detail
+    if gap.kind in ("weak support", "unresolved critiques"):
+        h = memory.hypothesis(conn, gap.about)
+        if h:
+            detail["link"] = f"/hypotheses/{gap.about}"
+            detail["label"] = h["statement"]
+        if gap.kind == "unresolved critiques":
+            detail["critiques"] = [
+                c
+                for c in memory.open_critiques(conn, gap.about)
+                if c["severity"] >= BLOCKING_SEVERITY
+            ]
+    elif gap.kind == "unstudied entity":
+        row = conn.execute("SELECT name FROM entities WHERE id = %s", (gap.about,)).fetchone()
+        if row:
+            detail["label"] = row["name"]
+    elif gap.kind == "unanswered question":
+        detail["link"] = f"/questions/{gap.about}"
+    return detail
 
 
 # ---------------------------------------------------------------------------

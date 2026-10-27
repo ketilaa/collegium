@@ -50,7 +50,20 @@
       <ul class="plain">
         {% for g in gaps %}
           <li><span class="status">{{ g.kind }}</span>
-            <p>{{ g.description }}</p></li>
+            {% if g.link %}
+              <p><a href="{{ g.link }}">{{ g.label }}</a></p>
+            {% elif g.label %}
+              <p>{{ g.label }}</p>
+            {% endif %}
+            <p class="meta">{{ g.description }}</p>
+            {% if g.critiques %}
+              <ul class="plain">
+                {% for c in g.critiques %}
+                  <li class="meta">Severity {{ c.severity }}: {{ c.argument }}</li>
+                {% endfor %}
+              </ul>
+            {% endif %}
+          </li>
         {% endfor %}
       </ul>
     {% else %}<p class="empty">No open gaps right now.</p>{% endif %}
