@@ -37,15 +37,18 @@ from pathlib import Path
 from typing import Literal
 
 import httpx
+from opentelemetry import metrics, trace
 from pydantic import BaseModel
 
-from collegium import community
+from collegium import community, telemetry
 from collegium.db import Database
 from collegium.identity import user_agent
 from collegium.llm import LLM
 from collegium.untrusted import fence, sanitize
 
 log = logging.getLogger(__name__)
+_tracer = trace.get_tracer(__name__)
+_instruments = telemetry.build_publisher_instruments(metrics.get_meter(__name__))
 
 AUDIT_LOG_FILE = "publisher.log"
 AUDIT_LOG_MAX_BYTES = 5_000_000
@@ -270,8 +273,35 @@ def _consume_resume(conn, since: datetime, now: datetime) -> bool:
 def publish_next(
     db: Database, client: MoltbookClient, llm: LLM, now: datetime | None = None
 ) -> str:
-    """Publish the oldest approved post or reply whose pace allows it.
-    Returns what happened, for the log."""
+    """Publish the oldest approved post or reply whose pace allows it, in
+    a span covering the whole attempt (including solving a verification
+    challenge, which is its own LLM call). Returns what happened, for
+    the log."""
+    with _tracer.start_as_current_span("publisher.publish_next") as span:
+        outcome = _publish_next(db, client, llm, now)
+        bucket = _outcome_bucket(outcome)
+        span.set_attribute("collegium.publish.outcome", bucket)
+        _instruments.publish_total.add(1, {"outcome": bucket})
+        return outcome
+
+
+def _outcome_bucket(outcome: str) -> str:
+    if outcome.startswith("halted"):
+        return "halted"
+    if outcome == "nothing to publish now":
+        return "nothing"
+    if "rate limited" in outcome:
+        return "rate_limited"
+    if "verification failed" in outcome:
+        return "verification_failed"
+    if "failed" in outcome:
+        return "failed"
+    if "published" in outcome or "upvoted" in outcome:
+        return "published"
+    return "other"
+
+
+def _publish_next(db: Database, client: MoltbookClient, llm: LLM, now: datetime | None) -> str:
     now = now or datetime.now(UTC)
     halted_since = _halted_since(db)
     with db.acting_as("publisher") as conn:

@@ -6,7 +6,7 @@ from datetime import datetime
 
 import truststore
 
-from collegium import board, identity, jobs, memory, owner, publisher, scheduler, worker
+from collegium import board, identity, jobs, memory, owner, publisher, scheduler, telemetry, worker
 from collegium.acquisition import acquisition_from_settings, discovery_source_names
 from collegium.acquisition.feeds import FeedReader
 from collegium.config import Settings, require
@@ -14,6 +14,18 @@ from collegium.db import Database
 from collegium.llm import OpenAICompatibleLLM
 from collegium.roles.base import Context
 from collegium.roles.historian import BLOCKING_SEVERITY
+
+# A dedicated service name per long-running component, so each shows up
+# as its own service in traces/metrics; a one-off owner command (ask,
+# approve, posts, ...) shares one generic name, still JSON-logged and
+# trace-correlated the same way, just not expected to be watched as its
+# own service.
+SERVICE_NAMES = {
+    "worker": "collegium-worker",
+    "scheduler": "collegium-scheduler",
+    "publisher": "collegium-publisher",
+    "web": "collegium-web",
+}
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -143,7 +155,7 @@ def main(argv: list[str] | None = None) -> None:
     # Python's bundled one, so networks that inspect HTTPS with a locally
     # trusted certificate (e.g. Zscaler) work as they do in a browser.
     truststore.inject_into_ssl()
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    telemetry.setup_telemetry(SERVICE_NAMES.get(args.command, "collegium-cli"))
     settings = Settings()
     try:
         COMMANDS[args.command](args, settings)
@@ -184,6 +196,7 @@ def _worker(args, settings: Settings) -> None:
     if args.drain:
         # A manual run: the owner is watching, whatever the hour.
         print(f"ran {worker.drain(ctx)} jobs")
+        telemetry.flush()
     else:
         worker.run_forever(ctx, settings.working_hours(), rest_seconds=settings.worker_rest_seconds)
 
@@ -196,6 +209,7 @@ def _scheduler(args, settings: Settings) -> None:
             print(f"outside working hours ({hours.describe()}); nothing queued")
         else:
             print(f"enqueued {scheduler.tick(db, hours)} jobs")
+        telemetry.flush()
     else:
         scheduler.run_forever(db, hours)
 

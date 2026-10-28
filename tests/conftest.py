@@ -22,6 +22,12 @@ from collegium.config import Settings
 from collegium.db import Database
 from collegium.roles.base import Context
 
+# A few tests call `cli.main(...)` directly, which calls
+# `telemetry.setup_telemetry`; tests must never reach out to a real (or,
+# here, nonexistent) OTel collector. `setdefault` so a real export can
+# still be tested on purpose by setting this before running pytest.
+os.environ.setdefault("OTEL_SDK_DISABLED", "true")
+
 ADMIN_URL = os.environ.get(
     "COLLEGIUM_TEST_ADMIN_URL",
     f"postgresql://collegium:{os.environ.get('POSTGRES_PASSWORD', 'collegium')}"

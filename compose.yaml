@@ -107,6 +107,10 @@ services:
       COLLEGIUM_WORK_HOURS: ${COLLEGIUM_WORK_HOURS:-08:00-16:00}
       COLLEGIUM_WORK_DAYS: ${COLLEGIUM_WORK_DAYS:-mon-fri}
       COLLEGIUM_TIMEZONE: ${COLLEGIUM_TIMEZONE:-Europe/Oslo}
+      OTEL_SERVICE_NAME: collegium-worker
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: ${OTEL_EXPORTER_OTLP_LOGS_ENDPOINT:-http://otel-collector:4318/v1/logs}
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
@@ -127,6 +131,10 @@ services:
       COLLEGIUM_WORK_HOURS: ${COLLEGIUM_WORK_HOURS:-08:00-16:00}
       COLLEGIUM_WORK_DAYS: ${COLLEGIUM_WORK_DAYS:-mon-fri}
       COLLEGIUM_TIMEZONE: ${COLLEGIUM_TIMEZONE:-Europe/Oslo}
+      OTEL_SERVICE_NAME: collegium-scheduler
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: ${OTEL_EXPORTER_OTLP_LOGS_ENDPOINT:-http://otel-collector:4318/v1/logs}
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
     restart: unless-stopped
     depends_on:
       logins:
@@ -149,6 +157,10 @@ services:
       COLLEGIUM_CONTACT: ${COLLEGIUM_CONTACT:-}
       COLLEGIUM_LLM_MAX_TOKENS: ${COLLEGIUM_LLM_MAX_TOKENS:-2048}
       COLLEGIUM_PUBLISHER_LOG_DIR: /logs
+      OTEL_SERVICE_NAME: collegium-publisher
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: ${OTEL_EXPORTER_OTLP_LOGS_ENDPOINT:-http://otel-collector:4318/v1/logs}
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
     volumes:
       - ${COLLEGIUM_PUBLISHER_LOG_DIR:-./logs}:/logs
     extra_hosts:
@@ -174,6 +186,10 @@ services:
       COLLEGIUM_WORK_DAYS: ${COLLEGIUM_WORK_DAYS:-mon-fri}
       COLLEGIUM_TIMEZONE: ${COLLEGIUM_TIMEZONE:-Europe/Oslo}
       COLLEGIUM_WEB_ALLOWED_HOSTS: ${COLLEGIUM_WEB_ALLOWED_HOSTS:-localhost,127.0.0.1}
+      OTEL_SERVICE_NAME: collegium-web
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: ${OTEL_EXPORTER_OTLP_LOGS_ENDPOINT:-http://otel-collector:4318/v1/logs}
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
     ports:
       # Defaults to localhost only. A deployment reachable beyond the host
       # itself (for example over a private overlay network) sets

@@ -8,6 +8,7 @@ the job's completion in one transaction.
 import logging
 import signal
 import threading
+import time
 import traceback
 from collections import Counter
 from dataclasses import replace
@@ -15,7 +16,9 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from collegium import jobs, memory
+from opentelemetry import metrics, trace
+
+from collegium import jobs, memory, telemetry
 from collegium.acquisition import (
     Budget,
     BudgetExhausted,
@@ -30,6 +33,8 @@ from collegium.roles import ROLES
 from collegium.roles.base import Context
 
 log = logging.getLogger(__name__)
+_tracer = trace.get_tracer(__name__)
+_instruments = telemetry.build_worker_instruments(metrics.get_meter(__name__))
 
 
 # Jobs taken at any hour: the owner is waiting for them, and they make no
@@ -46,6 +51,28 @@ def run_once(ctx: Context, kinds: tuple[str, ...] | None = None) -> bool:
         return False
 
     role = ROLES[job.kind]
+    with _tracer.start_as_current_span(f"job.{job.kind}") as span:
+        started = time.monotonic()
+        span.set_attribute("collegium.job.id", str(job.id))
+        span.set_attribute("collegium.job.kind", job.kind)
+        span.set_attribute("collegium.job.attempts", job.attempts)
+        outcome = "succeeded"
+        try:
+            outcome = _run_claimed_job(ctx, job, role)
+        finally:
+            span.set_attribute("collegium.job.outcome", outcome)
+            _instruments.job_total.add(1, {"kind": job.kind, "outcome": outcome})
+            _instruments.job_duration_seconds.record(
+                time.monotonic() - started, {"kind": job.kind, "outcome": outcome}
+            )
+    return True
+
+
+def _run_claimed_job(ctx: Context, job: jobs.Job, role) -> str:
+    """Runs the already-claimed job, returning its outcome for the span
+    and metrics wrapping this. Split out from run_once only so that
+    wrapping has one clear return path per outcome, not scattered
+    returns each needing to set the same attributes."""
     # Wait for the budget only when the job's main route is paid. With free
     # search and reading first, paid fallbacks are skipped instead.
     if role.searches_for(job) and ctx.acquisition is not None and ctx.acquisition.paid_first:
@@ -54,7 +81,7 @@ def run_once(ctx: Context, kinds: tuple[str, ...] | None = None) -> bool:
             with ctx.db.reading() as conn:
                 jobs.defer(conn, job, reopens, "waiting for the daily call budget")
             log.info("%s job %s deferred until %s: budget", job.kind, job.id, reopens)
-            return True
+            return "deferred_budget"
 
     with ctx.db.acting_as(role.name) as conn:
         run_id = jobs.start_run(
@@ -80,6 +107,7 @@ def run_once(ctx: Context, kinds: tuple[str, ...] | None = None) -> bool:
             jobs.finish_run(conn, run_id, "succeeded", notes)
             jobs.succeed(conn, job.id, run_id)
         log.info("%s job %s succeeded: %s", job.kind, job.id, notes)
+        return "succeeded"
     except BudgetExhausted as e:
         # Not the job's fault: put it back without using up an attempt.
         reopens = _budget_reopens(ctx, 1) or datetime.now(UTC) + timedelta(hours=1)
@@ -87,6 +115,7 @@ def run_once(ctx: Context, kinds: tuple[str, ...] | None = None) -> bool:
         with ctx.db.acting_as(role.name, run_id) as conn:
             jobs.finish_run(conn, run_id, "failed", f"{e}; deferred to {reopens:%Y-%m-%d %H:%M}")
             jobs.defer(conn, job, reopens, str(e))
+        return "deferred_budget"
     except SearchUnavailable as e:
         # Blocked engines lift their block after a while; wait for that
         # rather than use an attempt, or pay for a search elsewhere.
@@ -95,13 +124,14 @@ def run_once(ctx: Context, kinds: tuple[str, ...] | None = None) -> bool:
         with ctx.db.acting_as(role.name, run_id) as conn:
             jobs.finish_run(conn, run_id, "failed", f"{e}; deferred to {reopens:%Y-%m-%d %H:%M}")
             jobs.defer(conn, job, reopens, str(e))
+        return "deferred_search_unavailable"
     except Exception as e:
         error = f"{type(e).__name__}: {e}"
         log.warning("%s job %s failed: %s", job.kind, job.id, error)
         with ctx.db.acting_as(role.name, run_id) as conn:
             jobs.finish_run(conn, run_id, "failed", traceback.format_exc(limit=5))
             jobs.fail(conn, job, run_id, error)
-    return True
+        return "failed"
 
 
 def run_forever(

@@ -20,6 +20,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from collegium import board, community, memory
@@ -60,6 +61,10 @@ def create_app(settings: Settings, database: Callable[[], Database], crawler=Non
     production, a role-switched test connection in tests. `crawler` reads a
     feed once when the owner approves it (a FeedReader unless given)."""
     app = FastAPI(title="Collegium", docs_url=None, redoc_url=None, openapi_url=None)
+    # Request spans/metrics for every route, for free: harmless against the
+    # OTel API's own no-op providers when nothing configured telemetry (as
+    # in every test), and live once `collegium web` has (see telemetry.py).
+    FastAPIInstrumentor.instrument_app(app)
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     templates = _templates(ZoneInfo(settings.timezone))
     hours = settings.working_hours()

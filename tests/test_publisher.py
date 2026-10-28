@@ -5,7 +5,7 @@ from logging.handlers import RotatingFileHandler
 
 import pytest
 
-from collegium.publisher import _is_hard_failure, configure_audit_log, log
+from collegium.publisher import _is_hard_failure, _outcome_bucket, configure_audit_log, log
 
 
 @pytest.mark.parametrize(
@@ -24,6 +24,26 @@ from collegium.publisher import _is_hard_failure, configure_audit_log, log
 )
 def test_hard_failures_are_told_from_routine_operation(outcome, expected):
     assert _is_hard_failure(outcome) == expected
+
+
+@pytest.mark.parametrize(
+    "outcome,bucket",
+    [
+        ("halted: the last 3 verifications failed; the owner must look", "halted"),
+        ("nothing to publish now", "nothing"),
+        ("post 1: rate limited, will retry", "rate_limited"),
+        ("post 1: verification failed", "verification_failed"),
+        ("post 1: failed: no id", "failed"),
+        ("vote 1: failed: ConnectError: ...", "failed"),
+        ("post 1: published at https://www.moltbook.com/posts/1", "published"),
+        ("vote 1: upvoted https://www.moltbook.com/posts/1", "published"),
+    ],
+)
+def test_the_publish_metric_buckets_every_outcome_string_publish_next_returns(outcome, bucket):
+    """One place that must keep matching every string `publish_next`
+    (and `_vote`) actually return, or the metric silently stops meaning
+    what its label says."""
+    assert _outcome_bucket(outcome) == bucket
 
 
 def test_the_audit_log_keeps_warnings_and_not_routine_logging(tmp_path):

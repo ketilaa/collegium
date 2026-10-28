@@ -2551,3 +2551,61 @@ item list never needed), and new candidate-detection logic for "no feed
 found" -- closer to a milestone than a patch, and "only feeds for now"
 is an existing, deliberate scope decision, not an oversight to quietly
 widen.
+
+## 2026-10-28 · OpenTelemetry: traces, metrics and structured logs
+
+Collegium had no telemetry beyond `logging.basicConfig()` to stdout.
+Added `collegium.telemetry`: `setup_telemetry(service_name)`, called
+once at the start of each long-running component (`collegium-worker`,
+`collegium-scheduler`, `collegium-publisher`, `collegium-web`) in place
+of the old `basicConfig` call, replacing the root logger's handler with
+one that writes JSON (so `docker compose logs` stays readable with no
+collector reachable at all) and carries the active span's trace/span
+ids, when there is one, without touching the many existing
+`log.info(...)` call sites -- they only need a span active around them.
+
+Where any of this is actually sent -- which OTel Collector, if any -- is
+a deployment decision outside this repo; collegium only reads the
+standard `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`
+and `OTEL_SDK_DISABLED` environment variables, wired into `compose.yaml`
+with generic defaults (an unreachable placeholder host, same pattern
+`COLLEGIUM_LLM_BASE_URL` already uses) for each of the four services.
+**Opt-in, not opt-out**: `OTEL_SDK_DISABLED` defaults to `true` here,
+the opposite of some reference deployments that bundle their own
+collector and default to enabled -- collegium bundles none, so
+defaulting to enabled would make a plain `docker compose up` anywhere,
+with nothing configured, spend every job retrying a host that was never
+meant to exist.
+
+Instrumented the natural per-unit-of-work boundary in each component: a
+span and an outcome-labelled counter/histogram around
+`worker.run_once`'s job body, `publisher.publish_next`'s whole attempt
+(including solving a verification challenge), and `scheduler.tick`'s
+planning pass. FastAPI's own auto-instrumentation covers the board's
+request spans/metrics for free. `HTTPXClientInstrumentor` and
+`PsycopgInstrumentor` cover every outbound call and database query the
+same way, without touching their call sites either.
+
+**A real, reproducible bug caught before it ever reached a real
+deployment**: `OTEL_SDK_DISABLED` is not this module's own invention --
+`opentelemetry.sdk.trace.TracerProvider` reads the identical standard
+variable itself, at construction time, and when it is literally
+`"true"` makes every span it creates invalid, not merely unexported.
+Tests set it for exactly that stronger guarantee (nothing span-shaped
+happens at all during a test run, not just nothing sent anywhere) --
+but a first version of this module's own docstring, and a test meant to
+prove trace correlation actually works, both wrongly assumed
+`OTEL_SDK_DISABLED=true` would still leave a *valid, just unexported*
+span behind. It does not. Found by writing a test for the claim, not by
+trusting it: the fix was in the docstring and the test (a `TracerProvider`
+built directly, bypassing the global once-only `set_tracer_provider`,
+with the variable temporarily turned back off), not in `setup_telemetry`
+itself, which was already doing the right thing.
+
+Also fixed a now-adjacent gap in `scripts/localtest-smoke.sh`'s own
+stack and the test suite: neither had ever set `OTEL_SDK_DISABLED`
+before this, so both would otherwise have spent every job quietly
+retrying a nonexistent `otel-collector` host in the background.
+`.env.localtest`/`.env.localtest.example` and `tests/conftest.py` now
+set it explicitly, on top of the module's own opt-in default, so this
+stays true even if that default ever changes.
