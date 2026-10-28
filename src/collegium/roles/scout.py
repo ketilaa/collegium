@@ -142,7 +142,7 @@ class Scout(Role):
         )
         if ctx.acquisition is None:
             raise NothingToWorkWith("no acquisition provider configured")
-        searched, found = _search(ctx, plan.queries, domain["discovery_sources"])
+        searched, found = _search(ctx, plan.queries, domain["discovery_sources"], entities)
         crawled, crawled_from, feed_errors = _crawl(ctx, feeds)
         replies, replied_to = _replies(ctx, posts)
         crawled += replies
@@ -415,7 +415,7 @@ def _replies(ctx: Context, posts: list[dict]) -> tuple[list[SearchResult], dict[
 
 
 def _search(
-    ctx: Context, queries: list[str], sources: list[str]
+    ctx: Context, queries: list[str], sources: list[str], entities: list[dict] = ()
 ) -> tuple[list[SearchResult], dict[str, dict]]:
     """Distinct recent results across queries, and the query that found each.
 
@@ -423,20 +423,36 @@ def _search(
     none are set). It looks for what is new, so it searches within a window
     and drops anything dated before it: old announcements resurface in
     search results and would otherwise be recorded as current events.
+
+    A name-search source (a company registry such as brreg or prh) answers
+    a name, not a topic, so the Scout's own topical queries above rarely
+    match anything there. Known company and organization entities are
+    tried against those sources directly too, which is also how such a
+    source surfaces a genuinely new entrant sharing a known name's wording
+    (a subsidiary, a rebrand), within the same recency window.
     """
     results: list[SearchResult] = []
     found_by: dict[str, dict] = {}
-    for query in queries:
+
+    def _run(query: str, sources_for_query: list[str] | None) -> None:
         for result in ctx.acquisition.discover(
             query,
             max_results=ctx.settings.max_search_results,
             recent_days=ctx.settings.scout_recent_days,
-            sources=sources or None,
+            sources=sources_for_query,
         ):
             if result.url in found_by or not _recent(ctx, result):
                 continue
             found_by[result.url] = {"query": query}
             results.append(result)
+
+    for query in queries:
+        _run(query, sources or None)
+    name_sources = ctx.acquisition.name_search_sources(sources) if sources else []
+    if name_sources:
+        names = {e["name"] for e in entities if e["entity_type"] in ("company", "organization")}
+        for name in names:
+            _run(name, name_sources)
     return results, found_by
 
 

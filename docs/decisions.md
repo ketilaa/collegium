@@ -2494,3 +2494,60 @@ the entity name for "unstudied entity", a link to the question for
 count. The template now links to the hypothesis and lists what the
 critiques actually say. Covered by
 `test_domain_story_names_what_is_actually_blocking`.
+
+## 2026-10-28 · brreg and prh answer a name, not the Scout's own topical queries
+
+The owner asked why the Nordic consultancy domain has so little traction,
+specifically whether brreg had helped and whether consultancies' own
+press releases were reachable. Looking at the live data: brreg (81
+calls) had genuinely produced 22 sources and 31 observations/evidence;
+prh (36 calls) had produced zero, ever. Consultancies' own press
+releases (deloitte.com, bcg.com, norconsult.com, knowit.eu, ...) were
+already being read repeatedly (7-13 times each in 30 days) via search
+plus direct extraction, just never *followed* -- none exposes a
+discoverable RSS/Atom feed, confirmed directly against each homepage,
+and `approved_sources` only supports feeds.
+
+Tested both registries' real APIs with the same nonsense topical phrase
+("Nordic IT consultancies leadership changes 2026", the Scout's own
+query style) before touching any code, rather than assuming the two
+adapters behave alike just because they are shaped alike:
+
+- prh's `name` filter is a literal substring match (confirmed: querying
+  `name=IT` alone returns 104,179 hits) -- a multi-word sentence will
+  essentially never be a substring of a real company name, so a topical
+  query returns nothing almost by construction.
+- brreg's `navn` filter is far more forgiving -- the same nonsense
+  phrase returned 5 hits, every time, but inspecting them
+  ("COMPOSE IT NORDIC AB", "CHANGE WORKS AS", ...) showed it matching
+  individual words against Norway's ~555 NACE-62 companies, not finding
+  anything topically relevant. brreg's apparent productivity is real in
+  count, but is partly a property of the live API being lenient, not
+  evidence Collegium was already targeting it well.
+
+Both adapters' own docstrings already said as much ("mainly returns
+something when the query is, or contains, a company name already
+known") -- the gap was that nothing actually gave them one. `scout._search`
+now also tries known company/organization entities (`memory.top_entities`,
+already fetched for the brief) directly against whichever configured
+sources search by name rather than topic, a new duck-typed
+`name_search` attribute (set on `BrregDiscovery` and `PRHDiscovery`,
+checked via a new `Acquisition.name_search_sources`, the same pattern
+`thin_leads` already uses). This is in addition to, not instead of, the
+existing topical-query round: a registry still gets the Scout's own
+queries too, in case one happens to contain a name, as before. For an
+already-known company this is also how brreg/prh's own `recent_days`
+narrowing is meant to surface a genuinely new, related entrant -- a
+subsidiary or a rebrand sharing the known name's wording -- which a
+repeat of the same exact name would not. Covered by
+`test_known_company_and_organization_entities_are_tried_against_name_search_sources`
+and `test_no_extra_round_without_a_name_search_source`.
+
+Left the feed-less-source gap (consultancies' own press releases) as a
+separate, bigger decision, not folded into this fix: it would need a new
+`approved_sources` kind, a genuinely new acquisition capability (periodic
+fetch, link extraction, persistent seen-before state a feed's own bounded
+item list never needed), and new candidate-detection logic for "no feed
+found" -- closer to a milestone than a patch, and "only feeds for now"
+is an existing, deliberate scope decision, not an oversight to quietly
+widen.

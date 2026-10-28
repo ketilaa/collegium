@@ -36,6 +36,11 @@ _PREFERRED_LANGUAGE = "3"  # English, in this register's own language codes
 
 class PRHDiscovery:
     name = "prh"
+    # A name search, not a topic search: unlike brreg's own `navn`, this
+    # API's `name` filter is a literal substring match, so a topical,
+    # multi-word Scout query matches nothing almost by construction. See
+    # name_search on brreg.py's BrregDiscovery.
+    name_search = True
 
     def __init__(self, *, timeout: float = 30, transport: httpx.BaseTransport | None = None):
         self._client = httpx.Client(

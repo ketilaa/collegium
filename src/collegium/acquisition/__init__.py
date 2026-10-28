@@ -199,6 +199,13 @@ class Acquisition:
             paid_history=paid_history,
         )
 
+    def name_search_sources(self, sources: list[str]) -> list[str]:
+        """Which of these configured sources search by a company's name,
+        not by topic (a registry such as brreg or prh) -- the subset
+        worth also trying against known entity names directly, since the
+        Scout's own topical queries rarely match one."""
+        return [s for s in sources if getattr(self._discovery.get(s), "name_search", False)]
+
     def discover(
         self,
         query: str,

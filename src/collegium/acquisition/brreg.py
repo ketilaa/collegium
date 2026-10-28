@@ -34,6 +34,11 @@ _ORG_NUMBER = re.compile(r"\d{9}")
 
 class BrregDiscovery:
     name = "brreg"
+    # A name search, not a topic search: the Scout's own queries are
+    # topical and rarely match a company name, so Acquisition also tries
+    # this (and other name_search sources) against known company and
+    # organization entities directly (`scout._search`).
+    name_search = True
 
     def __init__(self, *, timeout: float = 30, transport: httpx.BaseTransport | None = None):
         self._client = httpx.Client(
