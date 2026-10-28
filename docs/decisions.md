@@ -2609,3 +2609,30 @@ retrying a nonexistent `otel-collector` host in the background.
 `.env.localtest`/`.env.localtest.example` and `tests/conftest.py` now
 set it explicitly, on top of the module's own opt-in default, so this
 stays true even if that default ever changes.
+
+## 2026-10-28 · A dedicated Grafana over collegium's own data
+
+Added an optional `grafana` service (`docker compose --profile grafana
+up -d grafana-login grafana`, port 3002), provisioned as code from
+`infra/grafana/`: the OTel metrics added earlier today, plus a few
+dashboard panels built directly on collegium's own Postgres (hypotheses
+by status, open critiques by severity, jobs pending/running, recent
+acquisitions, decisions waiting on the owner).
+
+Its own read-only login, `collegium_grafana_app`, granted only
+`collegium_reader` (`db/grafana-login.sql`) -- a dashboard only ever
+needs to `SELECT`. Kept out of `db/logins.sql` and the always-run
+`logins` service on purpose: that service is a dependency of every
+other one, so making its own password required there would have broken
+every existing deployment the moment this shipped, for a service most
+of them will never run. `grafana-login` is gated behind the same
+`"grafana"` profile as `grafana` itself instead, so
+`COLLEGIUM_GRAFANA_DB_PASSWORD` is only ever required when that profile
+is actually used.
+
+Where any of this is actually sent -- which Prometheus/Loki/Tempo the
+Postgres-independent panels read from, if any -- is, like the OTel
+exporter endpoints themselves, a deployment decision outside this
+repo: `compose.yaml` only wires generic, unreachable placeholder
+defaults for `COLLEGIUM_GRAFANA_PROMETHEUS_URL`/`_LOKI_URL`/`_TEMPO_URL`,
+the same pattern `COLLEGIUM_LLM_BASE_URL` already uses.

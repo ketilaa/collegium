@@ -1,0 +1,58 @@
+apiVersion: 1
+
+datasources:
+  # Reused, not run here: the actual Prometheus/Loki/Tempo these URLs
+  # point at (if any) is a deployment decision outside this repo, same
+  # as COLLEGIUM_LLM_BASE_URL and the OTel exporter endpoints -- see
+  # collegium.telemetry. Defaults assume a collector named this way is
+  # reachable from this container; override via the env vars below.
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: ${COLLEGIUM_GRAFANA_PROMETHEUS_URL}
+    isDefault: true
+    jsonData:
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: tempo
+
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: ${COLLEGIUM_GRAFANA_LOKI_URL}
+    jsonData: {}
+
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: ${COLLEGIUM_GRAFANA_TEMPO_URL}
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: loki
+        filterByTraceID: true
+        tags: ["service.name"]
+      tracesToMetrics:
+        datasourceUid: prometheus
+      serviceMap:
+        datasourceUid: prometheus
+      nodeGraph:
+        enabled: true
+
+  # collegium's own memory, read-only (collegium_grafana_app, granted
+  # only collegium_reader -- see db/grafana-login.sql). Every dashboard
+  # panel against this is a SELECT; nothing here should ever write.
+  - name: Postgres
+    uid: postgres
+    type: grafana-postgresql-datasource
+    access: proxy
+    url: db:5432
+    database: collegium
+    user: collegium_grafana_app
+    secureJsonData:
+      password: "${COLLEGIUM_GRAFANA_DB_PASSWORD}"
+    jsonData:
+      sslmode: disable
+      postgresVersion: 1700

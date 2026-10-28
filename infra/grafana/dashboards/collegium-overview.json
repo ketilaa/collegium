@@ -1,0 +1,134 @@
+{
+  "id": null,
+  "uid": "collegium-overview",
+  "title": "Collegium overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "tags": ["collegium"],
+  "time": { "from": "now-24h", "to": "now" },
+  "refresh": "1m",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Worker job outcomes",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (kind, outcome) (increase(collegium_job_total[5m]))",
+          "legendFormat": "{{kind}} - {{outcome}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Worker job duration (p50 / p95)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 } },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.50, sum by (le, kind) (rate(collegium_job_duration_seconds_bucket[15m])))",
+          "legendFormat": "p50 {{kind}}"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (le, kind) (rate(collegium_job_duration_seconds_bucket[15m])))",
+          "legendFormat": "p95 {{kind}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Publish outcomes (last 24h)",
+      "type": "bargauge",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "min": 0 } },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (outcome) (increase(collegium_publish_total[$__range])) or vector(0)",
+          "legendFormat": "{{outcome}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Hypotheses by status",
+      "type": "piechart",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+          "format": "table",
+          "rawSql": "SELECT status, count(*) AS count FROM hypotheses GROUP BY status ORDER BY status"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Open critiques by severity",
+      "type": "bargauge",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+      "fieldConfig": { "defaults": { "min": 0 } },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+          "format": "table",
+          "rawSql": "SELECT 'severity ' || severity AS metric, count(*) AS count FROM critiques WHERE status = 'open' GROUP BY severity ORDER BY severity"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Jobs pending or running, by kind",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+          "format": "table",
+          "rawSql": "SELECT kind, status, count(*) AS count FROM jobs WHERE status IN ('pending', 'running') GROUP BY kind, status ORDER BY kind, status"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Acquisitions, last 24h, by provider",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+          "format": "table",
+          "rawSql": "SELECT provider, count(*) FILTER (WHERE error IS NULL) AS ok, count(*) FILTER (WHERE error IS NOT NULL) AS failed, sum(result_count) AS results FROM acquisitions WHERE requested_at > now() - interval '24 hours' GROUP BY provider ORDER BY provider"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Decisions waiting on the owner",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+          "format": "table",
+          "rawSql": "SELECT n.created_at, dec.topic, dec.statement FROM decisions dec JOIN nodes n ON n.id = dec.id WHERE dec.status = 'proposed' ORDER BY n.created_at DESC LIMIT 20"
+        }
+      ]
+    }
+  ]
+}

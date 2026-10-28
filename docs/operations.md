@@ -143,6 +143,24 @@ the 2026-10-07 cutover. If it is ever brought back as the live instance:
 | Postgres | localhost:5432; as superuser: `docker compose $E exec -T db psql -U collegium` |
 | The model | http://localhost:8080/v1 |
 | Backups | `~/.collegium/backups` (`COLLEGIUM_BACKUP_DIR`), daily |
+| Grafana (optional) | http://localhost:3002, or `COLLEGIUM_GRAFANA_BIND_ADDR`'s address if set |
+
+## A dedicated Grafana over collegium's own data
+
+Optional, not started by a plain `up`: `docker compose --profile grafana up
+-d grafana-login grafana`. Three dashboards' worth of panels against
+collegium's own OTel metrics (job outcomes, job duration, publish
+outcomes -- see `collegium.telemetry`) and its own Postgres, read-only
+(`collegium_grafana_app`, granted only `collegium_reader`; see
+`db/grafana-login.sql`), provisioned as code from `infra/grafana/`.
+
+Needs `COLLEGIUM_GRAFANA_DB_PASSWORD` set (Compose refuses to start
+without it, same as the other database passwords) and, for the metrics
+panels to show anything, the worker/scheduler/publisher's own `OTEL_*`
+variables (see `collegium.telemetry`) actually pointed at a running
+OTel pipeline -- where any of that is run is a deployment decision
+outside this repo. `COLLEGIUM_GRAFANA_PROMETHEUS_URL`/`_LOKI_URL`/
+`_TEMPO_URL` point the dashboards at the same place.
 
 ## Local testing against a small model
 

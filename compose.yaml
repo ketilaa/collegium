@@ -57,6 +57,31 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  # One-shot: creates or updates the Grafana read-only login. Separate
+  # from `logins` (and gated the same way as `grafana` below) so a plain
+  # `docker compose up` never requires COLLEGIUM_GRAFANA_DB_PASSWORD.
+  grafana-login:
+    image: postgres:17-alpine@sha256:dc17045ccfd343b49600570ea734b9c4991cf1c3f3302e67df51e3b402dd55c4
+    profiles: ["grafana"]
+    environment:
+      PGHOST: db
+      PGUSER: collegium
+      PGDATABASE: collegium
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - ./db:/db:ro
+    command:
+      - psql
+      - -v
+      - ON_ERROR_STOP=1
+      - -v
+      - grafana_password=${COLLEGIUM_GRAFANA_DB_PASSWORD:?set COLLEGIUM_GRAFANA_DB_PASSWORD in .env}
+      - -f
+      - /db/grafana-login.sql
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
   # Backs up the database every BACKUP_INTERVAL_HOURS into COLLEGIUM_BACKUP_DIR.
   # One-off: docker compose run --rm --no-deps backup sh /db/backup.sh
   backup:
@@ -274,6 +299,39 @@ services:
       - "127.0.0.1:${COLLEGIUM_SEARXNG_PORT:-8888}:8080"
     restart: unless-stopped
 
+  # A dedicated Grafana for collegium's own data: its OTel metrics
+  # (reusing a Prometheus/Loki/Tempo that collects them -- not run here;
+  # their URLs are configured, not bundled) plus a couple of dashboards
+  # built directly on collegium's own Postgres via the read-only login
+  # above. Optional: `docker compose --profile grafana up -d grafana`.
+  grafana:
+    image: grafana/grafana:12.2.0@sha256:74144189b38447facf737dfd0f3906e42e0776212bf575dc3334c3609183adf7
+    profiles: ["grafana"]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${COLLEGIUM_GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      COLLEGIUM_GRAFANA_DB_PASSWORD: ${COLLEGIUM_GRAFANA_DB_PASSWORD:?set COLLEGIUM_GRAFANA_DB_PASSWORD in .env}
+      COLLEGIUM_GRAFANA_PROMETHEUS_URL: ${COLLEGIUM_GRAFANA_PROMETHEUS_URL:-http://prometheus:9090}
+      COLLEGIUM_GRAFANA_LOKI_URL: ${COLLEGIUM_GRAFANA_LOKI_URL:-http://loki:3100}
+      COLLEGIUM_GRAFANA_TEMPO_URL: ${COLLEGIUM_GRAFANA_TEMPO_URL:-http://tempo:3200}
+    ports:
+      # Same reasoning as the board's own COLLEGIUM_WEB_BIND_ADDR: defaults
+      # to localhost only; a deployment reachable over a private network
+      # sets this to that network's own address on the host, never 0.0.0.0.
+      - "${COLLEGIUM_GRAFANA_BIND_ADDR:-127.0.0.1}:${COLLEGIUM_GRAFANA_PORT:-3002}:3000"
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    # No depends_on naming prometheus/loki/tempo: those are not services
+    # in this project at all (the whole point is reusing ones that already
+    # exist elsewhere), only db via grafana-login.
+    depends_on:
+      grafana-login:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
 volumes:
   db-data:
   llm-model-cache:
+  grafana-data:
