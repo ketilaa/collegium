@@ -2664,3 +2664,23 @@ default, `True`) and raised `max_tokens` from 256 to 1024, enough to
 hold a reasoning trace plus the structured answer. Everything else about
 `solve()` -- the model only ever reading the two numbers and the
 operation, code doing the arithmetic -- is unchanged.
+
+## 2026-10-28 · The dashboard had no logs panel at all
+
+`collegium-overview.json` had eight panels, all Prometheus metrics or
+Postgres counts, nothing from Loki even though the dedicated Grafana's
+own datasource provisioning (2026-10-28, the Grafana entry above) has
+wired one up since day one.
+
+Added a ninth panel, `type: logs` against the `loki` datasource,
+scoped to `{service_name=~"collegium-.*"}` and filtered to
+`detected_level =~ "WARN.*|ERROR"` -- matching the `OTEL_SERVICE_NAME`
+values `compose.yaml` already sets (`collegium-web`, `collegium-worker`,
+`collegium-publisher`, `collegium-scheduler`). The scoping matters
+because the Loki this datasource points at, like the rest of this
+deployment's observability, is not run by this project and is not
+multi-tenant: without a `service_name` filter a panel would show every
+application's logs, not just this one's. (Explore against the same
+datasource, bypassing the dashboard entirely, still shows everything --
+nothing a panel definition can do anything about; a deployment detail,
+not recorded here.)

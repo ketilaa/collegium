@@ -129,6 +129,19 @@
           "rawSql": "SELECT n.created_at, dec.topic, dec.statement FROM decisions dec JOIN nodes n ON n.id = dec.id WHERE dec.status = 'proposed' ORDER BY n.created_at DESC LIMIT 20"
         }
       ]
+    },
+    {
+      "id": 9,
+      "title": "Warning / error logs",
+      "type": "logs",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{service_name=~\"collegium-.*\"} | detected_level =~ \"WARN.*|ERROR\""
+        }
+      ]
     }
   ]
 }
