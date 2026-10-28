@@ -219,8 +219,7 @@ def solve(llm: LLM, challenge: str) -> str | None:
         f"The problem:\n{fence('C', challenge)}\n\nWithout symbols: {cleaned}\n\n"
         "Which two numbers and which operation?",
         Arithmetic,
-        max_tokens=256,
-        enable_thinking=False,
+        max_tokens=1024,
     )
     a, b = problem.first, problem.second
     if problem.operation == "/" and b == 0:

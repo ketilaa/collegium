@@ -2636,3 +2636,31 @@ exporter endpoints themselves, a deployment decision outside this
 repo: `compose.yaml` only wires generic, unreachable placeholder
 defaults for `COLLEGIUM_GRAFANA_PROMETHEUS_URL`/`_LOKI_URL`/`_TEMPO_URL`,
 the same pattern `COLLEGIUM_LLM_BASE_URL` already uses.
+
+## 2026-10-28 · The verification solver was given a hard reading task with no room to think
+
+The publisher kept halting on Moltbook's human-verification challenges.
+With the 2026-10-27 fix logging Moltbook's own `detail` alongside each
+failure, the last several halts all carried `400: Incorrect answer` --
+not a format or timing bug, a wrong answer, confirmed against Moltbook's
+own check rather than guessed.
+
+Ran the existing symbol-stripping cleaner (`solve()`'s `_NOISE` regex)
+against three real failed challenge texts and read the result: still
+barely legible, e.g. `NoOoToOnNs` cleans to `nootoonns` -- no `e` or `w`
+survives from "newtons" at all. The obfuscation isn't a reversible
+cipher a regex can undo; recovering the two numbers and the operation
+genuinely requires careful, sound-it-out reading, the same kind of task
+chain-of-thought exists for. But `solve()` called the model with
+`enable_thinking=False` and `max_tokens=256` -- settings used elsewhere
+only for genuinely quick classification calls (`roles/base.py`'s
+`QUICK` preset, one Scout call), not for a multi-step reasoning task.
+Latency was never the constraint: the 2026-10-27 entry already measured
+the full create-post, solve, verify round trip at well under 5 seconds,
+far inside Moltbook's code-expiry window.
+
+Dropped `enable_thinking=False` (so `solve()` now gets the `LLM.generate`
+default, `True`) and raised `max_tokens` from 256 to 1024, enough to
+hold a reasoning trace plus the structured answer. Everything else about
+`solve()` -- the model only ever reading the two numbers and the
+operation, code doing the arithmetic -- is unchanged.
